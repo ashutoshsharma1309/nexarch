@@ -1,4 +1,11 @@
-import { AlertTriangle, DraftingCompass, Download, FileJson, RefreshCw } from 'lucide-react';
+import {
+  AlertTriangle,
+  Database,
+  DraftingCompass,
+  Download,
+  FileJson,
+  RefreshCw,
+} from 'lucide-react';
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -225,6 +232,7 @@ export function ArchitecturePage() {
   useDocumentTitle('Architecture');
   const navigate = useNavigate();
   const spec = usePipelineStore((state) => state.spec);
+  const setArchitecture = usePipelineStore((state) => state.setArchitecture);
   const planner = usePlanArchitecture();
   const { mutate } = planner;
 
@@ -232,6 +240,11 @@ export function ArchitecturePage() {
   useEffect(() => {
     if (spec) mutate(spec);
   }, [spec, mutate]);
+
+  // Publish the plan downstream so the Database view can design from it.
+  useEffect(() => {
+    if (planner.data) setArchitecture(planner.data.plan);
+  }, [planner.data, setArchitecture]);
 
   return (
     <>
@@ -331,6 +344,23 @@ export function ArchitecturePage() {
       )}
 
       {planner.data && <PlanView result={planner.data} />}
+
+      {planner.data && (
+        <div className="mt-8 flex items-center justify-between gap-3 rounded-lg border border-line bg-surface px-5 py-4">
+          <p className="text-xs text-fg-muted">
+            This plan is the input for the Database Designer — the next pipeline stage.
+          </p>
+          <Button
+            variant="primary"
+            icon={<Database className="size-3.5" />}
+            onClick={() => {
+              void navigate('/database');
+            }}
+          >
+            Design database
+          </Button>
+        </div>
+      )}
     </>
   );
 }

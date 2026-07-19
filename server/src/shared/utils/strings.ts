@@ -42,3 +42,9 @@ export function pascalCase(value: string): string {
 export function snakeCase(value: string): string {
   return kebabCase(value).replace(/-/g, '_');
 }
+
+/** "order_items" / "OrderItems" → "orderItems" */
+export function camelCase(value: string): string {
+  const pascal = pascalCase(value);
+  return pascal.length > 0 ? `${pascal.charAt(0).toLowerCase()}${pascal.slice(1)}` : pascal;
+}

@@ -29,7 +29,11 @@ export function DashboardPage() {
           loading={projects.isPending}
         />
         <StatCard label="Generations" value="0" hint="Pipeline runs to date" />
-        <StatCard label="Modules online" value="3/8" hint="health, analysis, architecture" />
+        <StatCard
+          label="Modules online"
+          value="5/9"
+          hint="health, analysis, architecture, database, api"
+        />
       </div>
 
       <Card className="mt-4">

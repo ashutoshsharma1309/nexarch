@@ -1,9 +1,11 @@
 import {
+  Database,
   DraftingCompass,
   FolderGit2,
   Hammer,
   LayoutDashboard,
   Layers,
+  Network,
   Settings,
   X,
 } from 'lucide-react';
@@ -29,6 +31,8 @@ const navigation: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/forge', label: 'Forge', icon: Hammer },
   { to: '/architecture', label: 'Architecture', icon: DraftingCompass },
+  { to: '/database', label: 'Database', icon: Database },
+  { to: '/api', label: 'API Contract', icon: Network },
   { to: '/projects', label: 'Projects', icon: FolderGit2 },
   { to: '/generations', label: 'Generations', icon: Layers },
   { to: '/settings', label: 'Settings', icon: Settings },

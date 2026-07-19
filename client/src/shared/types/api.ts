@@ -202,6 +202,178 @@ export interface ArchitectureResponse {
   markdown: string;
 }
 
+/* ── Database design (live endpoint: POST /database/design) ──────────── */
+
+export interface ForeignKeyRef {
+  table: string;
+  column: string;
+  onDelete: string;
+}
+
+export interface ColumnDesign {
+  name: string;
+  field: string;
+  sqlType: string;
+  prismaType: string;
+  nullable: boolean;
+  primaryKey: boolean;
+  unique: boolean;
+  references?: ForeignKeyRef;
+  enumValues?: string[];
+  format?: string;
+  nonNegative?: boolean;
+  description: string;
+}
+
+export interface IndexDesign {
+  name: string;
+  columns: string[];
+  unique: boolean;
+  rationale: string;
+}
+
+export interface TableDesign {
+  entity: string;
+  tableName: string;
+  columns: ColumnDesign[];
+  primaryKey: string;
+  indexes: IndexDesign[];
+  softDelete: boolean;
+  description: string;
+}
+
+export type RelationshipCardinality = 'one-to-one' | 'one-to-many' | 'many-to-one' | 'many-to-many';
+
+export interface RelationshipDesign {
+  name: string;
+  cardinality: RelationshipCardinality;
+  parent: string;
+  child: string;
+  foreignKey: string;
+  onDelete: string;
+  description: string;
+}
+
+export interface OptimizationReport {
+  indexes: { table: string; columns: string[]; kind: string; reason: string }[];
+  cachingCandidates: { table: string; reason: string }[];
+  partitioningCandidates: { table: string; strategy: string; reason: string }[];
+  queryGuidelines: string[];
+}
+
+export interface DatabaseDesign {
+  meta: {
+    projectName: string;
+    projectType: string;
+    engine: string;
+    databaseVersion: string;
+    normalForm: string;
+    generatedAt: string;
+    generator: string;
+  };
+  enums: { name: string; values: string[] }[];
+  tables: TableDesign[];
+  relationships: RelationshipDesign[];
+  optimization: OptimizationReport;
+}
+
+export interface ErDiagram {
+  nodes: {
+    id: string;
+    label: string;
+    columns: {
+      name: string;
+      type: string;
+      primaryKey: boolean;
+      foreignKey: boolean;
+      nullable: boolean;
+    }[];
+  }[];
+  edges: {
+    id: string;
+    from: string;
+    to: string;
+    cardinality: RelationshipCardinality;
+    label: string;
+    foreignKey: string;
+  }[];
+}
+
+export interface FieldValidation {
+  field: string;
+  type: string;
+  rules: { rule: string; value?: string | number | string[]; message: string }[];
+}
+
+export interface ValidationRuleSet {
+  meta: { projectName: string; generatedAt: string };
+  entities: { entity: string; fields: FieldValidation[] }[];
+}
+
+export interface EntityMetadata {
+  entity: string;
+  tableName: string;
+  description: string;
+  ownership: string;
+  permissions: { role: string; actions: string[] }[];
+  lifecycle: string[];
+  businessRules: string[];
+  relationships: { related: string; cardinality: RelationshipCardinality; via: string }[];
+}
+
+export interface EntityMetadataSet {
+  meta: { projectName: string; generatedAt: string };
+  entities: EntityMetadata[];
+}
+
+export interface OpenApiDocument {
+  openapi: string;
+  info: { title: string; version: string; description: string };
+  servers: { url: string; description: string }[];
+  tags: { name: string; description: string }[];
+  paths: Record<string, Record<string, OpenApiOperation>>;
+  components: {
+    securitySchemes: Record<string, unknown>;
+    parameters: Record<string, unknown>;
+    responses: Record<string, unknown>;
+    schemas: Record<string, unknown>;
+  };
+}
+
+export interface OpenApiOperation {
+  operationId: string;
+  summary: string;
+  tags: string[];
+  security?: { bearerAuth: string[] }[];
+  parameters?: { name: string; in: string; required: boolean; description: string }[];
+  requestBody?: unknown;
+  responses: Record<string, unknown>;
+}
+
+export interface IntegrityReport {
+  valid: boolean;
+  issues: { severity: 'error' | 'warning'; location: string; message: string }[];
+  stats: {
+    tables: number;
+    columns: number;
+    relationships: number;
+    indexes: number;
+    enums: number;
+    endpoints: number;
+  };
+}
+
+export interface DesignBundle {
+  databaseDesign: DatabaseDesign;
+  prismaSchema: string;
+  sqlSchema: string;
+  erDiagram: ErDiagram;
+  openapi: OpenApiDocument;
+  validationRules: ValidationRuleSet;
+  entityMetadata: EntityMetadataSet;
+  integrity: IntegrityReport;
+}
+
 export type GenerationStatus =
   'PENDING' | 'ANALYZING' | 'PLANNING' | 'GENERATING' | 'REVIEWING' | 'COMPLETED' | 'FAILED';
 

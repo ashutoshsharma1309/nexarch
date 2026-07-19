@@ -56,13 +56,13 @@ product, not by what kind of file it is.
 server/src/
   modules/            # one folder per domain capability, mounted by the module loader
     health/           # implemented: liveness, readiness, dependency diagnostics
-    analysis/         # implemented: NL requirement analysis → structured spec
-    architecture/     # implemented: requirement spec → Software Design Spec
-    auth/             # scaffold: JWT sessions, role guards
-    generation/       # scaffold: prompt intake, pipeline orchestration
-    database/         # scaffold (phase 2): schema design for generated apps
-    security/         # scaffold (phase 2): hardening of generated output
-    review/           # scaffold (phase 2): static analysis + optimization
+    analysis/           # implemented: NL requirement analysis → structured spec
+    architecture/       # implemented: requirement spec → Software Design Spec
+    database-designer/  # implemented: SDS → schemas, ER, OpenAPI, validation
+    auth/               # scaffold: JWT sessions, role guards
+    generation/         # scaffold: prompt intake, pipeline orchestration
+    security/           # scaffold: hardening of generated output
+    review/             # scaffold: static analysis + optimization
   shared/             # config, logger, middleware, database client, types, utils
   app.ts              # middleware pipeline + module mounting (no socket, no DB)
   index.ts            # process lifecycle: boot, listen, graceful shutdown
@@ -90,14 +90,16 @@ Key rules the codebase enforces by convention:
 
 All routes live under `/api/v1`. Phase 1 surface:
 
-| Route                | Purpose                                        |
-| -------------------- | ---------------------------------------------- |
-| `GET /health`        | Full diagnostic report (503 when degraded)     |
-| `GET /health/live`   | Liveness probe                                 |
-| `GET /health/ready`  | Readiness probe (checks MySQL)                 |
-| `POST /analyze`      | Requirement analysis: prompt → structured spec |
-| `POST /architecture` | Architecture planning: spec → SDS + Markdown   |
-| `GET /<module>`      | Module manifest for each scaffolded module     |
+| Route                    | Purpose                                        |
+| ------------------------ | ---------------------------------------------- |
+| `GET /health`            | Full diagnostic report (503 when degraded)     |
+| `GET /health/live`       | Liveness probe                                 |
+| `GET /health/ready`      | Readiness probe (checks MySQL)                 |
+| `POST /analyze`          | Requirement analysis: prompt → structured spec |
+| `POST /architecture`     | Architecture planning: spec → SDS + Markdown   |
+| `POST /database/design`  | Database design: SDS → schemas, ER, contracts  |
+| `POST /openapi/generate` | OpenAPI 3.1 contract from the SDS + design     |
+| `GET /<module>`          | Module manifest for each scaffolded module     |
 
 Success and failure envelopes are documented in `server/src/shared/types/api.ts` and
 mirrored in `client/src/shared/types/api.ts`.

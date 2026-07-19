@@ -13,7 +13,9 @@ import type { AppModule } from '../shared/types/module.js';
 import { analysisModule } from './analysis/index.js';
 import { architectureModule } from './architecture/index.js';
 import { authModule } from './auth/index.js';
-import { databaseModule } from './database/index.js';
+// The Phase 1 `database` scaffold is superseded by the Phase 4 designer,
+// which implements the schema-design capability the scaffold reserved.
+import { databaseModule, openapiModule } from './database-designer/index.js';
 import { generationModule } from './generation/index.js';
 import { healthModule } from './health/index.js';
 import { reviewModule } from './review/index.js';
@@ -26,6 +28,7 @@ export const modules: readonly AppModule[] = [
   generationModule,
   architectureModule,
   databaseModule,
+  openapiModule,
   securityModule,
   reviewModule,
 ];
