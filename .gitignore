@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Builds
+dist/
+build/
+*.tsbuildinfo
+
+# Environment — never commit secrets. `.env.example` files are the contract.
+.env
+.env.*
+!.env.example
+
+# Prisma
+server/prisma/*.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Test artifacts
+coverage/
+
+# Docker
+docker-data/

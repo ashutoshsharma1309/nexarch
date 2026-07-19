@@ -1,0 +1,100 @@
+// NexArch — foundation schema (Phase 1).
+//
+// Only the entities the platform itself needs to exist are modeled here:
+// who uses it (User/Role), what they own (Project), and the audit trail of
+// generation runs (Generation). Business logic, credentials flows, and the
+// dependency-graph tables arrive with their phases — the schema stays ahead
+// of the code by exactly one step, never more.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+/// Assignable authorization role. Kept as a table (not an enum) so roles can
+/// gain metadata (permissions JSON, descriptions) without a migration dance.
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique @db.VarChar(64)
+  description String?  @db.VarChar(255)
+  users       User[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("roles")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique @db.VarChar(320)
+  /// bcrypt hash — never the raw password. Nullable until auth ships so
+  /// seed/staging users can exist without fake credentials.
+  passwordHash String?   @map("password_hash") @db.VarChar(100)
+  name         String    @db.VarChar(120)
+  role         Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  roleId       String    @map("role_id")
+  projects     Project[]
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([roleId])
+  @@map("users")
+}
+
+enum ProjectStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+/// A user-owned workspace for one generated application. The prompt that
+/// created it and every regeneration live in `generations`.
+model Project {
+  id          String        @id @default(cuid())
+  name        String        @db.VarChar(120)
+  slug        String        @unique @db.VarChar(140)
+  description String?       @db.Text
+  status      ProjectStatus @default(DRAFT)
+  owner       User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId     String        @map("owner_id")
+  generations Generation[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([ownerId])
+  @@map("projects")
+}
+
+enum GenerationStatus {
+  PENDING
+  ANALYZING
+  PLANNING
+  GENERATING
+  REVIEWING
+  COMPLETED
+  FAILED
+}
+
+/// One run of the generation pipeline. Statuses mirror the pipeline stages
+/// (analyze → plan → generate → review) so progress can be streamed to the
+/// client and failed runs can be resumed at the stage that broke.
+model Generation {
+  id          String           @id @default(cuid())
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String           @map("project_id")
+  prompt      String           @db.Text
+  status      GenerationStatus @default(PENDING)
+  /// Structured failure detail when status = FAILED.
+  error       String?          @db.Text
+  startedAt   DateTime?        @map("started_at")
+  completedAt DateTime?        @map("completed_at")
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([projectId, createdAt])
+  @@map("generations")
+}

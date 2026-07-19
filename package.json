@@ -1,0 +1,48 @@
+{
+  "name": "nexarch",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NexArch — AI-powered secure full-stack application generation platform",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  },
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm run dev --workspace server",
+    "dev:client": "npm run dev --workspace client",
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces",
+    "lint:fix": "npm run lint:fix --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run test --workspace server",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:generate": "npm run db:generate --workspace server",
+    "db:push": "npm run db:push --workspace server",
+    "db:migrate": "npm run db:migrate --workspace server",
+    "db:studio": "npm run db:studio --workspace server",
+    "docker:up": "docker compose up --build",
+    "docker:dev": "docker compose -f docker-compose.dev.yml up -d",
+    "docker:down": "docker compose down",
+    "prepare": "husky"
+  },
+  "//lint-staged": "Root handles only repo-level files; each workspace has its own .lintstagedrc.json so ESLint runs with the correct flat-config working directory.",
+  "lint-staged": {
+    "*.{js,mjs,cjs,json,md,yml,yaml,css,html}": [
+      "prettier --write"
+    ]
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.0",
+    "prettier": "^3.5.0",
+    "prettier-plugin-tailwindcss": "^0.6.11"
+  }
+}

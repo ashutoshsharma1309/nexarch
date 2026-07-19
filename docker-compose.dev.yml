@@ -1,0 +1,27 @@
+# Development dependencies only — the apps run on the host with `npm run dev`.
+#   npm run docker:dev
+# Credentials intentionally match server/.env.example for zero-config startup.
+
+name: nexarch-dev
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: change-me-root
+      MYSQL_DATABASE: nexarch
+      MYSQL_USER: nexarch
+      MYSQL_PASSWORD: change-me
+    ports:
+      - '3306:3306'
+    volumes:
+      - mysql-dev-data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-pchange-me-root']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  mysql-dev-data:

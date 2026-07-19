@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0b0c0e" />
+    <meta name="description" content="NexArch — describe an application, receive a system." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>NexArch</title>
+    <script>
+      // Apply the persisted theme before first paint to avoid a flash.
+      // Reads the zustand persist envelope (see shared/store/ui.store.ts).
+      // Dark is the default; only an explicit "light" choice overrides it.
+      try {
+        var persisted = JSON.parse(localStorage.getItem('nexarch.ui') || '{}');
+        if (persisted.state && persisted.state.theme === 'light') {
+          document.documentElement.classList.remove('dark');
+        }
+      } catch {
+        /* storage unavailable or corrupt — keep dark */
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

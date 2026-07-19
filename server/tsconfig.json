@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "sourceMap": true,
+    "declaration": false,
+
+    /* Strictness — the platform generates code; its own code holds the bar. */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true
+  },
+  // Base config for typecheck and lint — covers source and dev scripts.
+  // The build uses tsconfig.build.json, which narrows to `src` and pins
+  // rootDir so compiled output stays flat under dist/.
+  "include": ["src", "scripts"],
+  "exclude": ["node_modules", "dist"]
+}

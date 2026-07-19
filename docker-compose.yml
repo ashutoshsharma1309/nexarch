@@ -1,0 +1,58 @@
+# Full production-shaped stack: MySQL + API + console.
+#   cp .env.example .env   (set real passwords)
+#   docker compose up --build
+# Console: http://localhost:8080 · API: http://localhost:4000/api/v1/health
+
+name: nexarch
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set in .env}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-nexarch}
+      MYSQL_USER: ${MYSQL_USER:-nexarch}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set in .env}
+    ports:
+      - '${MYSQL_PORT:-3306}:3306'
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-p${MYSQL_ROOT_PASSWORD}']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      LOG_LEVEL: info
+      DATABASE_URL: mysql://${MYSQL_USER:-nexarch}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-nexarch}
+      # Same-origin via the nginx proxy — no browser origin needs allowing,
+      # but the variable stays configurable for split deployments.
+      CORS_ORIGINS: http://localhost:${CLIENT_PORT:-8080}
+      JWT_SECRET: ${JWT_SECRET:?set in .env (openssl rand -base64 48)}
+    ports:
+      - '${SERVER_PORT:-4000}:4000'
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    restart: unless-stopped
+    ports:
+      - '${CLIENT_PORT:-8080}:80'
+    depends_on:
+      - server
+
+volumes:
+  mysql-data:
