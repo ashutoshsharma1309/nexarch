@@ -440,6 +440,83 @@ export interface GeneratedProject {
   };
 }
 
+/* ── Generated frontend (live endpoint: POST /frontend/generate) ─────── */
+
+export type FrontendFileLanguage =
+  | 'typescript'
+  | 'typescriptreact'
+  | 'json'
+  | 'markdown'
+  | 'css'
+  | 'html'
+  | 'env'
+  | 'ignore'
+  | 'javascript';
+
+export interface FrontendGeneratedFile {
+  path: string;
+  content: string;
+  language: FrontendFileLanguage;
+}
+
+export interface FrontendPageSummary {
+  name: string;
+  route: string;
+  kind: 'entity-list' | 'dashboard' | 'auth' | 'settings' | 'profile' | 'not-found';
+  entity: string | null;
+  implemented: boolean;
+  files: string[];
+}
+
+export interface FrontendComponentSummary {
+  name: string;
+  kind: 'ui' | 'layout' | 'feature';
+  file: string;
+}
+
+export interface FrontendRouteSummary {
+  path: string;
+  page: string;
+  protected: boolean;
+  lazy: boolean;
+}
+
+export interface FrontendStoreSummary {
+  name: string;
+  file: string;
+  persisted: boolean;
+}
+
+export interface GeneratedFrontend {
+  meta: {
+    projectName: string;
+    projectType: string;
+    framework: string;
+    language: string;
+    generatedAt: string;
+    generator: string;
+  };
+  files: FrontendGeneratedFile[];
+  pages: FrontendPageSummary[];
+  components: FrontendComponentSummary[];
+  routes: FrontendRouteSummary[];
+  stores: FrontendStoreSummary[];
+  folderTree: GeneratedFolderNode[];
+  stats: {
+    files: number;
+    pages: number;
+    components: number;
+    routes: number;
+    stores: number;
+    linesOfCode: number;
+  };
+}
+
+export interface BackendManifest {
+  modules: { name: string; entity: string | null; crud: boolean; endpoints: number }[];
+  routes: { method: string; path: string; implemented: boolean }[];
+}
+
 export type GenerationStatus =
   'PENDING' | 'ANALYZING' | 'PLANNING' | 'GENERATING' | 'REVIEWING' | 'COMPLETED' | 'FAILED';
 

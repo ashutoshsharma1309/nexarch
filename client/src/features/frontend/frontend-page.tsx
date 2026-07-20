@@ -1,7 +1,16 @@
-import { AlertTriangle, FileArchive, Monitor, Search, Server } from 'lucide-react';
+import {
+  AlertTriangle,
+  FileArchive,
+  Layers,
+  Monitor,
+  Search,
+  Smartphone,
+  Tablet,
+} from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { FileTree } from '@/features/backend/components/file-tree';
 import { CodeViewer } from '@/features/database/components/code-viewer';
 import { PageHeader } from '@/shared/components/page-header';
 import { Badge } from '@/shared/components/ui/badge';
@@ -15,21 +24,20 @@ import { cn } from '@/shared/lib/cn';
 import { downloadZip } from '@/shared/lib/zip';
 import { ApiClientError } from '@/shared/services/api-client';
 import { usePipelineStore } from '@/shared/store/pipeline.store';
-import type { FileLanguage, GeneratedProject } from '@/shared/types/api';
-import { FileTree } from './components/file-tree';
-import { ModuleList } from './components/module-list';
-import { RouteTable } from './components/route-table';
-import { useGeneratedBackend } from './use-generated-backend';
+import type { FrontendFileLanguage, GeneratedFrontend } from '@/shared/types/api';
+import { PageList } from './components/page-list';
+import { RouteList } from './components/route-list';
+import { useGeneratedFrontend } from './use-generated-frontend';
 
-const LANGUAGE_MIME: Record<FileLanguage, string> = {
+const LANGUAGE_MIME: Record<FrontendFileLanguage, string> = {
   typescript: 'text/typescript',
+  typescriptreact: 'text/typescript',
   json: 'application/json',
   markdown: 'text/markdown',
-  prisma: 'text/plain',
+  css: 'text/css',
   env: 'text/plain',
   ignore: 'text/plain',
   javascript: 'text/javascript',
-  dockerfile: 'text/plain',
   html: 'text/html',
 };
 
@@ -38,7 +46,7 @@ function slugify(value: string): string {
     value
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || 'backend'
+      .replace(/^-|-$/g, '') || 'frontend'
   );
 }
 
@@ -62,7 +70,7 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function FileExplorer({ project }: { project: GeneratedProject }) {
+function FileExplorer({ project }: { project: GeneratedFrontend }) {
   const [query, setQuery] = useState('');
   const [selectedPath, setSelectedPath] = useState<string | null>('package.json');
 
@@ -140,31 +148,86 @@ function FileExplorer({ project }: { project: GeneratedProject }) {
   );
 }
 
-export function BackendPage() {
-  useDocumentTitle('Backend');
+function ComponentTree({ project }: { project: GeneratedFrontend }) {
+  const groups: { kind: 'ui' | 'layout' | 'feature'; label: string }[] = [
+    { kind: 'ui', label: 'Design system' },
+    { kind: 'layout', label: 'Layouts' },
+    { kind: 'feature', label: 'Feature components' },
+  ];
+  return (
+    <div className="grid gap-4 sm:grid-cols-3">
+      {groups.map((group) => {
+        const items = project.components.filter((c) => c.kind === group.kind);
+        return (
+          <Card key={group.kind}>
+            <CardContent className="py-4">
+              <p className="font-mono text-2xs tracking-widest text-fg-subtle uppercase">
+                {group.label} · {items.length}
+              </p>
+              <ul className="mt-2 flex flex-wrap gap-1.5">
+                {items.map((item) => (
+                  <Badge key={item.file} variant="neutral" title={item.file}>
+                    {item.name}
+                  </Badge>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+const BREAKPOINTS = [
+  { icon: Smartphone, label: 'Mobile', hint: 'Base — drawer nav, single-column' },
+  { icon: Tablet, label: 'md — 768px', hint: 'Two-column settings, wider dialogs' },
+  { icon: Monitor, label: 'lg — 1024px', hint: 'Static sidebar rail, full dashboard grid' },
+];
+
+function ResponsivePreview() {
+  return (
+    <div className="grid gap-4 sm:grid-cols-3">
+      {BREAKPOINTS.map(({ icon: Icon, label, hint }) => (
+        <Card key={label}>
+          <CardContent className="flex items-start gap-3 py-4">
+            <Icon className="mt-0.5 size-4 shrink-0 text-fg-subtle" />
+            <div>
+              <p className="text-xs font-medium text-fg">{label}</p>
+              <p className="mt-0.5 text-2xs text-fg-muted">{hint}</p>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+export function FrontendPage() {
+  useDocumentTitle('Frontend');
   const navigate = useNavigate();
   const architecture = usePipelineStore((state) => state.architecture);
-  const backend = useGeneratedBackend();
+  const frontend = useGeneratedFrontend();
 
   return (
     <>
       <PageHeader
-        eyebrow="console/backend"
-        title="Backend"
+        eyebrow="console/frontend"
+        title="Frontend"
         description={
-          backend.data
-            ? `${backend.data.meta.framework} backend for ${backend.data.meta.projectName}.`
-            : 'The generation engine turns the design bundle into a complete Express + Prisma backend.'
+          frontend.data
+            ? `${frontend.data.meta.framework} console for ${frontend.data.meta.projectName}.`
+            : 'The generation engine turns the design bundle and backend manifest into a complete React console.'
         }
         actions={
-          backend.data ? (
+          frontend.data ? (
             <Button
               variant="primary"
               icon={<FileArchive className="size-3.5" />}
               onClick={() => {
                 downloadZip(
-                  `${slugify(backend.data.meta.projectName)}-backend.zip`,
-                  backend.data.files,
+                  `${slugify(frontend.data.meta.projectName)}-frontend.zip`,
+                  frontend.data.files,
                 );
               }}
             >
@@ -176,9 +239,9 @@ export function BackendPage() {
 
       {!architecture && (
         <EmptyState
-          icon={<Server className="size-4" />}
+          icon={<Layers className="size-4" />}
           title="No architecture plan yet"
-          description="Plan the architecture first — the backend is generated from its design and API contract."
+          description="Plan the architecture first — the frontend is generated from the design bundle and backend manifest."
           action={
             <Button
               variant="forge"
@@ -192,7 +255,7 @@ export function BackendPage() {
         />
       )}
 
-      {architecture && (backend.isPending || backend.designPending) && (
+      {architecture && (frontend.isPending || frontend.upstreamPending) && (
         <div className="space-y-3">
           <div className="grid gap-4 sm:grid-cols-4">
             {Array.from({ length: 4 }, (_, i) => (
@@ -203,15 +266,15 @@ export function BackendPage() {
         </div>
       )}
 
-      {architecture && backend.isError && (
+      {architecture && frontend.isError && (
         <Card className="border-danger/40">
           <CardContent className="flex items-start gap-3 py-4">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-danger" />
             <div>
               <p className="text-sm font-medium text-fg">Generation failed</p>
               <p className="mt-1 text-xs text-fg-muted">
-                {backend.error instanceof ApiClientError
-                  ? backend.error.message
+                {frontend.error instanceof ApiClientError
+                  ? frontend.error.message
                   : 'Unexpected error.'}
               </p>
             </div>
@@ -219,51 +282,41 @@ export function BackendPage() {
         </Card>
       )}
 
-      {backend.data && (
+      {frontend.data && (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Stat label="Files" value={String(backend.data.stats.files)} />
-            <Stat label="Modules" value={String(backend.data.stats.modules)} />
-            <Stat
-              label="Endpoints"
-              value={`${backend.data.stats.implementedEndpoints}/${backend.data.stats.endpoints}`}
-            />
-            <Stat label="Lines" value={backend.data.stats.linesOfCode.toLocaleString()} />
+            <Stat label="Files" value={String(frontend.data.stats.files)} />
+            <Stat label="Pages" value={String(frontend.data.stats.pages)} />
+            <Stat label="Components" value={String(frontend.data.stats.components)} />
+            <Stat label="Lines" value={frontend.data.stats.linesOfCode.toLocaleString()} />
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Badge variant="ember">{backend.data.meta.framework}</Badge>
-            <Badge variant="neutral">{backend.data.meta.language}</Badge>
-            <Badge variant="neutral">Feature-first Clean Architecture</Badge>
+            <Badge variant="ember">{frontend.data.meta.framework}</Badge>
+            <Badge variant="neutral">{frontend.data.meta.language}</Badge>
+            <Badge variant="neutral">Tailwind CSS 4</Badge>
+            <Badge variant="neutral">TanStack Query</Badge>
           </div>
 
           <Section title="Project files">
-            <FileExplorer project={backend.data} />
+            <FileExplorer project={frontend.data} />
           </Section>
 
-          <Section title={`Modules — ${backend.data.modules.length}`}>
-            <ModuleList modules={backend.data.modules} />
+          <Section title={`Pages — ${frontend.data.pages.length}`}>
+            <PageList pages={frontend.data.pages} />
           </Section>
 
-          <Section title={`Routes — ${backend.data.routes.length}`}>
-            <RouteTable routes={backend.data.routes} />
+          <Section title="Component tree">
+            <ComponentTree project={frontend.data} />
           </Section>
 
-          <div className="mt-8 flex items-center justify-between gap-3 rounded-lg border border-line bg-surface px-5 py-4">
-            <p className="text-xs text-fg-muted">
-              This manifest is the input for the Frontend Generation Engine — the next pipeline
-              stage.
-            </p>
-            <Button
-              variant="primary"
-              icon={<Monitor className="size-3.5" />}
-              onClick={() => {
-                void navigate('/frontend');
-              }}
-            >
-              Generate frontend
-            </Button>
-          </div>
+          <Section title={`Routes — ${frontend.data.routes.length}`}>
+            <RouteList routes={frontend.data.routes} />
+          </Section>
+
+          <Section title="Responsive behavior">
+            <ResponsivePreview />
+          </Section>
         </>
       )}
     </>

@@ -5,6 +5,7 @@ import {
   Hammer,
   LayoutDashboard,
   Layers,
+  Monitor,
   Network,
   Server,
   Settings,
@@ -35,6 +36,7 @@ const navigation: NavItem[] = [
   { to: '/database', label: 'Database', icon: Database },
   { to: '/api', label: 'API Contract', icon: Network },
   { to: '/backend', label: 'Backend', icon: Server },
+  { to: '/frontend', label: 'Frontend', icon: Monitor },
   { to: '/projects', label: 'Projects', icon: FolderGit2 },
   { to: '/generations', label: 'Generations', icon: Layers },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -69,7 +71,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
 function SidebarFooter() {
   return (
     <div className="border-t border-line px-5 py-3">
-      <p className="font-mono text-2xs text-fg-subtle">phase 5 · backend generator</p>
+      <p className="font-mono text-2xs text-fg-subtle">phase 6 · frontend generator</p>
     </div>
   );
 }

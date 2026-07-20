@@ -17,6 +17,7 @@ import { backendGeneratorModule } from './backend-generator/index.js';
 // The Phase 1 `database` scaffold is superseded by the Phase 4 designer,
 // which implements the schema-design capability the scaffold reserved.
 import { databaseModule, openapiModule } from './database-designer/index.js';
+import { frontendGeneratorModule } from './frontend-generator/index.js';
 import { generationModule } from './generation/index.js';
 import { healthModule } from './health/index.js';
 import { reviewModule } from './review/index.js';
@@ -31,6 +32,7 @@ export const modules: readonly AppModule[] = [
   databaseModule,
   openapiModule,
   backendGeneratorModule,
+  frontendGeneratorModule,
   securityModule,
   reviewModule,
 ];
