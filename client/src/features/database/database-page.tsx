@@ -1,4 +1,4 @@
-import { AlertTriangle, Database, Search } from 'lucide-react';
+import { AlertTriangle, Database, Search, Server } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -106,6 +106,7 @@ function EntityExplorer({ bundle }: { bundle: DesignBundle }) {
 }
 
 function DesignView({ bundle }: { bundle: DesignBundle }) {
+  const navigate = useNavigate();
   const { databaseDesign: design, integrity } = bundle;
 
   return (
@@ -208,6 +209,21 @@ function DesignView({ bundle }: { bundle: DesignBundle }) {
           </CardContent>
         </Card>
       </Section>
+
+      <div className="mt-8 flex items-center justify-between gap-3 rounded-lg border border-line bg-surface px-5 py-4">
+        <p className="text-xs text-fg-muted">
+          This design is the input for the Backend Generation Engine — the next pipeline stage.
+        </p>
+        <Button
+          variant="primary"
+          icon={<Server className="size-3.5" />}
+          onClick={() => {
+            void navigate('/backend');
+          }}
+        >
+          Generate backend
+        </Button>
+      </div>
     </>
   );
 }

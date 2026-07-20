@@ -1,0 +1,259 @@
+/**
+ * Emits the generated project's root-level files: package.json, TypeScript
+ * config, ESLint config, environment templates, Prisma schema (copied
+ * verbatim from Phase 4 — the database design remains the single source of
+ * truth), Dockerfile, .gitignore, and the README that documents the module
+ * map and setup steps.
+ */
+import type { GeneratedFile } from '../backend-generator.types.js';
+import { file } from './file-tree.js';
+import type { ProjectModel } from './project-model.js';
+
+function packageJson(project: ProjectModel): GeneratedFile {
+  const pkg = {
+    name:
+      project.projectName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '') || 'generated-backend',
+    version: '0.1.0',
+    private: true,
+    type: 'module',
+    description: `Generated backend for ${project.projectName} (${project.projectType}) — produced by the NexArch Backend Generation Engine.`,
+    scripts: {
+      dev: 'tsx watch --clear-screen=false src/index.ts',
+      build: 'tsc -p tsconfig.json',
+      start: 'node dist/index.js',
+      typecheck: 'tsc --noEmit',
+      lint: 'eslint src',
+      test: 'jest',
+      'db:generate': 'prisma generate',
+      'db:migrate': 'prisma migrate dev',
+      'db:deploy': 'prisma migrate deploy',
+    },
+    dependencies: {
+      '@prisma/client': '^6.8.0',
+      compression: '^1.8.0',
+      cors: '^2.8.5',
+      dotenv: '^16.5.0',
+      express: '^5.1.0',
+      'express-rate-limit': '^7.5.0',
+      helmet: '^8.1.0',
+      'swagger-ui-express': '^5.0.1',
+      winston: '^3.17.0',
+      zod: '^3.25.0',
+      morgan: '^1.10.0',
+    },
+    devDependencies: {
+      '@eslint/js': '^9.25.0',
+      '@types/compression': '^1.7.5',
+      '@types/cors': '^2.8.17',
+      '@types/express': '^5.0.1',
+      '@types/jest': '^29.5.14',
+      '@types/morgan': '^1.9.9',
+      '@types/node': '^22.15.0',
+      '@types/supertest': '^6.0.2',
+      '@types/swagger-ui-express': '^4.1.7',
+      eslint: '^9.25.0',
+      jest: '^29.7.0',
+      prisma: '^6.8.0',
+      supertest: '^7.1.0',
+      'ts-jest': '^29.2.5',
+      tsx: '^4.19.0',
+      typescript: '^5.8.0',
+      'typescript-eslint': '^8.31.0',
+    },
+  };
+  return file('package.json', 'json', JSON.stringify(pkg, null, 2));
+}
+
+function tsconfig(): GeneratedFile {
+  const config = {
+    compilerOptions: {
+      target: 'ES2023',
+      lib: ['ES2023'],
+      module: 'NodeNext',
+      moduleResolution: 'NodeNext',
+      rootDir: 'src',
+      outDir: 'dist',
+      sourceMap: true,
+      strict: true,
+      noUncheckedIndexedAccess: true,
+      noImplicitOverride: true,
+      esModuleInterop: true,
+      skipLibCheck: true,
+      resolveJsonModule: true,
+      forceConsistentCasingInFileNames: true,
+    },
+    include: ['src'],
+    exclude: ['node_modules', 'dist', '**/*.test.ts'],
+  };
+  return file('tsconfig.json', 'json', JSON.stringify(config, null, 2));
+}
+
+function eslintConfig(): GeneratedFile {
+  return file(
+    'eslint.config.js',
+    'javascript',
+    `// @ts-check
+import eslint from '@eslint/js';
+import tseslint from 'typescript-eslint';
+
+export default tseslint.config(
+  { ignores: ['dist', 'node_modules'] },
+  eslint.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    },
+  },
+);
+`,
+  );
+}
+
+function envExample(): GeneratedFile {
+  return file(
+    '.env.example',
+    'env',
+    `NODE_ENV=development
+PORT=4000
+LOG_LEVEL=debug
+DATABASE_URL="mysql://user:password@localhost:3306/database"
+CORS_ORIGINS=http://localhost:5173
+# Consumed by the Security Engine (Phase 6).
+JWT_SECRET=change-me-in-production-please
+`,
+  );
+}
+
+function gitignore(): GeneratedFile {
+  return file(
+    '.gitignore',
+    'ignore',
+    `node_modules/
+dist/
+.env
+*.log
+coverage/
+`,
+  );
+}
+
+function dockerfile(): GeneratedFile {
+  return file(
+    'Dockerfile',
+    'dockerfile',
+    `FROM node:22-alpine AS build
+WORKDIR /app
+RUN apk add --no-cache openssl
+COPY package.json ./
+RUN npm install
+COPY prisma prisma
+COPY tsconfig.json ./
+COPY src src
+RUN npx prisma generate && npm run build
+
+FROM node:22-alpine AS runtime
+WORKDIR /app
+RUN apk add --no-cache openssl
+ENV NODE_ENV=production
+COPY --from=build /app/node_modules node_modules
+COPY --from=build /app/dist dist
+COPY --from=build /app/node_modules/.prisma node_modules/.prisma
+COPY package.json ./
+EXPOSE 4000
+CMD ["node", "dist/index.js"]
+`,
+  );
+}
+
+function readme(project: ProjectModel): GeneratedFile {
+  const moduleRows = project.modules
+    .map(
+      (m) =>
+        `| ${m.className} | \`${m.basePath}\` | ${m.entity ? 'CRUD' : 'scaffold'} | ${m.endpoints.length} |`,
+    )
+    .join('\n');
+
+  return file(
+    'README.md',
+    'markdown',
+    `# ${project.projectName} — API
+
+Generated by the **NexArch Backend Generation Engine** from the architecture plan, database
+design, and OpenAPI contract produced by earlier pipeline stages. Nothing here was written from
+the original prompt — every module, route, and validator traces back to a design artifact.
+
+## Stack
+
+Node.js 22 · Express 5 · TypeScript (strict) · Prisma · MySQL · Zod · Winston · Swagger UI
+
+## Getting started
+
+\`\`\`bash
+npm install
+cp .env.example .env        # set DATABASE_URL
+npx prisma generate
+npx prisma migrate dev
+npm run dev                 # http://localhost:4000
+\`\`\`
+
+API docs: \`http://localhost:4000/docs\` (Swagger UI, served from the generated OpenAPI contract).
+
+## Architecture
+
+Feature-first Clean Architecture — one folder per module, each with its own controller, service,
+repository, DTOs, validators, and routes. Business logic lives only in services; controllers
+validate (via middleware), call a service, and shape the response. Repositories are the only
+layer that talks to Prisma.
+
+\`\`\`
+src/modules/<module>/
+  controllers/  HTTP translation only
+  services/     business logic — the only layer with decisions
+  repositories/ Prisma access, pagination, soft delete
+  dto/          request/response shapes
+  validators/   Zod schemas enforced at the boundary
+  routes/       Express router for this module
+\`\`\`
+
+## Modules
+
+| Module | Base path | Kind | Endpoints |
+| --- | --- | --- | --- |
+${moduleRows}
+
+## Response contract
+
+Every endpoint returns \`{ success, message, data, meta }\`; failures return \`{ success: false,
+message, data: null, meta, error: { code, details } }\`. See \`src/shared/http/response.ts\` and
+\`src/shared/middleware/error-handler.ts\`.
+
+## Security
+
+Authentication is scaffolded (\`src/shared/middleware/auth.ts\`) but not implemented — the
+Security Engine (Phase 6) fills in JWT verification, RBAC, and the rest of the security posture
+this backend is built to receive.
+
+## Testing
+
+\`npm test\` runs the Jest scaffolds under \`src/modules/*/**.test.ts\` and \`test/integration\`.
+`,
+  );
+}
+
+export function emitProjectFiles(project: ProjectModel, prismaSchema: string): GeneratedFile[] {
+  return [
+    packageJson(project),
+    tsconfig(),
+    eslintConfig(),
+    envExample(),
+    gitignore(),
+    dockerfile(),
+    readme(project),
+    file('prisma/schema.prisma', 'prisma', prismaSchema),
+  ];
+}

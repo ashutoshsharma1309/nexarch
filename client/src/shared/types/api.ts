@@ -374,6 +374,72 @@ export interface DesignBundle {
   integrity: IntegrityReport;
 }
 
+/* ── Generated backend (live endpoint: POST /backend/generate) ───────── */
+
+export type FileLanguage =
+  | 'typescript'
+  | 'json'
+  | 'markdown'
+  | 'prisma'
+  | 'env'
+  | 'ignore'
+  | 'javascript'
+  | 'dockerfile'
+  | 'html';
+
+export interface GeneratedFile {
+  path: string;
+  content: string;
+  language: FileLanguage;
+}
+
+export interface GeneratedRoute {
+  method: string;
+  path: string;
+  handler: string;
+  auth: boolean;
+  implemented: boolean;
+}
+
+export interface GeneratedModuleSummary {
+  name: string;
+  entity: string | null;
+  crud: boolean;
+  endpoints: number;
+  controller: string;
+  service: string;
+  repository: string | null;
+  files: string[];
+}
+
+export interface GeneratedFolderNode {
+  name: string;
+  type: 'directory' | 'file';
+  children?: GeneratedFolderNode[];
+}
+
+export interface GeneratedProject {
+  meta: {
+    projectName: string;
+    projectType: string;
+    framework: string;
+    language: string;
+    generatedAt: string;
+    generator: string;
+  };
+  files: GeneratedFile[];
+  modules: GeneratedModuleSummary[];
+  routes: GeneratedRoute[];
+  folderTree: GeneratedFolderNode[];
+  stats: {
+    files: number;
+    modules: number;
+    endpoints: number;
+    implementedEndpoints: number;
+    linesOfCode: number;
+  };
+}
+
 export type GenerationStatus =
   'PENDING' | 'ANALYZING' | 'PLANNING' | 'GENERATING' | 'REVIEWING' | 'COMPLETED' | 'FAILED';
 

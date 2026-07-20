@@ -1,0 +1,17 @@
+/**
+ * POST /api/v1/backend/generate
+ *
+ * Body: { architecture, requirements, databaseDesign, prismaSchema, openapi,
+ *         validationRules?, entityMetadata? } — the artifacts from Phases
+ * 2–4. Returns a GeneratedProject: an in-memory Express + TypeScript +
+ * Prisma backend (files, module summaries, routes, folder tree, stats).
+ */
+import { Router } from 'express';
+
+import { validate } from '../../shared/middleware/validate.js';
+import { generateBackendHandler } from './backend-generator.controller.js';
+import { generateValidation } from './backend-generator.validator.js';
+
+export const backendGeneratorRouter: Router = Router();
+
+backendGeneratorRouter.post('/generate', validate(generateValidation), generateBackendHandler);

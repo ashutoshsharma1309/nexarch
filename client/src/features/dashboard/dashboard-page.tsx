@@ -31,8 +31,8 @@ export function DashboardPage() {
         <StatCard label="Generations" value="0" hint="Pipeline runs to date" />
         <StatCard
           label="Modules online"
-          value="5/9"
-          hint="health, analysis, architecture, database, api"
+          value="6/10"
+          hint="health, analysis, architecture, database, api, backend"
         />
       </div>
 

@@ -5,8 +5,9 @@ language — NexArch analyzes the requirements, plans the architecture, designs 
 database, generates hardened backend and frontend code, and keeps regenerating
 incrementally as the requirements evolve.
 
-**Status: Phase 1 — platform foundation.** The infrastructure below is production-shaped
-and running; the generation pipeline itself ships in Phase 2.
+**Status: Phase 5 — Backend Generation Engine.** Requirement analysis, architecture
+planning, database design, and backend generation are live end to end; see the
+roadmap below for what's next.
 
 ---
 
@@ -59,6 +60,7 @@ server/src/
     analysis/           # implemented: NL requirement analysis → structured spec
     architecture/       # implemented: requirement spec → Software Design Spec
     database-designer/  # implemented: SDS → schemas, ER, OpenAPI, validation
+    backend-generator/  # implemented: SDS + design → generated Express/Prisma backend
     auth/               # scaffold: JWT sessions, role guards
     generation/         # scaffold: prompt intake, pipeline orchestration
     security/           # scaffold: hardening of generated output
@@ -68,7 +70,7 @@ server/src/
   index.ts            # process lifecycle: boot, listen, graceful shutdown
 
 client/src/
-  features/           # dashboard, prompt (forge), projects, generation, settings
+  features/           # dashboard, prompt (forge), architecture, database, backend, ...
   shared/             # design-system components, layouts, hooks, services, stores
   app/                # router + 404
 ```
@@ -90,16 +92,17 @@ Key rules the codebase enforces by convention:
 
 All routes live under `/api/v1`. Phase 1 surface:
 
-| Route                    | Purpose                                        |
-| ------------------------ | ---------------------------------------------- |
-| `GET /health`            | Full diagnostic report (503 when degraded)     |
-| `GET /health/live`       | Liveness probe                                 |
-| `GET /health/ready`      | Readiness probe (checks MySQL)                 |
-| `POST /analyze`          | Requirement analysis: prompt → structured spec |
-| `POST /architecture`     | Architecture planning: spec → SDS + Markdown   |
-| `POST /database/design`  | Database design: SDS → schemas, ER, contracts  |
-| `POST /openapi/generate` | OpenAPI 3.1 contract from the SDS + design     |
-| `GET /<module>`          | Module manifest for each scaffolded module     |
+| Route                    | Purpose                                                   |
+| ------------------------ | --------------------------------------------------------- |
+| `GET /health`            | Full diagnostic report (503 when degraded)                |
+| `GET /health/live`       | Liveness probe                                            |
+| `GET /health/ready`      | Readiness probe (checks MySQL)                            |
+| `POST /analyze`          | Requirement analysis: prompt → structured spec            |
+| `POST /architecture`     | Architecture planning: spec → SDS + Markdown              |
+| `POST /database/design`  | Database design: SDS → schemas, ER, contracts             |
+| `POST /openapi/generate` | OpenAPI 3.1 contract from the SDS + design                |
+| `POST /backend/generate` | Backend generation: SDS + design → Express/Prisma project |
+| `GET /<module>`          | Module manifest for each scaffolded module                |
 
 Success and failure envelopes are documented in `server/src/shared/types/api.ts` and
 mirrored in `client/src/shared/types/api.ts`.
@@ -119,7 +122,12 @@ production).
 
 ## Roadmap
 
-1. ~~Foundation — workspaces, security middleware, module system, design system~~ ← here
-2. Generation pipeline — analyze, plan, generate, review; architecture + dependency graphs
-3. Accounts — JWT auth, roles, server-side workspaces
-4. Incremental regeneration — change a requirement, rebuild only its dependents
+1. ~~Foundation — workspaces, security middleware, module system, design system~~
+2. ~~Requirement Analyzer — prompt → structured spec~~
+3. ~~Architecture Planner — spec → Software Design Specification~~
+4. ~~Database Designer & API Contract Generator — SDS → schemas + OpenAPI~~
+5. ~~Backend Generation Engine — SDS + design → Express/Prisma backend~~ ← here
+6. Security Engine — JWT auth, RBAC, hardening of generated output
+7. Frontend Generation Engine
+8. Dependency Graph Engine — incremental regeneration
+9. AI Orchestrator, Project Export
