@@ -21,7 +21,9 @@ import { frontendGeneratorModule } from './frontend-generator/index.js';
 import { generationModule } from './generation/index.js';
 import { healthModule } from './health/index.js';
 import { reviewModule } from './review/index.js';
-import { securityModule } from './security/index.js';
+// The Phase 1 `security` scaffold is superseded by the Phase 7 engine, the
+// same way the Phase 1 `database` scaffold is superseded by the designer.
+import { securityEngineModule } from './security-engine/index.js';
 
 export const modules: readonly AppModule[] = [
   healthModule,
@@ -33,7 +35,7 @@ export const modules: readonly AppModule[] = [
   openapiModule,
   backendGeneratorModule,
   frontendGeneratorModule,
-  securityModule,
+  securityEngineModule,
   reviewModule,
 ];
 
