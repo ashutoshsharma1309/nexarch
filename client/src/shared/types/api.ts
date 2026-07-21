@@ -517,6 +517,167 @@ export interface BackendManifest {
   routes: { method: string; path: string; implemented: boolean }[];
 }
 
+/* ── Security bundle (live endpoints: POST /security/analyze, /apply) ── */
+
+export type SecurityFileLanguage =
+  'typescript' | 'typescriptreact' | 'json' | 'markdown' | 'env' | 'javascript';
+
+export interface SecurityGeneratedFile {
+  path: string;
+  content: string;
+  language: SecurityFileLanguage;
+}
+
+export type SecuritySeverity = 'critical' | 'high' | 'medium' | 'low';
+
+export interface SecurityFinding {
+  id: string;
+  severity: SecuritySeverity;
+  category: string;
+  owasp: string | null;
+  title: string;
+  description: string;
+  location: string | null;
+  recommendation: string;
+  resolved: boolean;
+}
+
+export interface EndpointSecurityAssessment {
+  method: string;
+  path: string;
+  module: string;
+  authRequired: boolean;
+  rolesRequired: string[];
+  validated: boolean;
+  rateLimited: boolean;
+  sensitiveData: boolean;
+  notes: string[];
+}
+
+export type OwaspStatus = 'pass' | 'warn' | 'fail' | 'not-applicable';
+
+export interface OwaspCategoryResult {
+  id: string;
+  title: string;
+  status: OwaspStatus;
+  summary: string;
+  findingIds: string[];
+}
+
+export interface OwaspReport {
+  version: '2021';
+  categories: OwaspCategoryResult[];
+  passed: number;
+  warned: number;
+  failed: number;
+  notApplicable: number;
+}
+
+export interface SecurityReport {
+  meta: { projectName: string; projectType: string; generatedAt: string; generator: string };
+  overallScore: number;
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  summary: { critical: number; high: number; medium: number; low: number; resolved: number };
+  findings: SecurityFinding[];
+  resolvedFindings: SecurityFinding[];
+  recommendations: string[];
+  endpoints: EndpointSecurityAssessment[];
+}
+
+export interface PasswordPolicy {
+  minLength: number;
+  requireUppercase: boolean;
+  requireLowercase: boolean;
+  requireNumber: boolean;
+  requireSymbol: boolean;
+  passwordHistory: number;
+  expirationDays: number | null;
+  bcryptSaltRounds: number;
+}
+
+export interface FileSecurityPolicy {
+  maxSizeMb: number;
+  allowedExtensions: string[];
+  allowedMimeTypes: string[];
+  virusScanEnabled: boolean;
+}
+
+export type RbacAction = 'create' | 'read' | 'update' | 'delete';
+
+export interface RbacRoleDefinition {
+  role: string;
+  description: string;
+}
+
+export interface RbacPermissionEntry {
+  entity: string;
+  role: string;
+  actions: RbacAction[];
+}
+
+export interface RbacConfig {
+  roles: RbacRoleDefinition[];
+  permissions: RbacPermissionEntry[];
+}
+
+export interface JwtConfig {
+  algorithm: 'HS256';
+  issuer: string;
+  accessTokenExpiresIn: string;
+  refreshTokenExpiresIn: string;
+  refreshTokenStrategy: string;
+}
+
+export interface SecurityConfig {
+  jwt: JwtConfig;
+  passwordPolicy: PasswordPolicy;
+  fileSecurity: FileSecurityPolicy;
+  cors: { allowedOrigins: string[]; credentials: boolean };
+  rateLimits: { windowMs: number; authMax: number; apiMax: number; writeMax: number };
+  headers: string[];
+  csrfEnabled: boolean;
+  secureCookies: boolean;
+}
+
+export interface SecurityStats {
+  backendFiles: number;
+  frontendFiles: number;
+  findings: number;
+  resolved: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  owaspPassed: number;
+  owaspTotal: number;
+  identityTableDetected: string | null;
+}
+
+export interface SecurityBundle {
+  meta: { projectName: string; projectType: string; generatedAt: string; generator: string };
+  backendFiles: SecurityGeneratedFile[];
+  frontendFiles: SecurityGeneratedFile[];
+  report: SecurityReport;
+  owasp: OwaspReport;
+  rbac: RbacConfig;
+  permissions: RbacPermissionEntry[];
+  passwordPolicy: PasswordPolicy;
+  fileSecurity: FileSecurityPolicy;
+  securityConfig: SecurityConfig;
+  folderTree: GeneratedFolderNode[];
+  stats: SecurityStats;
+}
+
+export interface FrontendManifest {
+  pages: {
+    name: string;
+    route: string;
+    kind: string;
+    entity: string | null;
+    implemented: boolean;
+  }[];
+}
+
 export type GenerationStatus =
   'PENDING' | 'ANALYZING' | 'PLANNING' | 'GENERATING' | 'REVIEWING' | 'COMPLETED' | 'FAILED';
 
