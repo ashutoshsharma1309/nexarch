@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   FileArchive,
+  GitBranch,
   KeyRound,
   Layers,
   ShieldCheck,
@@ -435,6 +436,22 @@ export function SecurityPage() {
               </CardContent>
             </Card>
           </Section>
+
+          <div className="mt-8 flex items-center justify-between gap-3 rounded-lg border border-line bg-surface px-5 py-4">
+            <p className="text-xs text-fg-muted">
+              This hardened project is the input for the Dependency Graph Engine — the next pipeline
+              stage.
+            </p>
+            <Button
+              variant="primary"
+              icon={<GitBranch className="size-3.5" />}
+              onClick={() => {
+                void navigate('/dependency-graph');
+              }}
+            >
+              Build dependency graph
+            </Button>
+          </div>
         </>
       )}
     </>

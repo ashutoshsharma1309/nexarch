@@ -69,6 +69,22 @@ export const router = createBrowserRouter([
         },
       },
       {
+        path: 'dependency-graph',
+        lazy: async () => {
+          const { DependencyGraphPage } =
+            await import('@/features/dependency-graph/dependency-graph-page');
+          return { Component: DependencyGraphPage };
+        },
+      },
+      {
+        path: 'ai-operations',
+        lazy: async () => {
+          const { AiOrchestratorPage } =
+            await import('@/features/ai-orchestrator/ai-orchestrator-page');
+          return { Component: AiOrchestratorPage };
+        },
+      },
+      {
         path: 'projects',
         lazy: async () => {
           const { ProjectsPage } = await import('@/features/projects/projects-page');

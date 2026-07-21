@@ -678,6 +678,345 @@ export interface FrontendManifest {
   }[];
 }
 
+/* ── Dependency graph (live endpoints: POST /dependency/build, /analyze, /regenerate) ── */
+
+export type NodeType =
+  | 'page'
+  | 'component'
+  | 'hook'
+  | 'store'
+  | 'api-endpoint'
+  | 'route'
+  | 'controller'
+  | 'service'
+  | 'repository'
+  | 'db-table'
+  | 'prisma-model'
+  | 'middleware'
+  | 'config'
+  | 'utility'
+  | 'env-var'
+  | 'security-module';
+
+export type ModuleGroup = 'frontend' | 'backend' | 'database' | 'security' | 'shared';
+
+export type EdgeType =
+  | 'imports'
+  | 'renders'
+  | 'calls-api'
+  | 'implements-route'
+  | 'invokes'
+  | 'queries'
+  | 'maps-to'
+  | 'authenticates'
+  | 'authorizes'
+  | 'validates'
+  | 'reads-config'
+  | 'depends-on';
+
+export interface GraphNode {
+  id: string;
+  type: NodeType;
+  label: string;
+  group: ModuleGroup;
+  file: string | null;
+  meta: Record<string, unknown>;
+}
+
+export interface GraphEdge {
+  id: string;
+  from: string;
+  to: string;
+  type: EdgeType;
+  label?: string;
+}
+
+export interface DependencyGraph {
+  meta: {
+    projectName: string;
+    projectType: string;
+    generatedAt: string;
+    generator: string;
+    sources: string[];
+  };
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  metadata: {
+    nodeCount: number;
+    edgeCount: number;
+    nodesByGroup: Record<ModuleGroup, number>;
+    edgesByType: Partial<Record<EdgeType, number>>;
+  };
+}
+
+export interface LayoutNode {
+  id: string;
+  x: number;
+  y: number;
+  group: ModuleGroup;
+  type: NodeType;
+}
+
+export interface LayoutGroup {
+  id: ModuleGroup;
+  label: string;
+  color: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface GraphLayout {
+  nodes: LayoutNode[];
+  groups: LayoutGroup[];
+  edges: { id: string; from: string; to: string; type: EdgeType }[];
+}
+
+export interface CircularDependency {
+  cycle: string[];
+  length: number;
+}
+
+export interface DuplicateGroup {
+  kind: 'component' | 'service';
+  label: string;
+  nodeIds: string[];
+}
+
+export interface ArchitectureViolation {
+  severity: 'high' | 'medium' | 'low';
+  rule: string;
+  description: string;
+  nodeIds: string[];
+}
+
+export interface QualityReport {
+  circularDependencies: CircularDependency[];
+  orphanFiles: string[];
+  unusedComponents: string[];
+  deadRoutes: string[];
+  duplicateGroups: DuplicateGroup[];
+  architectureViolations: ArchitectureViolation[];
+  recommendations: string[];
+}
+
+export interface DependencyStats {
+  totalNodes: number;
+  totalEdges: number;
+  averageDependencyDepth: number;
+  maxDependencyDepth: number;
+  circularDependencyCount: number;
+  orphanFileCount: number;
+  nodesByGroup: Record<ModuleGroup, number>;
+  nodesByType: Partial<Record<NodeType, number>>;
+}
+
+export interface DependencyGraphBundle {
+  meta: DependencyGraph['meta'];
+  graph: DependencyGraph;
+  layout: GraphLayout;
+  stats: DependencyStats;
+  quality: QualityReport;
+}
+
+export interface ChangeClassification {
+  category: string;
+  keywords: string[];
+  confidence: number;
+  seedNodeIds: string[];
+}
+
+export interface AffectedFile {
+  path: string;
+  group: ModuleGroup;
+  reason: string;
+  nodeId: string;
+}
+
+export interface TokenOptimization {
+  fullProjectFiles: number;
+  fullProjectTokensEstimate: number;
+  affectedFiles: number;
+  affectedTokensEstimate: number;
+  duplicatesRemoved: number;
+  tokensSaved: number;
+  savingsPercent: number;
+  estimatedCostSavedUsd: number;
+}
+
+export interface ImpactAnalysis {
+  meta: { projectName: string; generatedAt: string; generator: string };
+  changeRequest: string;
+  classification: ChangeClassification;
+  affectedNodeIds: string[];
+  affectedFiles: AffectedFile[];
+  modulesAffected: {
+    frontend: string[];
+    backend: string[];
+    database: string[];
+    security: string[];
+    configuration: string[];
+  };
+  unaffectedFileCount: number;
+  tokenOptimization: TokenOptimization;
+}
+
+export type FileProvenance = 'regenerated' | 'preserved' | 'manual';
+
+export interface MergedFile {
+  path: string;
+  content: string;
+  language: string;
+  provenance: FileProvenance;
+}
+
+export interface MergeStats {
+  regenerated: number;
+  preserved: number;
+  manual: number;
+  total: number;
+}
+
+export interface VersionRecord {
+  version: number;
+  createdAt: string;
+  changeRequest: string | null;
+  filesRegenerated: string[];
+  filesPreserved: string[];
+  filesManual: string[];
+  summary: string;
+}
+
+export interface ProjectManifest {
+  projectName: string;
+  currentVersion: number;
+  versions: VersionRecord[];
+}
+
+export interface RegenerationResult {
+  meta: { projectName: string; generatedAt: string; generator: string };
+  files: MergedFile[];
+  stats: MergeStats;
+  manifest: ProjectManifest;
+  folderTree: GeneratedFolderNode[];
+}
+
+/* ── AI Orchestrator (live endpoints: POST /ai/generate, /retry, /workflow, GET /history, /statistics) ── */
+
+export type AiProviderId = 'claude' | 'openai' | 'gemini' | 'openrouter' | 'mock';
+export type AiTaskComplexity =
+  'simple-extraction' | 'large-planning' | 'small-file-regen' | 'complex-refactor';
+
+export interface AiModelUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface AiCostEstimate {
+  provider: AiProviderId;
+  model: string;
+  inputCostUsd: number;
+  outputCostUsd: number;
+  totalCostUsd: number;
+}
+
+export interface AiValidationIssue {
+  path: string;
+  message: string;
+  kind: 'missing' | 'type-mismatch' | 'hallucinated' | 'incomplete';
+}
+
+export interface AiValidationResult {
+  valid: boolean;
+  issues: AiValidationIssue[];
+}
+
+export type AiGenerationStatus = 'success' | 'failed' | 'cached';
+
+export interface AiGenerationRecord {
+  id: string;
+  timestamp: string;
+  promptId: string;
+  provider: AiProviderId;
+  model: string;
+  complexity: AiTaskComplexity;
+  tokens: AiModelUsage;
+  cost: AiCostEstimate;
+  durationMs: number;
+  status: AiGenerationStatus;
+  cacheHit: boolean;
+  retries: number;
+  validation: AiValidationResult;
+  version: number;
+  error?: string;
+}
+
+export interface AiContextPackage {
+  summary: string;
+  manifestReferences: string[];
+  files: { path: string; content: string }[];
+  estimatedTokens: number;
+  truncated: boolean;
+  omittedFiles: string[];
+}
+
+export interface AiCompressionResult {
+  text: string;
+  originalTokens: number;
+  compressedTokens: number;
+  savingsPercent: number;
+}
+
+export interface AiGenerateResponse {
+  record: AiGenerationRecord;
+  content: string;
+  contextPackage: AiContextPackage | null;
+  compression: AiCompressionResult | null;
+}
+
+export type AiWorkflowStepKind = 'ai' | 'pipeline-reference';
+export type AiWorkflowStepStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+
+export interface AiWorkflowStepResult {
+  name: string;
+  kind: AiWorkflowStepKind;
+  status: AiWorkflowStepStatus;
+  durationMs: number;
+  generationId?: string;
+  error?: string;
+}
+
+export interface AiWorkflowRun {
+  id: string;
+  workflowId: string;
+  startedAt: string;
+  completedAt: string | null;
+  status: 'running' | 'completed' | 'failed';
+  steps: AiWorkflowStepResult[];
+}
+
+export interface AiCacheStats {
+  size: number;
+  hits: number;
+  misses: number;
+  hitRate: number;
+}
+
+export interface AiCostAnalytics {
+  totalGenerations: number;
+  totalTokens: number;
+  averageTokens: number;
+  totalCostUsd: number;
+  averageCostUsd: number;
+  averageDurationMs: number;
+  cache: AiCacheStats;
+  byProvider: Partial<
+    Record<AiProviderId, { generations: number; tokens: number; costUsd: number }>
+  >;
+  byComplexity: Partial<Record<AiTaskComplexity, number>>;
+}
+
 export type GenerationStatus =
   'PENDING' | 'ANALYZING' | 'PLANNING' | 'GENERATING' | 'REVIEWING' | 'COMPLETED' | 'FAILED';
 

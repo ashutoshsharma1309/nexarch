@@ -1,7 +1,9 @@
 import {
+  Bot,
   Database,
   DraftingCompass,
   FolderGit2,
+  GitBranch,
   Hammer,
   LayoutDashboard,
   Layers,
@@ -39,6 +41,8 @@ const navigation: NavItem[] = [
   { to: '/backend', label: 'Backend', icon: Server },
   { to: '/frontend', label: 'Frontend', icon: Monitor },
   { to: '/security', label: 'Security', icon: ShieldCheck },
+  { to: '/dependency-graph', label: 'Dependency Graph', icon: GitBranch },
+  { to: '/ai-operations', label: 'AI Operations', icon: Bot },
   { to: '/projects', label: 'Projects', icon: FolderGit2 },
   { to: '/generations', label: 'Generations', icon: Layers },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -73,7 +77,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
 function SidebarFooter() {
   return (
     <div className="border-t border-line px-5 py-3">
-      <p className="font-mono text-2xs text-fg-subtle">phase 7 · security engine</p>
+      <p className="font-mono text-2xs text-fg-subtle">phase 9 · ai orchestrator</p>
     </div>
   );
 }
