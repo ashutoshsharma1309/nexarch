@@ -9,6 +9,7 @@ import {
   Network,
   Server,
   Settings,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
@@ -37,6 +38,7 @@ const navigation: NavItem[] = [
   { to: '/api', label: 'API Contract', icon: Network },
   { to: '/backend', label: 'Backend', icon: Server },
   { to: '/frontend', label: 'Frontend', icon: Monitor },
+  { to: '/security', label: 'Security', icon: ShieldCheck },
   { to: '/projects', label: 'Projects', icon: FolderGit2 },
   { to: '/generations', label: 'Generations', icon: Layers },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -71,7 +73,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
 function SidebarFooter() {
   return (
     <div className="border-t border-line px-5 py-3">
-      <p className="font-mono text-2xs text-fg-subtle">phase 6 · frontend generator</p>
+      <p className="font-mono text-2xs text-fg-subtle">phase 7 · security engine</p>
     </div>
   );
 }
