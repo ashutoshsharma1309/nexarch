@@ -4,6 +4,7 @@ import {
   Layers,
   Monitor,
   Search,
+  ShieldCheck,
   Smartphone,
   Tablet,
 } from 'lucide-react';
@@ -317,6 +318,21 @@ export function FrontendPage() {
           <Section title="Responsive behavior">
             <ResponsivePreview />
           </Section>
+
+          <div className="mt-8 flex items-center justify-between gap-3 rounded-lg border border-line bg-surface px-5 py-4">
+            <p className="text-xs text-fg-muted">
+              This frontend is the input for the Security Engine — the next pipeline stage.
+            </p>
+            <Button
+              variant="primary"
+              icon={<ShieldCheck className="size-3.5" />}
+              onClick={() => {
+                void navigate('/security');
+              }}
+            >
+              Run security audit
+            </Button>
+          </div>
         </>
       )}
     </>
