@@ -69,6 +69,7 @@ export interface Project {
   slug: string;
   description: string | null;
   status: ProjectStatus;
+  favorite: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -1025,8 +1026,146 @@ export interface Generation {
   projectId: string;
   prompt: string;
   status: GenerationStatus;
+  model: string | null;
+  tokensUsed: number | null;
+  costUsd: number | null;
+  durationMs: number | null;
+  filesGenerated: number | null;
+  filesModified: number | null;
   error: string | null;
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
 }
+
+/* ── Workspace: projects, generation history, activity, documentation,
+   export (Phase 10) ──────────────────────────────────────────────────── */
+
+export interface CreateProjectInput {
+  name: string;
+  description?: string;
+}
+
+export interface UpdateProjectInput {
+  name?: string;
+  description?: string | null;
+  status?: ProjectStatus;
+  favorite?: boolean;
+}
+
+export type ActivityEventType =
+  | 'project.created'
+  | 'project.renamed'
+  | 'project.updated'
+  | 'project.archived'
+  | 'project.unarchived'
+  | 'project.favorited'
+  | 'project.unfavorited'
+  | 'project.duplicated'
+  | 'project.deleted'
+  | 'generation.logged'
+  | 'export.completed'
+  | 'documentation.generated';
+
+export interface ActivityLogEntry {
+  id: string;
+  type: ActivityEventType;
+  projectId: string | null;
+  projectName: string | null;
+  message: string;
+  createdAt: string;
+}
+
+export interface ProjectDashboard {
+  project: Project;
+  generations: Generation[];
+  latestGeneration: Generation | null;
+  activity: ActivityLogEntry[];
+  stats: {
+    totalGenerations: number;
+    completedGenerations: number;
+    failedGenerations: number;
+  };
+}
+
+export interface WorkspaceStatistics {
+  totalProjects: number;
+  activeProjects: number;
+  archivedProjects: number;
+  favoriteProjects: number;
+  totalGenerations: number;
+}
+
+export interface WorkspaceHistory {
+  generations: Generation[];
+  activity: ActivityLogEntry[];
+}
+
+/** Everything documentation/export can draw on — all optional since a
+ * project may be at any pipeline stage. Assembled client-side from
+ * whatever pipeline data is currently in React Query's cache. */
+export interface ProjectArtifacts {
+  projectName: string;
+  requirements?: RequirementSpec;
+  architecture?: ArchitecturePlan;
+  databaseDesign?: DatabaseDesign;
+  prismaSchema?: string;
+  sqlSchema?: string;
+  openapi?: OpenApiDocument;
+  backend?: {
+    files: { path: string; content?: string }[];
+    modules: string[];
+    routes: { method: string; path: string }[];
+  };
+  frontend?: {
+    files: { path: string; content?: string }[];
+    pages: { name: string; route: string }[];
+    components: string[];
+  };
+  security?: {
+    report: SecurityReport;
+    owasp: OwaspReport;
+    stats: SecurityStats;
+  };
+  dependencyGraph?: {
+    stats: DependencyStats;
+    quality: { recommendations: string[] };
+  };
+}
+
+export type DocumentationType =
+  | 'readme'
+  | 'api'
+  | 'architecture'
+  | 'database'
+  | 'security'
+  | 'deployment-guide'
+  | 'developer-guide';
+
+export interface DocumentationResult {
+  type: DocumentationType;
+  filename: string;
+  markdown: string;
+}
+
+export type ExportFormat =
+  | 'zip-project'
+  | 'docker-package'
+  | 'readme'
+  | 'openapi'
+  | 'postman-collection'
+  | 'prisma-schema'
+  | 'sql-schema'
+  | 'architecture-report'
+  | 'dependency-graph'
+  | 'security-report'
+  | 'project-manifest';
+
+export interface ExportFile {
+  path: string;
+  content: string;
+}
+
+export type ExportResult =
+  | { kind: 'file'; filename: string; mimeType: string; content: string }
+  | { kind: 'archive'; files: ExportFile[] };

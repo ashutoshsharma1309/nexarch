@@ -2,7 +2,9 @@ import { Suspense } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Outlet, useLocation } from 'react-router-dom';
 
+import { CommandPalette } from '@/features/search/command-palette';
 import { PageLoader } from '@/shared/components/loading-screen';
+import { Toaster } from '@/shared/components/ui/toaster';
 import { Sidebar } from './sidebar';
 import { TopBar } from './top-bar';
 
@@ -38,6 +40,8 @@ export function AppLayout() {
           </div>
         </main>
       </div>
+      <CommandPalette />
+      <Toaster />
     </div>
   );
 }

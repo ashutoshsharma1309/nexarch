@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 
-import { fetchProjects } from '@/shared/services/projects.service';
+import { listProjects } from '@/shared/services/workspace.service';
+import type { ListProjectsParams } from '@/shared/services/workspace.service';
 
-export function useProjects() {
+export function useProjects(params?: ListProjectsParams) {
   return useQuery({
-    queryKey: ['projects'],
-    queryFn: fetchProjects,
+    queryKey: ['projects', 'list', params],
+    queryFn: () => listProjects(params),
   });
 }

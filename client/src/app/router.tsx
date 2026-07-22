@@ -92,10 +92,38 @@ export const router = createBrowserRouter([
         },
       },
       {
+        path: 'projects/:id',
+        lazy: async () => {
+          const { ProjectDetailPage } = await import('@/features/projects/project-detail-page');
+          return { Component: ProjectDetailPage };
+        },
+      },
+      {
         path: 'generations',
         lazy: async () => {
           const { GenerationsPage } = await import('@/features/generation/generations-page');
           return { Component: GenerationsPage };
+        },
+      },
+      {
+        path: 'documentation',
+        lazy: async () => {
+          const { DocumentationPage } = await import('@/features/documentation/documentation-page');
+          return { Component: DocumentationPage };
+        },
+      },
+      {
+        path: 'exports',
+        lazy: async () => {
+          const { ExportsPage } = await import('@/features/exports/exports-page');
+          return { Component: ExportsPage };
+        },
+      },
+      {
+        path: 'logs',
+        lazy: async () => {
+          const { LogsPage } = await import('@/features/logs/logs-page');
+          return { Component: LogsPage };
         },
       },
       {

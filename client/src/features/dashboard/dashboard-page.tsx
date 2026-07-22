@@ -5,12 +5,14 @@ import { PageHeader } from '@/shared/components/page-header';
 import { Card, CardContent } from '@/shared/components/ui/card';
 import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { useProjects } from '@/shared/hooks/use-projects';
+import { useWorkspaceStatistics } from '@/shared/hooks/use-workspace';
 import { RecentProjects } from './components/recent-projects';
 import { StatCard } from './components/stat-card';
 
 export function DashboardPage() {
   useDocumentTitle('Dashboard');
   const projects = useProjects();
+  const statistics = useWorkspaceStatistics();
   const projectCount = projects.data?.length ?? 0;
 
   return (
@@ -28,11 +30,16 @@ export function DashboardPage() {
           hint="Applications in this workspace"
           loading={projects.isPending}
         />
-        <StatCard label="Generations" value="0" hint="Pipeline runs to date" />
+        <StatCard
+          label="Generations"
+          value={String(statistics.data?.totalGenerations ?? 0)}
+          hint="Pipeline runs logged across all projects"
+          loading={statistics.isPending}
+        />
         <StatCard
           label="Modules online"
-          value="10/11"
-          hint="health, analysis, architecture, database, api, backend, frontend, security, dependency graph, ai operations"
+          value="12/12"
+          hint="health, analysis, architecture, database, api, backend, frontend, security, dependency graph, ai operations, workspace, review"
         />
       </div>
 

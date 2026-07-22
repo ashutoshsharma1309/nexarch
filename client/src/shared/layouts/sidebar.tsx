@@ -1,52 +1,10 @@
-import {
-  Bot,
-  Database,
-  DraftingCompass,
-  FolderGit2,
-  GitBranch,
-  Hammer,
-  LayoutDashboard,
-  Layers,
-  Monitor,
-  Network,
-  Server,
-  Settings,
-  ShieldCheck,
-  X,
-} from 'lucide-react';
+import { X } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
-import type { ComponentType } from 'react';
 
 import { Logo } from '@/shared/components/logo';
 import { cn } from '@/shared/lib/cn';
+import { navigation } from '@/shared/nav-items';
 import { useUiStore } from '@/shared/store/ui.store';
-
-interface NavItem {
-  to: string;
-  label: string;
-  icon: ComponentType<{ className?: string }>;
-  end?: boolean;
-}
-
-/**
- * Navigation mirrors the product's mental model: overview → forge (the
- * verb) → what the forge produced (projects, generations) → settings.
- */
-const navigation: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/forge', label: 'Forge', icon: Hammer },
-  { to: '/architecture', label: 'Architecture', icon: DraftingCompass },
-  { to: '/database', label: 'Database', icon: Database },
-  { to: '/api', label: 'API Contract', icon: Network },
-  { to: '/backend', label: 'Backend', icon: Server },
-  { to: '/frontend', label: 'Frontend', icon: Monitor },
-  { to: '/security', label: 'Security', icon: ShieldCheck },
-  { to: '/dependency-graph', label: 'Dependency Graph', icon: GitBranch },
-  { to: '/ai-operations', label: 'AI Operations', icon: Bot },
-  { to: '/projects', label: 'Projects', icon: FolderGit2 },
-  { to: '/generations', label: 'Generations', icon: Layers },
-  { to: '/settings', label: 'Settings', icon: Settings },
-];
 
 function NavItems({ onNavigate }: { onNavigate?: () => void }) {
   return (
@@ -77,7 +35,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
 function SidebarFooter() {
   return (
     <div className="border-t border-line px-5 py-3">
-      <p className="font-mono text-2xs text-fg-subtle">phase 9 · ai orchestrator</p>
+      <p className="font-mono text-2xs text-fg-subtle">phase 10 · workspace</p>
     </div>
   );
 }

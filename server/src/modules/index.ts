@@ -28,6 +28,7 @@ import { reviewModule } from './review/index.js';
 // The Phase 1 `security` scaffold is superseded by the Phase 7 engine, the
 // same way the Phase 1 `database` scaffold is superseded by the designer.
 import { securityEngineModule } from './security-engine/index.js';
+import { workspaceModule } from './workspace/index.js';
 
 export const modules: readonly AppModule[] = [
   healthModule,
@@ -41,6 +42,7 @@ export const modules: readonly AppModule[] = [
   securityEngineModule,
   dependencyGraphModule,
   aiOrchestratorModule,
+  workspaceModule,
   reviewModule,
 ];
 

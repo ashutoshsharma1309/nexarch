@@ -49,7 +49,7 @@ export function RecentProjects() {
       {recent.map((project) => (
         <li key={project.id}>
           <Link
-            to="/projects"
+            to={`/projects/${project.id}`}
             className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-raised/60"
           >
             <div>

@@ -14,9 +14,11 @@ export type Theme = 'dark' | 'light';
 interface UiState {
   theme: Theme;
   mobileNavOpen: boolean;
+  commandPaletteOpen: boolean;
   setTheme: (theme: Theme) => void;
   toggleTheme: () => void;
   setMobileNavOpen: (open: boolean) => void;
+  setCommandPaletteOpen: (open: boolean) => void;
 }
 
 function applyTheme(theme: Theme): void {
@@ -28,6 +30,7 @@ export const useUiStore = create<UiState>()(
     (set, get) => ({
       theme: 'dark',
       mobileNavOpen: false,
+      commandPaletteOpen: false,
       setTheme: (theme) => {
         applyTheme(theme);
         set({ theme });
@@ -37,6 +40,9 @@ export const useUiStore = create<UiState>()(
       },
       setMobileNavOpen: (open) => {
         set({ mobileNavOpen: open });
+      },
+      setCommandPaletteOpen: (open) => {
+        set({ commandPaletteOpen: open });
       },
     }),
     {
