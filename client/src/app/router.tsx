@@ -134,6 +134,13 @@ export const router = createBrowserRouter([
         },
       },
       {
+        path: 'quality',
+        lazy: async () => {
+          const { QualityPage } = await import('@/features/quality/quality-page');
+          return { Component: QualityPage };
+        },
+      },
+      {
         path: 'settings',
         lazy: async () => {
           const { SettingsPage } = await import('@/features/settings/settings-page');

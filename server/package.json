@@ -13,7 +13,7 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test src/modules/analysis/analysis.service.test.ts src/modules/architecture/architecture.service.test.ts src/modules/database-designer/database-designer.service.test.ts src/modules/backend-generator/backend-generator.service.test.ts src/modules/frontend-generator/frontend-generator.service.test.ts src/modules/security-engine/security-engine.service.test.ts src/modules/dependency-graph/dependency-graph.service.test.ts src/modules/ai-orchestrator/ai-orchestrator.service.test.ts src/modules/workspace/workspace.service.test.ts src/modules/deployment/deployment.service.test.ts",
+    "test": "node --import tsx --test src/modules/analysis/analysis.service.test.ts src/modules/architecture/architecture.service.test.ts src/modules/database-designer/database-designer.service.test.ts src/modules/backend-generator/backend-generator.service.test.ts src/modules/frontend-generator/frontend-generator.service.test.ts src/modules/security-engine/security-engine.service.test.ts src/modules/dependency-graph/dependency-graph.service.test.ts src/modules/ai-orchestrator/ai-orchestrator.service.test.ts src/modules/workspace/workspace.service.test.ts src/modules/deployment/deployment.service.test.ts src/modules/quality/quality.service.test.ts",
     "lint": "eslint src scripts",
     "lint:fix": "eslint src scripts --fix",
     "db:generate": "prisma generate",

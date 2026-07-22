@@ -38,8 +38,8 @@ export function DashboardPage() {
         />
         <StatCard
           label="Modules online"
-          value="13/13"
-          hint="health, analysis, architecture, database, api, backend, frontend, security, dependency graph, ai operations, workspace, deployment, review"
+          value="14/14"
+          hint="health, analysis, architecture, database, api, backend, frontend, security, dependency graph, ai operations, workspace, deployment, quality, review"
         />
       </div>
 

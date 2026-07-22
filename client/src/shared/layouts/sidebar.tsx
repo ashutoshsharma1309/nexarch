@@ -35,7 +35,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
 function SidebarFooter() {
   return (
     <div className="border-t border-line px-5 py-3">
-      <p className="font-mono text-2xs text-fg-subtle">phase 11 · deployment</p>
+      <p className="font-mono text-2xs text-fg-subtle">phase 12 · quality</p>
     </div>
   );
 }

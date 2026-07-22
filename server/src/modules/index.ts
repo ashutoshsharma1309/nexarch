@@ -25,6 +25,7 @@ import { dependencyGraphModule } from './dependency-graph/index.js';
 import { deploymentModule } from './deployment/index.js';
 import { frontendGeneratorModule } from './frontend-generator/index.js';
 import { healthModule } from './health/index.js';
+import { qualityModule } from './quality/index.js';
 import { reviewModule } from './review/index.js';
 // The Phase 1 `security` scaffold is superseded by the Phase 7 engine, the
 // same way the Phase 1 `database` scaffold is superseded by the designer.
@@ -45,6 +46,7 @@ export const modules: readonly AppModule[] = [
   aiOrchestratorModule,
   workspaceModule,
   deploymentModule,
+  qualityModule,
   reviewModule,
 ];
 

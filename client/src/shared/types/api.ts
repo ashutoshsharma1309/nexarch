@@ -1260,3 +1260,212 @@ export interface DeploymentHealthPreview {
   checks: DeploymentHealthCheckPreview[];
   generatedAt: string;
 }
+
+/* ── Quality Assurance, Testing, Benchmarking & Documentation (Phase 12) ─ */
+
+/** Sent as the request body's `artifacts` — the same `ProjectArtifacts`
+ * object already assembled for Documentation/Export/Deployment, plus the
+ * AI Orchestrator's own aggregate stats and a client-known deployment flag
+ * neither of which `ProjectArtifacts` carries. */
+export type QualityArtifacts = ProjectArtifacts & {
+  aiStats?: {
+    totalGenerations: number;
+    totalTokens: number;
+    totalCostUsd: number;
+    averageDurationMs: number;
+    cache: { hitRate: number };
+  };
+  deploymentConfigured?: boolean;
+};
+
+export type TestFileKind =
+  'unit' | 'integration' | 'api' | 'component' | 'e2e' | 'regression' | 'smoke';
+
+export interface TestFile {
+  path: string;
+  content: string;
+  language: 'typescript' | 'json' | 'markdown';
+  kind: TestFileKind;
+}
+
+export interface OpenApiValidationResult {
+  valid: boolean;
+  issues: string[];
+  endpointsCovered: number;
+}
+
+export interface TestingReport {
+  files: TestFile[];
+  summary: { kind: TestFileKind; fileCount: number; caseCount: number }[];
+  coverageEstimatePercent: number;
+  openApiValidation: OpenApiValidationResult;
+}
+
+export type IssueSeverity = 'critical' | 'high' | 'medium' | 'low';
+
+export interface QualityIssue {
+  severity: IssueSeverity;
+  category: string;
+  location: string;
+  message: string;
+}
+
+export interface QualityMetric {
+  name: string;
+  value: number;
+  unit: string;
+  status: 'good' | 'warning' | 'critical';
+}
+
+export interface CodeQualityReport {
+  metrics: QualityMetric[];
+  issues: QualityIssue[];
+  duplication: { duplicateGroups: number; affectedFiles: number };
+  complexity: { averageScore: number; highestFile: string | null; highestScore: number };
+  deadCode: { unusedComponents: string[]; deadRoutes: string[]; orphanFiles: string[] };
+  circularDependencies: number;
+  largeFiles: { path: string; lines: number }[];
+  score: number;
+}
+
+export interface PerformanceMetric {
+  name: string;
+  value: number;
+  unit: string;
+  estimated: boolean;
+}
+
+export interface PerformanceReport {
+  metrics: PerformanceMetric[];
+  bundleSizeEstimateKb: number;
+  buildTimeEstimateSeconds: number;
+  tokenConsumption: { totalTokens: number; totalCostUsd: number; averageDurationMs: number } | null;
+  cacheHitRate: number | null;
+  recommendations: string[];
+  score: number;
+}
+
+export interface SecurityCheck {
+  name: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface SecurityValidationReport {
+  checks: SecurityCheck[];
+  owaspCompliance: { passed: number; total: number };
+  secretsDetected: string[];
+  score: number;
+}
+
+export interface ArchitectureCheck {
+  name: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface ArchitectureValidationReport {
+  checks: ArchitectureCheck[];
+  violations: string[];
+  score: number;
+}
+
+export type DocumentationFileKind =
+  | 'readme'
+  | 'system-architecture'
+  | 'api-documentation'
+  | 'database-documentation'
+  | 'security-guide'
+  | 'deployment-guide'
+  | 'developer-guide'
+  | 'contributing'
+  | 'changelog'
+  | 'license';
+
+export interface QualityDocumentationFile {
+  kind: DocumentationFileKind;
+  filename: string;
+  content: string;
+}
+
+export interface QualityDocumentationBundle {
+  files: QualityDocumentationFile[];
+}
+
+export type EngineeringGrade = 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
+
+export type ScoreCategory =
+  | 'architecture'
+  | 'security'
+  | 'performance'
+  | 'maintainability'
+  | 'scalability'
+  | 'testing'
+  | 'documentation'
+  | 'deployment'
+  | 'developerExperience';
+
+export interface CategoryScore {
+  category: ScoreCategory;
+  score: number;
+  grade: EngineeringGrade;
+  notes: string[];
+}
+
+export interface EngineeringScore {
+  overall: number;
+  grade: EngineeringGrade;
+  categories: CategoryScore[];
+  recommendations: string[];
+  generatedAt: string;
+}
+
+export interface BenchmarkComparison {
+  dimension: string;
+  nexarch: string;
+  traditionalCrud: string;
+  basicAiGeneration: string;
+  architectureFirstGeneration: string;
+}
+
+export interface BenchmarkReport {
+  comparisons: BenchmarkComparison[];
+  summary: string;
+  methodology: string;
+}
+
+export type ReadinessTier = 'development' | 'testing' | 'production' | 'enterprise';
+
+export interface ReadinessCheck {
+  name: string;
+  tier: ReadinessTier;
+  passed: boolean;
+}
+
+export interface ReleaseReadiness {
+  tier: ReadinessTier;
+  checks: ReadinessCheck[];
+  recommendations: string[];
+}
+
+export interface EngineeringBundle {
+  meta: { projectName: string; generatedAt: string; generator: string };
+  quality: CodeQualityReport;
+  performance: PerformanceReport;
+  security: SecurityValidationReport;
+  architecture: ArchitectureValidationReport;
+  testingSummary: TestingReport['summary'];
+  testingCoverageEstimatePercent: number;
+  score: EngineeringScore;
+  benchmark: BenchmarkReport;
+  readiness: ReleaseReadiness;
+}
+
+export type QualityExportFormat =
+  | 'quality-report'
+  | 'testing-report'
+  | 'benchmark-report'
+  | 'engineering-score'
+  | 'release-readiness'
+  | 'readme'
+  | 'documentation-package';

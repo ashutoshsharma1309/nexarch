@@ -4,6 +4,7 @@ import {
   DraftingCompass,
   FileText,
   FolderGit2,
+  Gauge,
   GitBranch,
   Hammer,
   LayoutDashboard,
@@ -49,5 +50,6 @@ export const navigation: NavItem[] = [
   { to: '/documentation', label: 'Documentation', icon: FileText },
   { to: '/exports', label: 'Exports', icon: PackageOpen },
   { to: '/logs', label: 'Logs', icon: ScrollText },
+  { to: '/quality', label: 'Engineering Dashboard', icon: Gauge },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
