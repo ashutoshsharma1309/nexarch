@@ -12,6 +12,7 @@ import { Input } from '@/shared/components/ui/input';
 import { Skeleton } from '@/shared/components/ui/skeleton';
 import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { cn } from '@/shared/lib/cn';
+import { slugify } from '@/shared/lib/slugify';
 import { downloadZip } from '@/shared/lib/zip';
 import { ApiClientError } from '@/shared/services/api-client';
 import { usePipelineStore } from '@/shared/store/pipeline.store';
@@ -32,15 +33,6 @@ const LANGUAGE_MIME: Record<FileLanguage, string> = {
   dockerfile: 'text/plain',
   html: 'text/html',
 };
-
-function slugify(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || 'backend'
-  );
-}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -163,7 +155,7 @@ export function BackendPage() {
               icon={<FileArchive className="size-3.5" />}
               onClick={() => {
                 downloadZip(
-                  `${slugify(backend.data.meta.projectName)}-backend.zip`,
+                  `${slugify(backend.data.meta.projectName, 'backend')}-backend.zip`,
                   backend.data.files,
                 );
               }}

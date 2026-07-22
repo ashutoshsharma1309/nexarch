@@ -48,3 +48,26 @@ export function camelCase(value: string): string {
   const pascal = pascalCase(value);
   return pascal.length > 0 ? `${pascal.charAt(0).toLowerCase()}${pascal.slice(1)}` : pascal;
 }
+
+export interface SlugifyOptions {
+  /** Truncate the result to this many characters before applying the fallback. */
+  maxLength?: number;
+  /** Returned when the slug would otherwise be empty (e.g. all-punctuation input). */
+  fallback?: string;
+}
+
+/**
+ * "My Project!!" → "my-project" — free-text-to-URL/id-safe-slug, distinct
+ * from `kebabCase` (no camelCase word-boundary splitting; free text rarely
+ * has any, and callers that slugify user-entered names shouldn't have
+ * "iOS" become "i-os").
+ */
+export function slugify(value: string, options: SlugifyOptions = {}): string {
+  const base = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const truncated = options.maxLength ? base.slice(0, options.maxLength) : base;
+  return truncated === '' && options.fallback ? options.fallback : truncated;
+}

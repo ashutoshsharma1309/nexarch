@@ -11,6 +11,7 @@ import { Input } from '@/shared/components/ui/input';
 import { Skeleton } from '@/shared/components/ui/skeleton';
 import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { cn } from '@/shared/lib/cn';
+import { slugify } from '@/shared/lib/slugify';
 import { ApiClientError } from '@/shared/services/api-client';
 import { usePipelineStore } from '@/shared/store/pipeline.store';
 import type { DesignBundle } from '@/shared/types/api';
@@ -19,15 +20,6 @@ import { EntityDetail } from './components/entity-detail';
 import { ErDiagramView } from './components/er-diagram-view';
 import { ExportBar } from './components/export-bar';
 import { useDesignBundle } from './use-design';
-
-function slugify(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || 'schema'
-  );
-}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -248,7 +240,7 @@ export function DatabasePage() {
           design.data ? (
             <ExportBar
               bundle={design.data}
-              slug={slugify(architecture?.meta.projectName ?? 'schema')}
+              slug={slugify(architecture?.meta.projectName ?? 'schema', 'schema')}
             />
           ) : undefined
         }

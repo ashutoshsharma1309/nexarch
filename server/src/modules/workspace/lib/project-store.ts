@@ -12,6 +12,7 @@
  * Dependency Graph's version manifest, and the AI Orchestrator's history —
  * "most recent state for this process," reset on restart.
  */
+import { slugify } from '../../../shared/utils/strings.js';
 import type {
   CreateProjectInput,
   ListProjectsQuery,
@@ -25,16 +26,6 @@ let counter = 0;
 function nextId(): string {
   counter += 1;
   return `proj_${Date.now().toString(36)}${counter.toString(36)}`;
-}
-
-function slugify(name: string): string {
-  const slug = name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 120);
-  return slug === '' ? 'project' : slug;
 }
 
 function normalizeDescription(value: string | null | undefined): string | null {
@@ -60,7 +51,7 @@ export function createProject(input: CreateProjectInput): Project {
   const project: Project = {
     id: nextId(),
     name: input.name.trim(),
-    slug: uniqueSlug(slugify(input.name)),
+    slug: uniqueSlug(slugify(input.name, { maxLength: 120, fallback: 'project' })),
     description: normalizeDescription(input.description),
     status: 'DRAFT',
     favorite: false,
@@ -99,7 +90,9 @@ export function updateProject(id: string, input: UpdateProjectInput): Project | 
   const updated: Project = {
     ...existing,
     name: input.name?.trim() ?? existing.name,
-    slug: input.name ? uniqueSlug(slugify(input.name), id) : existing.slug,
+    slug: input.name
+      ? uniqueSlug(slugify(input.name, { maxLength: 120, fallback: 'project' }), id)
+      : existing.slug,
     description:
       input.description !== undefined
         ? normalizeDescription(input.description)
@@ -125,7 +118,7 @@ export function duplicateProject(id: string): Project | undefined {
     ...source,
     id: nextId(),
     name: `${source.name} (copy)`,
-    slug: uniqueSlug(slugify(`${source.name}-copy`)),
+    slug: uniqueSlug(slugify(`${source.name}-copy`, { maxLength: 120, fallback: 'project' })),
     status: 'DRAFT',
     favorite: false,
     createdAt: now,

@@ -4,6 +4,7 @@
  * this just adds the one config file (or two) each platform needs to build
  * and run them.
  */
+import { slugify } from '../../../shared/utils/strings.js';
 import type {
   DeploymentArtifacts,
   DeploymentFile,
@@ -12,13 +13,7 @@ import type {
 } from '../deployment.types.js';
 
 function slug(name: string): string {
-  return (
-    name
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'app'
-  );
+  return slugify(name, { fallback: 'app' });
 }
 
 function vercelConfig(): DeploymentFile {

@@ -23,6 +23,7 @@ import { useAnalyzeQuality, useExportQuality, useRunTesting } from '@/shared/hoo
 import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { cn } from '@/shared/lib/cn';
 import { downloadText } from '@/shared/lib/download';
+import { slugify } from '@/shared/lib/slugify';
 import { downloadZip } from '@/shared/lib/zip';
 import { toast } from '@/shared/store/toast.store';
 import type {
@@ -77,16 +78,6 @@ const EXPORT_OPTIONS: { format: QualityExportFormat; label: string }[] = [
   { format: 'readme', label: 'README.md' },
   { format: 'documentation-package', label: 'Complete documentation package' },
 ];
-
-function slugFor(name: string): string {
-  return (
-    name
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'project'
-  );
-}
 
 function Section({
   title,
@@ -174,7 +165,7 @@ export function QualityPage() {
       { format, artifacts: qualityArtifacts },
       {
         onSuccess: (result) => {
-          const slug = slugFor(qualityArtifacts.projectName);
+          const slug = slugify(qualityArtifacts.projectName, 'project');
           if (result.kind === 'file') {
             downloadText(result.filename, result.content, result.mimeType);
           } else {

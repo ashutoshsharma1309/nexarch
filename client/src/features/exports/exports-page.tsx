@@ -10,6 +10,7 @@ import { useCurrentArtifacts } from '@/shared/hooks/use-current-artifacts';
 import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { useRunExport } from '@/shared/hooks/use-workspace';
 import { downloadText } from '@/shared/lib/download';
+import { slugify } from '@/shared/lib/slugify';
 import { downloadZip } from '@/shared/lib/zip';
 import { useSettingsStore } from '@/features/settings/settings-store';
 import { toast } from '@/shared/store/toast.store';
@@ -103,16 +104,6 @@ const EXPORT_OPTIONS: ExportOption[] = [
   },
 ];
 
-function slugFor(name: string): string {
-  return (
-    name
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'project'
-  );
-}
-
 export function ExportsPage() {
   useDocumentTitle('Exports');
   const navigate = useNavigate();
@@ -126,7 +117,7 @@ export function ExportsPage() {
       { format, artifacts },
       {
         onSuccess: (result) => {
-          const slug = slugFor(artifacts.projectName);
+          const slug = slugify(artifacts.projectName, 'project');
           if (result.kind === 'file') {
             downloadText(result.filename, result.content, result.mimeType);
           } else {

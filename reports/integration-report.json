@@ -1,0 +1,159 @@
+{
+  "reportType": "integration-report",
+  "generatedAt": "2026-07-22T10:34:28.136Z",
+  "platform": "NexArch",
+  "version": "1.0.0",
+  "method": "Live end-to-end HTTP smoke test against a booted dev server, driving one real prompt through all 12 phases in pipeline order. Script: reports/final-integration-smoke-test.mjs (re-runnable).",
+  "samplePrompt": "Build a hotel booking platform with room search, online payments, staff roles and email confirmations",
+  "pipelineStages": [
+    {
+      "stage": 1,
+      "phase": "Phase 2 — Requirement Analyzer",
+      "endpoint": "POST /api/v1/analyze",
+      "artifact": "requirements.json",
+      "status": "verified",
+      "notes": "10 modules, 4 roles detected"
+    },
+    {
+      "stage": 2,
+      "phase": "Phase 3 — Architecture Planner",
+      "endpoint": "POST /api/v1/architecture",
+      "artifact": "architecture.json",
+      "status": "verified",
+      "notes": "8 API modules, 8 backend services planned"
+    },
+    {
+      "stage": 3,
+      "phase": "Phase 4 — Database Designer & API Contract Generator",
+      "endpoint": "POST /api/v1/database/design",
+      "artifact": "database-design.json + openapi.json",
+      "status": "verified",
+      "notes": "8 tables, 19 OpenAPI paths"
+    },
+    {
+      "stage": 4,
+      "phase": "Phase 5 — Backend Generation Engine",
+      "endpoint": "POST /api/v1/backend/generate",
+      "artifact": "backend-manifest (files/modules/routes)",
+      "status": "verified",
+      "notes": "82 files, 8 modules, 28 routes"
+    },
+    {
+      "stage": 5,
+      "phase": "Phase 6 — Frontend Generation Engine",
+      "endpoint": "POST /api/v1/frontend/generate",
+      "artifact": "frontend-manifest (files/pages/components)",
+      "status": "verified",
+      "notes": "94 files, 11 pages, 34 components"
+    },
+    {
+      "stage": 6,
+      "phase": "Phase 7 — Security Engine",
+      "endpoint": "POST /api/v1/security/apply",
+      "artifact": "security-report.json",
+      "status": "verified",
+      "notes": "score 83/100 (B), OWASP 4/10 categories fully passed"
+    },
+    {
+      "stage": 7,
+      "phase": "Phase 8 — Dependency Graph & Incremental Regeneration",
+      "endpoint": "POST /api/v1/dependency/build, /dependency/analyze",
+      "artifact": "dependency-graph.json",
+      "status": "verified",
+      "notes": "234 nodes, 465 edges, 0 circular dependencies, 100% token savings on a scoped change"
+    },
+    {
+      "stage": 8,
+      "phase": "Phase 9 — AI Orchestrator & Prompt Intelligence",
+      "endpoint": "POST /api/v1/ai/generate, /ai/workflow, GET /ai/history, /ai/statistics",
+      "artifact": "generation-history.json, token-statistics.json, workflow-history.json",
+      "status": "verified",
+      "notes": "history and statistics endpoints confirmed consistent with the generation just run"
+    },
+    {
+      "stage": 9,
+      "phase": "Phase 10 — Developer Workspace & Export Engine",
+      "endpoint": "POST /api/v1/projects, /project/:id/generations, /export; GET /project/:id",
+      "artifact": "project-manifest.json",
+      "status": "verified",
+      "notes": "project created, generation logged, dashboard reflects it, manifest exported"
+    },
+    {
+      "stage": 10,
+      "phase": "Phase 11 — DevOps, Deployment & CI/CD",
+      "endpoint": "POST /api/v1/deployment/generate, /deployment/export; GET /deployment/status, /deployment/health",
+      "artifact": "docker-compose.yml, CI/CD workflows, deployment-guide.md",
+      "status": "verified",
+      "notes": "12 targets supported, 5 health-check endpoints generated, complete-zip export produced 19 files"
+    },
+    {
+      "stage": 11,
+      "phase": "Phase 12 — Testing, Benchmarking & Documentation",
+      "endpoint": "POST /api/v1/quality/analyze, /testing/run, /documentation/generate, /quality/export; GET /quality/report, /performance/report, /release/readiness",
+      "artifact": "quality-report.json, testing-report.json, engineering-score.json, release-readiness.json, 10-document package",
+      "status": "verified",
+      "notes": "score 93/100 (A), production-ready tier, 16 test files at 100% coverage estimate, all 10 docs generated, cached GET endpoints byte-identical to the POST /analyze response"
+    },
+    {
+      "stage": 12,
+      "phase": "Reserved scaffolds",
+      "endpoint": "POST /api/v1/auth/register, GET /api/v1/review/anything",
+      "artifact": "n/a",
+      "status": "verified-not-implemented",
+      "notes": "Both respond with a clean 501/handled error rather than crashing — auth (Phase 3) and review (Phase 2 code-review pass) are intentionally unimplemented scaffolds, not broken endpoints"
+    }
+  ],
+  "crossStageDataFlowVerified": true,
+  "totalLiveApiCalls": 27,
+  "totalLiveApiCallsSucceeded": 27,
+  "totalRequestTimeMs": 345,
+  "averageRequestTimeMs": 12.8,
+  "jsonSchemaValidation": {
+    "method": "Every response was parsed as JSON and checked for its documented required fields before the next stage consumed it as input; a shape mismatch would have failed the pipeline at the next stage's validator (422) rather than silently propagating bad data.",
+    "artifactsValidated": [
+      "requirements.json",
+      "architecture.json",
+      "database-design.json",
+      "backend-manifest.json",
+      "frontend-manifest.json",
+      "security-report.json",
+      "dependency-graph.json",
+      "project-manifest.json",
+      "generation-history.json",
+      "workflow-history.json",
+      "token-statistics.json",
+      "quality-report.json",
+      "engineering-score.json"
+    ],
+    "result": "all valid"
+  },
+  "moduleContractCheck": {
+    "method": "grep audit of every import statement under server/src/modules for references to a sibling module's internals (anything other than ../../shared or the module's own relative paths)",
+    "crossModuleImportViolationsFound": 0,
+    "circularDependenciesFound": 0,
+    "note": "The only near-matches were generated-code template strings inside the backend/frontend generators and Security Engine (import statements the GENERATED downstream app will contain, not real imports in NexArch's own module graph)."
+  },
+  "findings": [
+    {
+      "severity": "low",
+      "category": "duplicated-logic",
+      "description": "The same ~6-line slugify algorithm was independently reimplemented 12 times (9 client feature pages, 3 server modules) instead of using the shared string utilities that already existed for this purpose.",
+      "resolution": "fixed",
+      "detail": "Consolidated into server/src/shared/utils/strings.ts (slugify, alongside the pre-existing kebabCase/pascalCase/snakeCase/camelCase) and client/src/shared/lib/slugify.ts. All 12 call sites updated to the shared implementation with equivalent options (maxLength/fallback) preserving exact prior behavior. Re-verified: 227/227 tests still pass, tsc/eslint clean, production build succeeded with a small bundle-size reduction."
+    },
+    {
+      "severity": "low",
+      "category": "inaccurate-metric",
+      "description": "The Dashboard's \"Modules online\" stat read 14/14 but 15 modules are actually registered (it omitted the `auth` scaffold from its hint list while including the equally-unimplemented `review` scaffold).",
+      "resolution": "fixed",
+      "detail": "Corrected to 13/15, with the hint text now explicitly naming auth and review as reserved scaffolds rather than silently omitting one of them."
+    },
+    {
+      "severity": "informational",
+      "category": "test-coverage",
+      "description": "All 227 automated tests are server-side (node:test). The NexArch client itself has no automated frontend test suite (Vitest/Testing Library) — it generates one for downstream projects (Phase 12) but doesn't consume that capability on itself.",
+      "resolution": "not-fixed",
+      "detail": "Out of scope for this integration pass (would be new test authoring, not verification/polish of existing work). Recorded as a recommendation in quality-summary.json."
+    }
+  ]
+}

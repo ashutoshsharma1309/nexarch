@@ -17,6 +17,7 @@ import { EmptyState } from '@/shared/components/ui/empty-state';
 import { Skeleton } from '@/shared/components/ui/skeleton';
 import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { downloadText } from '@/shared/lib/download';
+import { slugify } from '@/shared/lib/slugify';
 import { ApiClientError } from '@/shared/services/api-client';
 import { usePipelineStore } from '@/shared/store/pipeline.store';
 import type { ArchitectureResponse, NfrScore } from '@/shared/types/api';
@@ -26,15 +27,6 @@ import { DependencyGraph } from './components/dependency-graph';
 import { EntityGrid } from './components/entity-grid';
 import { FolderTree } from './components/folder-tree';
 import { usePlanArchitecture } from './use-plan-architecture';
-
-function slugify(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || 'architecture'
-  );
-}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -222,7 +214,10 @@ function PlanView({ result }: { result: ArchitectureResponse }) {
       </Section>
 
       <Section title="Raw plan">
-        <JsonViewer value={plan} exportName={`${slugify(plan.meta.projectName)}-architecture`} />
+        <JsonViewer
+          value={plan}
+          exportName={`${slugify(plan.meta.projectName, 'architecture')}-architecture`}
+        />
       </Section>
     </>
   );
@@ -273,7 +268,7 @@ export function ArchitecturePage() {
                 icon={<FileJson className="size-3.5" />}
                 onClick={() => {
                   downloadText(
-                    `${slugify(planner.data.plan.meta.projectName)}-architecture.json`,
+                    `${slugify(planner.data.plan.meta.projectName, 'architecture')}-architecture.json`,
                     JSON.stringify(planner.data.plan, null, 2),
                     'application/json',
                   );
@@ -286,7 +281,7 @@ export function ArchitecturePage() {
                 icon={<Download className="size-3.5" />}
                 onClick={() => {
                   downloadText(
-                    `${slugify(planner.data.plan.meta.projectName)}-sds.md`,
+                    `${slugify(planner.data.plan.meta.projectName, 'architecture')}-sds.md`,
                     planner.data.markdown,
                     'text/markdown',
                   );

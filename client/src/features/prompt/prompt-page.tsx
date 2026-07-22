@@ -13,6 +13,7 @@ import { Skeleton } from '@/shared/components/ui/skeleton';
 import { Textarea } from '@/shared/components/ui/textarea';
 import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { cn } from '@/shared/lib/cn';
+import { slugify } from '@/shared/lib/slugify';
 import { ApiClientError } from '@/shared/services/api-client';
 import type { AnalysisResult } from '@/shared/types/api';
 import { HistoryList } from './components/history-list';
@@ -30,15 +31,6 @@ const pipelineStages = [
   { name: 'Generate', detail: 'Backend and frontend code are produced', live: false },
   { name: 'Review', detail: 'Security is injected and the output is optimized', live: false },
 ] as const;
-
-function slugify(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || 'requirement-spec'
-  );
-}
 
 function AnalysisOutcome({ result, onRefine }: { result: AnalysisResult; onRefine: () => void }) {
   const navigate = useNavigate();
@@ -67,7 +59,7 @@ function AnalysisOutcome({ result, onRefine }: { result: AnalysisResult; onRefin
           </Badge>
         )}
       </div>
-      <JsonViewer value={spec} exportName={slugify(spec.projectName)} />
+      <JsonViewer value={spec} exportName={slugify(spec.projectName, 'requirement-spec')} />
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs text-fg-muted">
           This specification is the input for the Architecture Planner — the next pipeline stage.

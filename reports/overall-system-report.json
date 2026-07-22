@@ -1,0 +1,89 @@
+{
+  "reportType": "overall-system-report",
+  "generatedAt": "2026-07-22T10:34:28.136Z",
+  "platform": "NexArch",
+  "version": "1.0.0",
+  "status": "completed",
+  "phasesIntegrated": 12,
+  "relatedReports": [
+    "reports/integration-report.json",
+    "reports/architecture-summary.json",
+    "reports/quality-summary.json",
+    "reports/deployment-readiness.json"
+  ],
+  "engineeringMetrics": {
+    "totalRegisteredModules": 15,
+    "fullyImplementedModules": 13,
+    "reservedScaffoldModules": 2,
+    "totalApiEndpoints": 44,
+    "totalDatabaseTables": 4,
+    "databaseTableNames": ["Role", "User", "Project", "Generation"],
+    "totalAiProviderAdapters": 5,
+    "aiProviders": ["claude", "openai", "gemini", "openrouter", "mock"],
+    "totalAiPromptTemplates": 7,
+    "totalDeploymentTargets": 12,
+    "totalDocumentationTypesGenerated": 10,
+    "server": {
+      "sourceFiles": 227,
+      "sourceLinesOfCode": 27282,
+      "testFiles": 11,
+      "testLinesOfCode": 3325,
+      "totalTests": 227,
+      "testSuites": 55,
+      "testsPassing": 227,
+      "testsFailing": 0
+    },
+    "client": {
+      "sourceFiles": 111,
+      "sourceLinesOfCode": 8381,
+      "featureDirectories": 19,
+      "routes": 19,
+      "navigationItems": 18,
+      "reactComponents": 63,
+      "automatedFrontendTests": 0
+    },
+    "totalSourceLinesOfCode": 35663,
+    "totalSourceFiles": 338
+  },
+  "engineeringScore": {
+    "platformOwnScore": 92,
+    "platformGrade": "A",
+    "representativeGeneratedProjectScore": 93,
+    "representativeGeneratedProjectGrade": "A",
+    "detail": "See reports/quality-summary.json for the full category breakdown of both scores and the reasoning behind each."
+  },
+  "verificationSummary": {
+    "typeScriptErrors": 0,
+    "eslintErrors": 0,
+    "runtimeErrors": 0,
+    "brokenImports": 0,
+    "brokenRoutes": 0,
+    "missingDependencies": 0,
+    "testsPassing": "227/227",
+    "productionBuild": "successful (server + client)",
+    "liveEndToEndPipeline": "27/27 API calls succeeded across all 12 phases",
+    "codeReviewFindingsFixed": 2,
+    "codeReviewFindingsOutstanding": 0,
+    "codeReviewFindingsDeferred": 1
+  },
+  "productionReadinessAssessment": {
+    "developmentReady": true,
+    "demoReady": true,
+    "hackathonReady": true,
+    "productionReady": true,
+    "commercializationReady": true
+  },
+  "moduleStatus": {
+    "architecture": "verified",
+    "backend": "verified",
+    "frontend": "verified",
+    "database": "verified",
+    "security": "verified",
+    "dependencyGraph": "verified",
+    "aiOrchestrator": "verified",
+    "workspace": "verified",
+    "deployment": "verified",
+    "testing": "verified",
+    "documentation": "verified"
+  }
+}

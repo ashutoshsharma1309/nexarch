@@ -6,6 +6,7 @@
  * gap and the fix that closes it; `resolved` flips to true once `apply()`
  * actually generates that fix (see `RESOLVABLE_CATEGORIES` below).
  */
+import { slugify } from '../../../shared/utils/strings.js';
 import type { SecurityFinding, SecuritySeverity } from '../security-engine.types.js';
 import type { SecurityModel } from './security-model.js';
 
@@ -21,14 +22,6 @@ const RESOLVABLE_CATEGORIES = new Set([
   'file-upload',
 ]);
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 60);
-}
-
 function finding(
   applied: boolean,
   severity: SecuritySeverity,
@@ -40,7 +33,7 @@ function finding(
   recommendation: string,
 ): SecurityFinding {
   return {
-    id: `${category}-${slugify(title)}`,
+    id: `${category}-${slugify(title, { maxLength: 60 })}`,
     severity,
     category,
     owasp,

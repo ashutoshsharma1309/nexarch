@@ -22,6 +22,7 @@ import { Input } from '@/shared/components/ui/input';
 import { Skeleton } from '@/shared/components/ui/skeleton';
 import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { cn } from '@/shared/lib/cn';
+import { slugify } from '@/shared/lib/slugify';
 import { downloadZip } from '@/shared/lib/zip';
 import { ApiClientError } from '@/shared/services/api-client';
 import { usePipelineStore } from '@/shared/store/pipeline.store';
@@ -41,15 +42,6 @@ const LANGUAGE_MIME: Record<FrontendFileLanguage, string> = {
   javascript: 'text/javascript',
   html: 'text/html',
 };
-
-function slugify(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || 'frontend'
-  );
-}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -227,7 +219,7 @@ export function FrontendPage() {
               icon={<FileArchive className="size-3.5" />}
               onClick={() => {
                 downloadZip(
-                  `${slugify(frontend.data.meta.projectName)}-frontend.zip`,
+                  `${slugify(frontend.data.meta.projectName, 'frontend')}-frontend.zip`,
                   frontend.data.files,
                 );
               }}

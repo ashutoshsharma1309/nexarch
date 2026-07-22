@@ -19,6 +19,7 @@ import { EmptyState } from '@/shared/components/ui/empty-state';
 import { Skeleton } from '@/shared/components/ui/skeleton';
 import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { cn } from '@/shared/lib/cn';
+import { slugify } from '@/shared/lib/slugify';
 import { downloadZip } from '@/shared/lib/zip';
 import { ApiClientError } from '@/shared/services/api-client';
 import { usePipelineStore } from '@/shared/store/pipeline.store';
@@ -30,15 +31,6 @@ import type {
   SecuritySeverity,
 } from '@/shared/types/api';
 import { useSecurityBundle } from './use-security-bundle';
-
-function slugify(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || 'security'
-  );
-}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -284,7 +276,10 @@ export function SecurityPage() {
                     content: JSON.stringify(security.data.report, null, 2),
                   },
                 ];
-                downloadZip(`${slugify(security.data.meta.projectName)}-security.zip`, entries);
+                downloadZip(
+                  `${slugify(security.data.meta.projectName, 'security')}-security.zip`,
+                  entries,
+                );
               }}
             >
               Download security bundle

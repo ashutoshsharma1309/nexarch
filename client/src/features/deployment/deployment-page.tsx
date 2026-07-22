@@ -27,6 +27,7 @@ import {
 import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { cn } from '@/shared/lib/cn';
 import { downloadText } from '@/shared/lib/download';
+import { slugify } from '@/shared/lib/slugify';
 import { downloadZip } from '@/shared/lib/zip';
 import { toast } from '@/shared/store/toast.store';
 import type { DeploymentExportFormat, DeploymentFile, DeploymentTarget } from '@/shared/types/api';
@@ -108,16 +109,6 @@ const EXPORT_OPTIONS: { format: DeploymentExportFormat; label: string; descripti
   },
 ];
 
-function slugFor(name: string): string {
-  return (
-    name
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'project'
-  );
-}
-
 function Section({
   title,
   icon,
@@ -193,7 +184,7 @@ export function DeploymentPage() {
       { format, target, artifacts },
       {
         onSuccess: (result) => {
-          const slug = slugFor(artifacts.projectName);
+          const slug = slugify(artifacts.projectName, 'project');
           if (result.kind === 'file') {
             downloadText(result.filename, result.content, result.mimeType);
           } else {
