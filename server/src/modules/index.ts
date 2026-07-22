@@ -22,6 +22,7 @@ import { backendGeneratorModule } from './backend-generator/index.js';
 // which implements the schema-design capability the scaffold reserved.
 import { databaseModule, openapiModule } from './database-designer/index.js';
 import { dependencyGraphModule } from './dependency-graph/index.js';
+import { deploymentModule } from './deployment/index.js';
 import { frontendGeneratorModule } from './frontend-generator/index.js';
 import { healthModule } from './health/index.js';
 import { reviewModule } from './review/index.js';
@@ -43,6 +44,7 @@ export const modules: readonly AppModule[] = [
   dependencyGraphModule,
   aiOrchestratorModule,
   workspaceModule,
+  deploymentModule,
   reviewModule,
 ];
 

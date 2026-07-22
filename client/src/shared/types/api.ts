@@ -1169,3 +1169,94 @@ export interface ExportFile {
 export type ExportResult =
   | { kind: 'file'; filename: string; mimeType: string; content: string }
   | { kind: 'archive'; files: ExportFile[] };
+
+/* ── Deployment (Phase 11) ────────────────────────────────────────────── */
+
+export type DeploymentTarget =
+  | 'docker'
+  | 'docker-compose'
+  | 'vercel'
+  | 'netlify'
+  | 'render'
+  | 'railway'
+  | 'aws-ec2'
+  | 'aws-ecs'
+  | 'gcp-cloud-run'
+  | 'azure-app-service'
+  | 'digitalocean'
+  | 'local';
+
+export type DeploymentFileLanguage =
+  'dockerfile' | 'yaml' | 'shellscript' | 'ignore' | 'env' | 'markdown' | 'json' | 'typescript';
+
+export interface DeploymentFile {
+  path: string;
+  content: string;
+  language: DeploymentFileLanguage;
+}
+
+export interface EnvVarRule {
+  name: string;
+  required: boolean;
+  secret: boolean;
+  description: string;
+  example: string;
+}
+
+export interface DeploymentBundle {
+  target: DeploymentTarget;
+  meta: { projectName: string; generatedAt: string; generator: string };
+  docker: {
+    dockerignoreBackend: DeploymentFile;
+    dockerignoreFrontend: DeploymentFile;
+    composeDev: DeploymentFile;
+    composeProd: DeploymentFile;
+  };
+  environment: {
+    envExample: DeploymentFile;
+    envDevelopment: DeploymentFile;
+    envProduction: DeploymentFile;
+    validationRules: EnvVarRule[];
+    docs: DeploymentFile;
+  };
+  cicd: { buildWorkflow: DeploymentFile; deployWorkflow: DeploymentFile };
+  health: { files: DeploymentFile[] };
+  monitoring: { files: DeploymentFile[] };
+  logging: { files: DeploymentFile[] };
+  backup: { markdown: string };
+  scalability: { markdown: string };
+  targetConfig: { files: DeploymentFile[] };
+  guide: { markdown: string };
+}
+
+export type DeploymentExportFormat =
+  | 'dockerfile'
+  | 'docker-compose'
+  | 'docker-compose-prod'
+  | 'github-workflow-build'
+  | 'github-workflow-deploy'
+  | 'env-example'
+  | 'deployment-guide'
+  | 'complete-zip'
+  | 'docker-package'
+  | 'deployment-package'
+  | 'environment-package'
+  | 'cicd-package';
+
+export interface DeploymentStatus {
+  supportedTargets: DeploymentTarget[];
+  ready: boolean;
+  capabilities: string[];
+}
+
+export interface DeploymentHealthCheckPreview {
+  path: string;
+  purpose: string;
+}
+
+export interface DeploymentHealthPreview {
+  status: 'ok';
+  note: string;
+  checks: DeploymentHealthCheckPreview[];
+  generatedAt: string;
+}
