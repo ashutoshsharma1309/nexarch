@@ -35,7 +35,15 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
 function SidebarFooter() {
   return (
     <div className="border-t border-line px-5 py-3">
-      <p className="font-mono text-2xs text-fg-subtle">phase 12 · quality</p>
+      <p className="font-mono text-2xs text-fg-subtle">12 modules · v1.0</p>
+      <a
+        href="https://www.linkedin.com/in/ashutoshsharma1309/"
+        target="_blank"
+        rel="noreferrer"
+        className="mt-1 block text-2xs text-fg-subtle transition-colors hover:text-fg-muted"
+      >
+        Made by Ashutosh Sharma
+      </a>
     </div>
   );
 }

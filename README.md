@@ -177,3 +177,7 @@ review is future work rather than a blocker for any current capability.
 lays out the design for NexArch 2.0 — evolving from a single-model pipeline into a
 15-agent autonomous engineering organization. It's a design/roadmap document only;
 nothing in it is implemented, and v1's architecture above is unaffected.
+
+---
+
+Made by [Ashutosh Sharma](https://www.linkedin.com/in/ashutoshsharma1309/)
