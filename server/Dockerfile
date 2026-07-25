@@ -11,10 +11,10 @@ RUN apk add --no-cache openssl
 
 COPY package.json package-lock.json ./
 COPY server/package.json server/
-RUN npm ci --workspace server
+RUN npm ci --workspace server --ignore-scripts
 
 COPY server/prisma server/prisma
-COPY server/tsconfig.json server/
+COPY server/tsconfig.json server/tsconfig.build.json server/
 COPY server/src server/src
 
 RUN npm run db:generate --workspace server \
@@ -25,7 +25,7 @@ FROM node:22-alpine AS prod-deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY server/package.json server/
-RUN npm ci --workspace server --omit=dev
+RUN npm ci --workspace server --omit=dev --ignore-scripts
 
 # ── Stage 3: runtime ───────────────────────────────────────────────────────
 FROM node:22-alpine AS runtime

@@ -9,7 +9,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY client/package.json client/
-RUN npm ci --workspace client
+RUN npm ci --workspace client --ignore-scripts
 
 COPY client client
 RUN npm run build --workspace client
