@@ -25,6 +25,7 @@ import { dependencyGraphModule } from './dependency-graph/index.js';
 import { deploymentModule } from './deployment/index.js';
 import { frontendGeneratorModule } from './frontend-generator/index.js';
 import { healthModule } from './health/index.js';
+import { insightsModule } from './insights/index.js';
 import { qualityModule } from './quality/index.js';
 import { reviewModule } from './review/index.js';
 // The Phase 1 `security` scaffold is superseded by the Phase 7 engine, the
@@ -47,6 +48,7 @@ export const modules: readonly AppModule[] = [
   workspaceModule,
   deploymentModule,
   qualityModule,
+  insightsModule,
   reviewModule,
 ];
 
