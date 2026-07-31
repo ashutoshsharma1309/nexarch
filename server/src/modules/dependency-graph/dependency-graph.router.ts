@@ -13,6 +13,15 @@
  * which nodes/files the change touches and the estimated token savings
  * versus regenerating the whole project.
  *
+ * POST /api/v1/dependency/diff
+ *
+ * Same core bundle plus `newRequirements` (the spec a NEW prompt analyzed
+ * into). Diffs it against `requirements` (the spec the current project was
+ * built from), synthesizes change requests from the structured diff, and
+ * returns a SpecDiffAnalysis: what changed, what it impacts, and a
+ * selective regeneration plan (or a full-rebuild recommendation when the
+ * diff is too broad for selective merge to pay off).
+ *
  * POST /api/v1/dependency/regenerate
  *
  * Same body plus `changeRequest`, `newBackend`/`newFrontend`/`newSecurity`
@@ -35,12 +44,14 @@ import {
   buildHandler,
   graphHandler,
   regenerateHandler,
+  specDiffHandler,
   statisticsHandler,
 } from './dependency-graph.controller.js';
 import {
   changeRequestValidation,
   graphInputsValidation,
   regenerateValidation,
+  specDiffValidation,
 } from './dependency-graph.validator.js';
 
 export const dependencyGraphRouter: Router = Router();
@@ -50,6 +61,11 @@ dependencyGraphRouter.post(
   '/analyze',
   validate([...graphInputsValidation, ...changeRequestValidation]),
   analyzeHandler,
+);
+dependencyGraphRouter.post(
+  '/diff',
+  validate([...graphInputsValidation, ...specDiffValidation]),
+  specDiffHandler,
 );
 dependencyGraphRouter.post(
   '/regenerate',

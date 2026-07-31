@@ -11,6 +11,7 @@ import { AppError } from '../../shared/utils/app-error.js';
 import { sendSuccess } from '../../shared/utils/api-response.js';
 import {
   analyzeChangeImpact,
+  analyzeSpecDiff,
   buildDependencyGraphBundle,
   regenerateProject,
 } from './dependency-graph.service.js';
@@ -19,6 +20,7 @@ import {
   readAnalyzeRequest,
   readBuildRequest,
   readRegenerateRequest,
+  readSpecDiffRequest,
 } from './dependency-graph.validator.js';
 
 let lastBuild: BuildResult | null = null;
@@ -34,6 +36,12 @@ export function analyzeHandler(req: Request, res: Response): void {
   const inputs = readAnalyzeRequest(req.body as Record<string, unknown>);
   const impact = analyzeChangeImpact(inputs.changeRequest, inputs);
   sendSuccess(res, impact);
+}
+
+export function specDiffHandler(req: Request, res: Response): void {
+  const inputs = readSpecDiffRequest(req.body as Record<string, unknown>);
+  const analysis = analyzeSpecDiff(inputs.newRequirements, inputs);
+  sendSuccess(res, analysis);
 }
 
 export function regenerateHandler(req: Request, res: Response): void {

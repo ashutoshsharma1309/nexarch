@@ -70,6 +70,18 @@ export const changeRequestValidation: ValidationChain[] = [
     .withMessage('changeRequest must describe the requested change in at least 3 characters'),
 ];
 
+export const specDiffValidation: ValidationChain[] = [
+  body('newRequirements')
+    .exists({ values: 'falsy' })
+    .withMessage('newRequirements is required — analyze the new prompt first')
+    .bail()
+    .isObject()
+    .withMessage('newRequirements must be a RequirementSpec object'),
+  body('newRequirements.projectName')
+    .isString()
+    .withMessage('newRequirements.projectName is required'),
+];
+
 export const regenerateValidation: ValidationChain[] = [
   body('newBackend')
     .exists({ values: 'falsy' })
@@ -113,6 +125,15 @@ export function readAnalyzeRequest(
   body: Record<string, unknown>,
 ): GraphInputs & { changeRequest: string } {
   return { ...readGraphInputs(body), changeRequest: body.changeRequest as string };
+}
+
+export function readSpecDiffRequest(
+  body: Record<string, unknown>,
+): GraphInputs & { newRequirements: RequirementSpec } {
+  return {
+    ...readGraphInputs(body),
+    newRequirements: body.newRequirements as RequirementSpec,
+  };
 }
 
 export function readRegenerateRequest(body: Record<string, unknown>): RegenerateInputs {

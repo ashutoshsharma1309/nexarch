@@ -17,6 +17,7 @@ import { generateFrontend } from '../frontend-generator/frontend-generator.servi
 import { applySecurity } from '../security-engine/security-engine.service.js';
 import {
   analyzeChangeImpact,
+  analyzeSpecDiff,
   buildDependencyGraphBundle,
   regenerateProject,
 } from './dependency-graph.service.js';
@@ -283,5 +284,47 @@ describe('generation correctness', () => {
     );
     assert.equal(bundle.quality.circularDependencies.length, 0);
     assert.equal(bundle.stats.circularDependencyCount, 0);
+  });
+});
+
+describe('spec diff (prompt-level incremental regeneration)', () => {
+  const oldPrompt = 'Inventory management system with low stock alerts, suppliers and excel export';
+  const newPrompt =
+    'Inventory management system with low stock alerts, suppliers, excel export and barcode scanning with sms notifications';
+  const inputs = buildInputs(oldPrompt);
+
+  it('reports identical specs as identical and preserves every file', () => {
+    const analysis = analyzeSpecDiff(inputs.requirements, inputs);
+    assert.equal(analysis.diff.identical, true);
+    assert.equal(analysis.impact, null);
+    assert.equal(analysis.plan.regenerateCount, 0);
+    assert.ok(analysis.plan.preservedFileCount > 0, 'identical diff still counts preserved files');
+    assert.equal(analysis.plan.fullRebuildRecommended, false);
+  });
+
+  it('detects added requirements between two real analyzed prompts', () => {
+    const newAnalysis = analyzeRequirements(newPrompt);
+    if (newAnalysis.status !== 'COMPLETE') assert.fail('expected COMPLETE analysis');
+    const analysis = analyzeSpecDiff(newAnalysis.spec, inputs);
+
+    assert.equal(analysis.diff.identical, false);
+    assert.ok(analysis.diff.addedCount > 0, 'new prompt must add requirements');
+    assert.ok(
+      analysis.diff.changeRequests.length > 0,
+      'diff must synthesize change requests for the impact analyzer',
+    );
+    // The plan must be selective: something regenerates, something survives.
+    assert.ok(analysis.impact !== null);
+    assert.ok(analysis.plan.preservedFileCount > 0, 'a small diff must preserve files');
+  });
+
+  it('keeps rewording-only changes out of the diff', () => {
+    // Same requirements, different casing — the differ must not care.
+    const reworded = {
+      ...inputs.requirements,
+      modules: inputs.requirements.modules.map((m) => m.toUpperCase()),
+    };
+    const analysis = analyzeSpecDiff(reworded, inputs);
+    assert.equal(analysis.diff.identical, true);
   });
 });

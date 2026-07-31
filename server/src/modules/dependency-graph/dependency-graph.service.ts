@@ -20,6 +20,7 @@ import { analyzeImpact } from './lib/impact-analyzer.js';
 import { mergeProject } from './lib/merge-engine.js';
 import { scanProject } from './lib/project-scanner.js';
 import type { ScannedProject } from './lib/project-scanner.js';
+import { diffSpecs } from './lib/spec-differ.js';
 import { recordVersion } from './lib/version-manager.js';
 import type {
   BackendBundle,
@@ -29,6 +30,7 @@ import type {
   ProjectFile,
   RegenerationResult,
   SecurityBundleInput,
+  SpecDiffAnalysis,
 } from './dependency-graph.types.js';
 
 export interface GraphInputs {
@@ -117,5 +119,59 @@ export function regenerateProject(inputs: RegenerateInputs): RegenerationResult 
     stats,
     manifest,
     folderTree: buildFolderTree(files),
+  };
+}
+
+/**
+ * Prompt-diff analysis (Phase 13): compares the requirement spec the
+ * current project was built from (`inputs.requirements`) against the spec
+ * a new prompt analyzes into, synthesizes change requests from the
+ * structured diff, and runs them through the existing impact analyzer to
+ * produce a selective regeneration plan. When more than half of the
+ * project is affected, the plan recommends a full rebuild — at that point
+ * the selective merge saves nothing and only adds provenance noise.
+ */
+export function analyzeSpecDiff(
+  newRequirements: RequirementSpec,
+  inputs: GraphInputs,
+): SpecDiffAnalysis {
+  const diff = diffSpecs(inputs.requirements, newRequirements);
+  const meta = {
+    projectName: inputs.architecture.meta.projectName,
+    generatedAt: new Date().toISOString(),
+    generator: 'NexArch Dependency Graph Engine',
+  };
+
+  if (diff.identical) {
+    // Nothing changed, so every current file is preserved — a plain scan
+    // gives the honest count without paying for a full graph build.
+    const fileCount = scanProject(inputs.backend, inputs.frontend, inputs.security).files.length;
+    return {
+      meta,
+      diff,
+      impact: null,
+      plan: {
+        filesToRegenerate: [],
+        preservedFileCount: fileCount,
+        regenerateCount: 0,
+        fullRebuildRecommended: false,
+      },
+    };
+  }
+
+  const impact = analyzeChangeImpact(diff.changeRequests.join('. '), inputs);
+  const totalFiles = impact.affectedFiles.length + impact.unaffectedFileCount;
+  const fullRebuildRecommended = totalFiles > 0 && impact.affectedFiles.length / totalFiles > 0.5;
+
+  return {
+    meta,
+    diff,
+    impact,
+    plan: {
+      filesToRegenerate: impact.affectedFiles,
+      preservedFileCount: impact.unaffectedFileCount,
+      regenerateCount: impact.affectedFiles.length,
+      fullRebuildRecommended,
+    },
   };
 }

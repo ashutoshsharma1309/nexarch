@@ -7,6 +7,7 @@
  * platform's own source tree.
  */
 import type { FolderNode } from '../../shared/types/architecture.js';
+import type { SpecDiff } from './lib/spec-differ.js';
 
 /* ── Duck-typed inputs — the real Phase 5/6/7 outputs satisfy these
    structurally, the same convention every generator module already uses. */
@@ -287,4 +288,28 @@ export interface DependencyGraphBundle {
   layout: GraphLayout;
   stats: DependencyStats;
   quality: QualityReport;
+}
+
+/* ── Prompt-diff regeneration (Phase 13) ─────────────────────────────── */
+
+export type { SpecCategory, SpecCategoryDiff, SpecDiff } from './lib/spec-differ.js';
+
+/**
+ * What `POST /dependency/diff` returns: the requirement-level diff between
+ * the spec the project was built from and the newly analyzed spec, the
+ * impact of that diff on the existing graph, and the resulting selective
+ * regeneration plan. `impact` is null when the specs are identical — there
+ * is nothing to analyze, and saying so beats a degenerate empty analysis.
+ */
+export interface SpecDiffAnalysis {
+  meta: { projectName: string; generatedAt: string; generator: string };
+  diff: SpecDiff;
+  impact: ImpactAnalysis | null;
+  plan: {
+    filesToRegenerate: AffectedFile[];
+    preservedFileCount: number;
+    regenerateCount: number;
+    /** Regenerate everything when the diff is too broad for selective merge to pay off. */
+    fullRebuildRecommended: boolean;
+  };
 }
