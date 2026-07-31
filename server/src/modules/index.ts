@@ -24,6 +24,7 @@ import { databaseModule, openapiModule } from './database-designer/index.js';
 import { dependencyGraphModule } from './dependency-graph/index.js';
 import { deploymentModule } from './deployment/index.js';
 import { frontendGeneratorModule } from './frontend-generator/index.js';
+import { githubModule } from './github/index.js';
 import { healthModule } from './health/index.js';
 import { insightsModule } from './insights/index.js';
 import { qualityModule } from './quality/index.js';
@@ -49,6 +50,7 @@ export const modules: readonly AppModule[] = [
   deploymentModule,
   qualityModule,
   insightsModule,
+  githubModule,
   reviewModule,
 ];
 
