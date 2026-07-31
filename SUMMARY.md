@@ -27,7 +27,9 @@ Two things matter to keep straight:
   (e.g. `server/src/modules/deployment` generates deployment files _for
   generated apps_; the repo-root `docker-compose.yml` deploys _NexArch itself_).
 
-**Status:** v1.0 — all 12 build phases complete, verified, and pushed. A
+**Status:** v1.1 — all 12 build phases complete plus Phase 13 (End-to-End
+Application Lifecycle: local runner, GitHub integration, one-click deploy,
+prompt-diff regeneration, insights), verified, and pushed. A
 forward-looking multi-agent design for v2.0 exists at
 `docs/v2/NEXARCH_V2_ARCHITECTURE.md` but is **design only — nothing in it is
 implemented**.
@@ -188,6 +190,11 @@ Notes:
 - If host port 3306 is occupied by a local MySQL, set `MYSQL_PORT=3307` in `.env`.
 - `OPENROUTER_API_KEY` (optional) enables real LLM calls in `ai-orchestrator`;
   everything else works without it.
+- Phase 13 integration tokens (all optional, same provider-key convention):
+  `GITHUB_TOKEN` (push flow), `VERCEL_TOKEN` / `RAILWAY_TOKEN`+ids /
+  `RENDER_API_KEY`+`RENDER_SERVICE_ID` (one-click deploy),
+  `NEXARCH_RUNNER_DIR` / `NEXARCH_RUNNER_MAX_SESSIONS` (runner knobs).
+  Everything is built and gated — only final execution needs the tokens.
 
 ## 8. Conventions an assistant must follow
 

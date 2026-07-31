@@ -5,7 +5,8 @@ language — NexArch analyzes the requirements, plans the architecture, designs 
 database, generates hardened backend and frontend code, and keeps regenerating
 incrementally as the requirements evolve.
 
-**Status: all 12 build phases complete.** Requirement analysis, architecture planning,
+**Status: all 12 build phases complete, plus Phase 13 — End-to-End Application
+Lifecycle.** Requirement analysis, architecture planning,
 database design, backend generation, frontend generation, security hardening,
 dependency-aware regeneration, AI orchestration, workspace/project management,
 deployment infrastructure generation, and quality/testing/documentation are all live
@@ -72,6 +73,9 @@ server/src/
     workspace/           # implemented: projects, generation history, export
     deployment/          # implemented: deployment infra generation (12 targets)
     quality/             # implemented: quality scoring, testing, docs, release readiness
+    insights/            # implemented: automatic architecture analysis, diagrams, scores
+    github/              # implemented: repo/branch/commit management, Git Data API push
+    runner/              # implemented: one-click local runs with ports, logs, diagnostics
     auth/                # scaffold: JWT sessions, role guards
     review/              # scaffold: static analysis + optimization
   shared/                # config, logger, middleware, database client, types, utils
@@ -168,6 +172,12 @@ All 12 build phases are complete:
 10. ~~Workspace — projects, generation history, export~~
 11. ~~Deployment Engine — deployment infrastructure generation across 12 targets~~
 12. ~~Quality Engine — quality scoring, test generation, documentation, release readiness~~
+13. ~~End-to-End Application Lifecycle — one-click local runs, GitHub push, one-click deploy (Vercel/Railway/Render), prompt-diff incremental regeneration, automatic architecture insights~~
+
+Phase 13's integrations are credential-gated: the GitHub push flow and the
+deploy providers are fully built and ship disabled until `GITHUB_TOKEN` /
+provider tokens are set (see `server/.env.example`) — planning and status
+endpoints work without any secrets.
 
 `auth` and `review` remain intentional scaffolds — the platform doesn't need multi-user
 accounts for its own single-workspace console yet, and static-analysis/optimization
