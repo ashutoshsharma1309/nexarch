@@ -191,3 +191,55 @@ export interface DeploymentHealthPreview {
   checks: DeploymentHealthCheckPreview[];
   generatedAt: string;
 }
+
+/* ── One-click deploy execution (Phase 13) ────────────────────────────── */
+
+export type DeployProviderId = 'vercel' | 'railway' | 'render';
+
+export interface DeployProviderStatus {
+  id: DeployProviderId;
+  name: string;
+  configured: boolean;
+  requiredEnv: string[];
+  docsUrl: string;
+  strategy: string;
+}
+
+export type DeployExecutionPhase =
+  'queued' | 'building' | 'deploying' | 'monitoring' | 'live' | 'failed';
+
+export interface DeployTransition {
+  phase: DeployExecutionPhase;
+  at: string;
+  detail: string;
+}
+
+export interface DeployExecution {
+  id: string;
+  provider: DeployProviderId;
+  projectName: string;
+  phase: DeployExecutionPhase;
+  transitions: DeployTransition[];
+  url: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExecuteDeployRequest {
+  provider: DeployProviderId;
+  projectName: string;
+  files: { path: string; content: string }[];
+  /** Environment for the deployed app — forwarded to the provider, never logged. */
+  env?: Record<string, string> | undefined;
+}
+
+export interface DeployExecutionPlan {
+  provider: DeployProviderId;
+  providerName: string;
+  configured: boolean;
+  requiredEnv: string[];
+  strategy: string;
+  steps: { name: string; description: string }[];
+  artifactSummary: { fileCount: number; hasBackend: boolean; hasFrontend: boolean };
+}

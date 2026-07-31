@@ -13,10 +13,15 @@ import { planArchitecture } from '../architecture/architecture.service.js';
 import { generateBackend } from '../backend-generator/backend-generator.service.js';
 import { designDatabase } from '../database-designer/database-designer.service.js';
 import { generateFrontend } from '../frontend-generator/frontend-generator.service.js';
+import { AppError } from '../../shared/utils/app-error.js';
 import {
+  executeDeploy,
   generateDeployment,
+  getDeployExecution,
   getHealthPreview,
+  getProviders,
   getStatus,
+  planDeployExecution,
   runExport,
   SUPPORTED_TARGETS,
 } from './deployment.service.js';
@@ -341,5 +346,65 @@ describe('status and health preview', () => {
     assert.equal(preview.status, 'ok');
     assert.equal(preview.checks.length, 5);
     assert.match(preview.note, /not a live/);
+  });
+});
+
+describe('one-click deploy execution (Phase 13, unconfigured deployment)', () => {
+  const request = {
+    provider: 'vercel' as const,
+    projectName: artifacts.projectName,
+    files: (artifacts.backend?.files ?? []).map((f) => ({
+      path: `backend/${f.path}`,
+      content: f.content,
+    })),
+  };
+
+  it('lists all three providers with configured state and enable requirements', () => {
+    const providers = getProviders();
+    assert.deepEqual(
+      providers.map((p) => p.id),
+      ['vercel', 'railway', 'render'],
+    );
+    for (const provider of providers) {
+      assert.ok(provider.requiredEnv.length > 0, `${provider.id} must name its env vars`);
+      assert.ok(provider.strategy.length > 10, `${provider.id} must explain its strategy`);
+      if (provider.id === 'vercel' && !process.env.VERCEL_TOKEN) {
+        assert.equal(provider.configured, false);
+      }
+    }
+  });
+
+  it('plans an execution with the full step sequence and artifact summary, with no tokens', () => {
+    const plan = planDeployExecution(request);
+    assert.equal(plan.provider, 'vercel');
+    assert.deepEqual(
+      plan.steps.map((s) => s.name),
+      ['build', 'deploy', 'monitor', 'url'],
+    );
+    assert.equal(plan.artifactSummary.fileCount, request.files.length);
+    assert.equal(plan.artifactSummary.hasBackend, true);
+  });
+
+  it('refuses to execute against an unconfigured provider with a FORBIDDEN AppError', (t) => {
+    if (process.env.VERCEL_TOKEN) {
+      t.skip('VERCEL_TOKEN configured locally — the gate is open by design');
+      return;
+    }
+    assert.throws(
+      () => executeDeploy(request),
+      (error: unknown) => {
+        assert.ok(AppError.isAppError(error));
+        assert.equal(error.code, 'FORBIDDEN');
+        assert.match(error.message, /VERCEL_TOKEN/);
+        return true;
+      },
+    );
+  });
+
+  it('404s on unknown execution ids instead of returning undefined', () => {
+    assert.throws(
+      () => getDeployExecution('no-such-execution'),
+      (error: unknown) => AppError.isAppError(error) && error.code === 'NOT_FOUND',
+    );
   });
 });

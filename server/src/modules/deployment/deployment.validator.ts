@@ -8,8 +8,10 @@ import { body } from 'express-validator';
 import type { ValidationChain } from 'express-validator';
 
 import type {
+  DeployProviderId,
   DeploymentArtifacts,
   DeploymentTarget,
+  ExecuteDeployRequest,
   ExportFormat,
   ExportRequest,
   GenerateDeploymentRequest,
@@ -84,5 +86,33 @@ export function readExportRequest(payload: Record<string, unknown>): ExportReque
     format: payload.format as ExportFormat,
     target: payload.target as DeploymentTarget,
     artifacts: payload.artifacts as DeploymentArtifacts,
+  };
+}
+
+/* ── One-click deploy execution (Phase 13) ────────────────────────────── */
+
+const DEPLOY_PROVIDERS: DeployProviderId[] = ['vercel', 'railway', 'render'];
+
+export const executeDeployValidation: ValidationChain[] = [
+  body('provider')
+    .isIn(DEPLOY_PROVIDERS)
+    .withMessage(`provider must be one of ${DEPLOY_PROVIDERS.join(', ')}`),
+  body('projectName').isString().trim().isLength({ min: 1 }).withMessage('projectName is required'),
+  body('files').isArray({ min: 1 }).withMessage('files must be a non-empty array'),
+  body('files.*.path')
+    .isString()
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('every file needs a path'),
+  body('files.*.content').isString().withMessage('every file needs string content'),
+  body('env').optional().isObject().withMessage('env must be a string map'),
+];
+
+export function readExecuteDeployRequest(payload: Record<string, unknown>): ExecuteDeployRequest {
+  return {
+    provider: payload.provider as DeployProviderId,
+    projectName: payload.projectName as string,
+    files: payload.files as { path: string; content: string }[],
+    env: payload.env as Record<string, string> | undefined,
   };
 }

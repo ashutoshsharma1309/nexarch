@@ -6,6 +6,13 @@
  * use.
  */
 import { generateBackupDocs } from './lib/backup-generator.js';
+import {
+  getExecution,
+  listExecutions,
+  planExecution,
+  startExecution,
+} from './lib/execution-manager.js';
+import { listProviderStatuses } from './lib/providers/provider-registry.js';
 import { generateDockerBundle } from './lib/docker-generator.js';
 import { generateEnvironmentBundle } from './lib/environment-generator.js';
 import { runExport as runExportInternal } from './lib/export-manager.js';
@@ -17,10 +24,14 @@ import { generateCiCdBundle } from './lib/pipeline-generator.js';
 import { generateScalabilityDocs } from './lib/scalability-generator.js';
 import { generateTargetConfig } from './lib/target-config-generator.js';
 import type {
+  DeployExecution,
+  DeployExecutionPlan,
+  DeployProviderStatus,
   DeploymentBundle,
   DeploymentHealthPreview,
   DeploymentStatus,
   DeploymentTarget,
+  ExecuteDeployRequest,
   ExportRequest,
   ExportResult,
   GenerateDeploymentRequest,
@@ -114,4 +125,26 @@ export function getHealthPreview(): DeploymentHealthPreview {
     ],
     generatedAt: new Date().toISOString(),
   };
+}
+
+/* ── One-click deploy execution (Phase 13) ────────────────────────────── */
+
+export function getProviders(): DeployProviderStatus[] {
+  return listProviderStatuses();
+}
+
+export function planDeployExecution(request: ExecuteDeployRequest): DeployExecutionPlan {
+  return planExecution(request);
+}
+
+export function executeDeploy(request: ExecuteDeployRequest): DeployExecution {
+  return startExecution(request);
+}
+
+export function getDeployExecution(id: string): DeployExecution {
+  return getExecution(id);
+}
+
+export function listDeployExecutions(): DeployExecution[] {
+  return listExecutions();
 }
