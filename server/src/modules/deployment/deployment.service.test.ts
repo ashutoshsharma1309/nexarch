@@ -355,7 +355,7 @@ describe('one-click deploy execution (Phase 13, unconfigured deployment)', () =>
     projectName: artifacts.projectName,
     files: (artifacts.backend?.files ?? []).map((f) => ({
       path: `backend/${f.path}`,
-      content: f.content,
+      content: f.content ?? '',
     })),
   };
 
