@@ -21,9 +21,14 @@ import { Textarea } from '@/shared/components/ui/textarea';
 import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { ApiClientError } from '@/shared/services/api-client';
 import { usePipelineStore } from '@/shared/store/pipeline.store';
-import type { AffectedFile, ImpactAnalysis, ModuleGroup } from '@/shared/types/api';
+import type {
+  AffectedFile,
+  ImpactAnalysis,
+  ModuleGroup,
+  SpecDiffAnalysis,
+} from '@/shared/types/api';
 import { GraphCanvas } from './components/graph-canvas';
-import { useDependencyGraph, useImpactAnalysis } from './use-dependency-graph';
+import { useDependencyGraph, useImpactAnalysis, useSpecDiff } from './use-dependency-graph';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -130,13 +135,84 @@ function ImpactPanel({ impact }: { impact: ImpactAnalysis }) {
   );
 }
 
+function SpecDiffPanel({ analysis }: { analysis: SpecDiffAnalysis }) {
+  if (analysis.diff.identical) {
+    return (
+      <p className="text-xs text-fg-muted">
+        {analysis.diff.summary} All {analysis.plan.preservedFileCount} files stay untouched.
+      </p>
+    );
+  }
+
+  const changedCategories = analysis.diff.categories.filter(
+    (category) => category.added.length > 0 || category.removed.length > 0,
+  );
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs text-fg-muted">{analysis.diff.summary}</p>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Stat label="Regenerate" value={String(analysis.plan.regenerateCount)} />
+        <Stat label="Preserved" value={String(analysis.plan.preservedFileCount)} />
+        <Stat
+          label="Recommendation"
+          value={analysis.plan.fullRebuildRecommended ? 'Full rebuild' : 'Selective'}
+        />
+      </div>
+
+      {analysis.plan.fullRebuildRecommended && (
+        <p className="text-xs text-warning">
+          More than half the project is affected — a full regeneration is cheaper than a selective
+          merge here.
+        </p>
+      )}
+
+      <div className="space-y-2">
+        {changedCategories.map((category) => (
+          <div key={category.category} className="rounded-md border border-line bg-raised/40 p-3">
+            <p className="text-xs font-medium text-fg capitalize">{category.category}</p>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {category.added.map((item) => (
+                <Badge key={`+${item}`} variant="success">
+                  + {item}
+                </Badge>
+              ))}
+              {category.removed.map((item) => (
+                <Badge key={`-${item}`} variant="danger">
+                  − {item}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {analysis.plan.filesToRegenerate.length > 0 && (
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-fg">
+            Files to regenerate ({analysis.plan.filesToRegenerate.length})
+          </p>
+          <div className="max-h-56 space-y-1 overflow-y-auto">
+            {analysis.plan.filesToRegenerate.map((file) => (
+              <AffectedFileRow key={file.path} file={file} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DependencyGraphPage() {
   useDocumentTitle('Dependency Graph');
   const navigate = useNavigate();
   const architecture = usePipelineStore((state) => state.architecture);
   const graph = useDependencyGraph();
   const impactMutation = useImpactAnalysis();
+  const specDiff = useSpecDiff();
   const [changeRequest, setChangeRequest] = useState('');
+  const [newPrompt, setNewPrompt] = useState('');
 
   const impactNodeIds = impactMutation.data
     ? new Set(impactMutation.data.affectedNodeIds)
@@ -248,6 +324,45 @@ export function DependencyGraphPage() {
                   </p>
                 )}
                 {impactMutation.data && <ImpactPanel impact={impactMutation.data} />}
+              </CardContent>
+            </Card>
+          </Section>
+
+          <Section title="Prompt-diff regeneration">
+            <Card>
+              <CardHeader>
+                <CardTitle>Evolve the prompt</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-fg-muted">
+                  Paste the evolved project prompt — it is analyzed into a spec, diffed against the
+                  spec this project was built from, and only what actually changed gets regenerated.
+                </p>
+                <Textarea
+                  placeholder="The full new prompt, e.g. the original plus “…and barcode scanning with SMS alerts”"
+                  value={newPrompt}
+                  onChange={(event) => {
+                    setNewPrompt(event.target.value);
+                  }}
+                  rows={3}
+                />
+                <Button
+                  variant="primary"
+                  loading={specDiff.isPending}
+                  disabled={newPrompt.trim().length < 10}
+                  onClick={() => {
+                    specDiff.mutate(newPrompt);
+                  }}
+                >
+                  Diff against current project
+                </Button>
+
+                {specDiff.isError && (
+                  <p className="text-xs text-danger">
+                    {specDiff.error instanceof Error ? specDiff.error.message : 'Unexpected error.'}
+                  </p>
+                )}
+                {specDiff.data && <SpecDiffPanel analysis={specDiff.data} />}
               </CardContent>
             </Card>
           </Section>

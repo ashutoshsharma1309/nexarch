@@ -11,6 +11,7 @@ import type {
   RegenerationResult,
   RequirementSpec,
   SecurityBundle,
+  SpecDiffAnalysis,
 } from '@/shared/types/api';
 import { apiClient, unwrap } from './api-client';
 
@@ -146,3 +147,25 @@ export async function regenerateProject(
 }
 
 export type { FrontendManifest };
+
+/* ── Prompt-diff regeneration (Phase 13) ──────────────────────────────── */
+
+/**
+ * Diff the spec a NEW prompt analyzed into against the spec the current
+ * project was built from, and get back the selective regeneration plan.
+ */
+export async function analyzeSpecDiff(
+  newRequirements: RequirementSpec,
+  requirements: RequirementSpec,
+  architecture: ArchitecturePlan,
+  design: DesignBundle,
+  backend: GeneratedProject,
+  frontend: GeneratedFrontend,
+  security: SecurityBundle,
+): Promise<SpecDiffAnalysis> {
+  const response = await apiClient.post<ApiSuccess<SpecDiffAnalysis>>('/dependency/diff', {
+    ...requestBody(requirements, architecture, design, backend, frontend, security),
+    newRequirements,
+  });
+  return unwrap(response.data);
+}

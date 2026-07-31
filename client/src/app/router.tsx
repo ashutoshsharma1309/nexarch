@@ -85,6 +85,27 @@ export const router = createBrowserRouter([
         },
       },
       {
+        path: 'run',
+        lazy: async () => {
+          const { RunPage } = await import('@/features/runner/run-page');
+          return { Component: RunPage };
+        },
+      },
+      {
+        path: 'insights',
+        lazy: async () => {
+          const { InsightsPage } = await import('@/features/insights/insights-page');
+          return { Component: InsightsPage };
+        },
+      },
+      {
+        path: 'github',
+        lazy: async () => {
+          const { GithubPage } = await import('@/features/github/github-page');
+          return { Component: GithubPage };
+        },
+      },
+      {
         path: 'deployment',
         lazy: async () => {
           const { DeploymentPage } = await import('@/features/deployment/deployment-page');

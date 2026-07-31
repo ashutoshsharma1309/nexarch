@@ -1469,3 +1469,253 @@ export type QualityExportFormat =
   | 'release-readiness'
   | 'readme'
   | 'documentation-package';
+
+/* ── Insights: automatic architecture analysis (Phase 13) ─────────────── */
+
+export interface TechnologyJustification {
+  question: string;
+  technology: string;
+  layer: 'frontend' | 'backend' | 'database' | 'authentication' | 'infrastructure';
+  reasoning: string;
+  alternatives: { option: string; rejectedBecause: string }[];
+}
+
+export interface InsightsDiagram {
+  title: string;
+  mermaid: string;
+}
+
+export interface InsightScore {
+  score: number;
+  grade: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
+  reasoning: string[];
+}
+
+export interface InsightsBundle {
+  meta: { projectName: string; projectType: string; generatedAt: string; generator: string };
+  summary: string;
+  technologyJustifications: TechnologyJustification[];
+  explanations: { folders: string; database: string; api: string; security: string };
+  diagrams: { architecture: InsightsDiagram; er: InsightsDiagram; apiFlow: InsightsDiagram };
+  scores: {
+    maintainability: InsightScore;
+    security: InsightScore;
+    scalability: InsightScore;
+    overall: InsightScore;
+  };
+}
+
+/* ── Dependency graph: prompt-diff regeneration (Phase 13) ────────────── */
+
+export type SpecCategory =
+  'roles' | 'modules' | 'frontend' | 'backend' | 'database' | 'authentication' | 'integrations';
+
+export interface SpecCategoryDiff {
+  category: SpecCategory;
+  added: string[];
+  removed: string[];
+  unchanged: string[];
+}
+
+export interface SpecDiff {
+  categories: SpecCategoryDiff[];
+  addedCount: number;
+  removedCount: number;
+  unchangedCount: number;
+  identical: boolean;
+  changeRequests: string[];
+  summary: string;
+}
+
+export interface SpecDiffAnalysis {
+  meta: { projectName: string; generatedAt: string; generator: string };
+  diff: SpecDiff;
+  impact: ImpactAnalysis | null;
+  plan: {
+    filesToRegenerate: AffectedFile[];
+    preservedFileCount: number;
+    regenerateCount: number;
+    fullRebuildRecommended: boolean;
+  };
+}
+
+/* ── GitHub integration (Phase 13) ────────────────────────────────────── */
+
+export interface GithubStatus {
+  configured: boolean;
+  tokenSource: 'environment' | 'none';
+  capabilities: string[];
+  enableHint: string | null;
+}
+
+export interface GithubUser {
+  login: string;
+  name: string | null;
+  htmlUrl: string;
+  publicRepos: number;
+}
+
+export interface GithubRepoSummary {
+  owner: string;
+  name: string;
+  fullName: string;
+  private: boolean;
+  htmlUrl: string;
+  defaultBranch: string;
+  description: string | null;
+  updatedAt: string;
+}
+
+export interface GithubCommitSummary {
+  sha: string;
+  message: string;
+  author: string;
+  date: string;
+  htmlUrl: string;
+}
+
+export interface GithubPushFile {
+  path: string;
+  content: string;
+}
+
+export interface GithubPushRequest {
+  owner: string;
+  repo: string;
+  branch: string;
+  message: string;
+  files: GithubPushFile[];
+  generateReadme: boolean;
+  projectMeta?: { projectName: string; description?: string; stack?: string[] };
+}
+
+export interface GithubPushPlan {
+  owner: string;
+  repo: string;
+  branch: string;
+  fileCount: number;
+  totalBytes: number;
+  readmeIncluded: boolean;
+  steps: { name: string; description: string }[];
+  warnings: string[];
+}
+
+export interface GithubPushResult {
+  commitSha: string;
+  commitUrl: string;
+  branch: string;
+  filesPushed: number;
+}
+
+/* ── Deployment: one-click execution (Phase 13) ───────────────────────── */
+
+export type DeployProviderId = 'vercel' | 'railway' | 'render';
+
+export interface DeployProviderStatus {
+  id: DeployProviderId;
+  name: string;
+  configured: boolean;
+  requiredEnv: string[];
+  docsUrl: string;
+  strategy: string;
+}
+
+export type DeployExecutionPhase =
+  'queued' | 'building' | 'deploying' | 'monitoring' | 'live' | 'failed';
+
+export interface DeployExecution {
+  id: string;
+  provider: DeployProviderId;
+  projectName: string;
+  phase: DeployExecutionPhase;
+  transitions: { phase: DeployExecutionPhase; at: string; detail: string }[];
+  url: string | null;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExecuteDeployRequest {
+  provider: DeployProviderId;
+  projectName: string;
+  files: { path: string; content: string }[];
+  env?: Record<string, string>;
+}
+
+export interface DeployExecutionPlan {
+  provider: DeployProviderId;
+  providerName: string;
+  configured: boolean;
+  requiredEnv: string[];
+  strategy: string;
+  steps: { name: string; description: string }[];
+  artifactSummary: { fileCount: number; hasBackend: boolean; hasFrontend: boolean };
+}
+
+/* ── Local runner (Phase 13) ──────────────────────────────────────────── */
+
+export type RunPhase =
+  | 'preparing'
+  | 'installing'
+  | 'starting'
+  | 'running'
+  | 'stopping'
+  | 'stopped'
+  | 'restarting'
+  | 'failed';
+
+export type RunProcessKind = 'backend' | 'frontend';
+
+export interface RunProcess {
+  kind: RunProcessKind;
+  status: 'pending' | 'installing' | 'starting' | 'running' | 'exited';
+  port: number | null;
+  url: string | null;
+  command: string;
+  pid: number | null;
+  exitCode: number | null;
+}
+
+export interface RunSession {
+  id: string;
+  projectName: string;
+  phase: RunPhase;
+  processes: RunProcess[];
+  transitions: { phase: RunPhase; at: string; detail: string }[];
+  workspaceDir: string;
+  diagnostics: string[] | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateRunSessionRequest {
+  projectName: string;
+  files: { path: string; content: string }[];
+  env?: Record<string, string>;
+}
+
+export interface RunPlan {
+  projectName: string;
+  targets: {
+    kind: RunProcessKind;
+    directory: string;
+    installCommand: string;
+    startCommand: string;
+    npmScript: string;
+    envFile: { path: string; derivedFrom: string } | null;
+  }[];
+  steps: { name: string; description: string }[];
+  warnings: string[];
+}
+
+export interface RunLogLine {
+  seq: number;
+  stream: RunProcessKind | 'system';
+  line: string;
+  at: string;
+}
+
+export interface RunLogChunk {
+  lines: RunLogLine[];
+  nextCursor: number;
+}

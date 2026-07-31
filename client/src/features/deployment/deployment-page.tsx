@@ -11,6 +11,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 
 import { CodeViewer } from '@/features/database/components/code-viewer';
+import { LaunchSection } from '@/features/deployment/launch-section';
 import { PageHeader } from '@/shared/components/page-header';
 import { Badge } from '@/shared/components/ui/badge';
 import { Button } from '@/shared/components/ui/button';
@@ -360,6 +361,10 @@ export function DeploymentPage() {
                   title="No live deployment"
                   description="This dashboard generates deployment infrastructure — it doesn't deploy anything itself. Logs will appear here once you've deployed to a real target and wired up log shipping (see LOGGING.md in the export)."
                 />
+              </Section>
+
+              <Section title="Launch" icon={<Rocket className="size-4" />}>
+                <LaunchSection artifacts={artifacts} />
               </Section>
 
               <Section title="Export" icon={<Download className="size-4" />}>
