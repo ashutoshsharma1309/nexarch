@@ -2,7 +2,7 @@
   "name": "nexarch",
   "version": "0.1.0",
   "private": true,
-  "description": "NexArch — AI-powered secure full-stack application generation platform",
+  "description": "NexArch \u2014 AI-powered secure full-stack application generation platform",
   "license": "UNLICENSED",
   "engines": {
     "node": ">=22.0.0",
@@ -20,7 +20,7 @@
     "lint": "npm run lint --workspaces",
     "lint:fix": "npm run lint:fix --workspaces",
     "typecheck": "npm run typecheck --workspaces",
-    "test": "npm run test --workspace server",
+    "test": "npm run test --workspaces",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:generate": "npm run db:generate --workspace server",
