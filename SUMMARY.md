@@ -42,8 +42,8 @@ implemented**.
 | Client  | React 19 · Vite · TypeScript · TailwindCSS 4 · React Router · TanStack Query · Zustand · React Hook Form · Zod · Axios · Framer Motion   |
 | Tooling | npm workspaces (`server/`, `client/`) · typed flat-config ESLint · Prettier · Husky + lint-staged · GitHub Actions CI · Docker + Compose |
 
-Scale: ~238 server TS files (~30k LOC), ~111 client TS/TSX files (~12k LOC),
-227 tests in 55 suites (all server-side, `node:test`).
+Scale: ~260 server TS files (~34k LOC), ~130 client TS/TSX files (~15k LOC),
+257 server tests (`node:test`) + 24 client tests (Vitest + Testing Library).
 
 ## 3. Repository layout
 
@@ -216,8 +216,10 @@ Notes:
 - `auth` and `review` are intentional scaffolds (§5). The console is currently
   single-workspace with no login; downstream generated apps DO get full
   JWT/RBAC from the security-engine regardless.
-- No automated client test suite (all 227 tests are server-side) — top
-  improvement recommendation in `reports/quality-summary.json`.
+- ~~No automated client test suite~~ — closed: the client now has a Vitest +
+  Testing Library suite (`client/src/**/*.test.ts(x)`, run by `npm test`)
+  covering the HTTP error layer, stores, design-system components, the
+  sidebar/nav contract, and the runner log-accumulator hook.
 - `client/src/shared/types/api.ts` is a single ~1500-line type-mirror file —
   known, accepted convention; don't split it without cause.
 - CI builds Docker images but doesn't push/deploy them — publishing is

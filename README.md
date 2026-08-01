@@ -45,7 +45,7 @@ shows live API health. The API stays up in degraded mode if MySQL isn't running 
 | -------------------- | -------------------------------------------------- |
 | `npm run dev`        | Run server + client concurrently                   |
 | `npm run build`      | Production builds of both workspaces               |
-| `npm test`           | Analyzer + planner test suites (Node test runner)  |
+| `npm test`           | Server suites (node:test) + client suites (Vitest) |
 | `npm run lint`       | Typed ESLint across both workspaces                |
 | `npm run typecheck`  | Strict TypeScript checks                           |
 | `npm run format`     | Prettier over the whole repo                       |
