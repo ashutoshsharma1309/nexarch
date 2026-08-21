@@ -53,6 +53,7 @@ import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
 
 import { config } from './shared/config/index.js';
+import { prisma } from './shared/database/prisma.js';
 import { errorHandler, notFoundHandler } from './shared/middleware/error-handler.js';
 import { requestContext } from './shared/middleware/request-context.js';
 import { requestLogger } from './shared/middleware/request-logger.js';
@@ -91,8 +92,22 @@ export function createApp(): Express {
     }),
   );
 
-  app.get(config.server.apiPrefix + '/health', (_req, res) => {
-    res.json({ success: true, message: 'OK', data: { status: 'ok' }, meta: {} });
+  // Health answers 200 even when the database is down — a listening,
+  // degraded API is observable; a 503 would be indistinguishable from
+  // "not started yet" to naive probes. The payload carries the truth.
+  app.get(config.server.apiPrefix + '/health', async (_req, res) => {
+    let database = 'up';
+    try {
+      await prisma.$queryRaw\`SELECT 1\`;
+    } catch {
+      database = 'down';
+    }
+    res.json({
+      success: true,
+      message: 'OK',
+      data: { status: database === 'up' ? 'ok' : 'degraded', checks: { database } },
+      meta: {},
+    });
   });
 
   app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));
@@ -119,10 +134,34 @@ import { connectDatabase, disconnectDatabase } from './shared/database/prisma.js
 import { logger } from './shared/logger/index.js';
 
 async function bootstrap(): Promise<void> {
-  await connectDatabase();
+  try {
+    await connectDatabase();
+  } catch (error) {
+    // A missing database must never leave the process hanging without a
+    // socket: in development the API boots in degraded mode (/health
+    // reports the database as down); in production it refuses to start.
+    if (config.isProduction) {
+      logger.error('database unreachable at boot — refusing to start', { error });
+      process.exit(1);
+    }
+    logger.warn('database unreachable — continuing in degraded mode', {
+      hint: 'point DATABASE_URL at a running MySQL and restart',
+    });
+  }
 
   const app = createApp();
   const server = http.createServer(app);
+
+  server.once('error', (error: NodeJS.ErrnoException) => {
+    // Without this, a bind failure surfaces as an anonymous uncaught
+    // exception; EADDRINUSE deserves a sentence, not a stack trace.
+    if (error.code === 'EADDRINUSE') {
+      logger.error('port ' + config.server.port + ' is already in use — set PORT to a free one');
+    } else {
+      logger.error('failed to start the HTTP server', { error });
+    }
+    process.exit(1);
+  });
 
   server.listen(config.server.port, () => {
     logger.info('API listening on port ' + config.server.port, { environment: config.env });

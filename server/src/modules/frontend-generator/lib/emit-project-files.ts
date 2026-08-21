@@ -77,7 +77,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:4000',
+        // BACKEND_URL lets a supervisor (e.g. the NexArch runner) point the
+        // proxy at wherever the backend actually landed — 4000 is only the
+        // default when both apps are started by hand.
+        target: process.env.BACKEND_URL ?? 'http://localhost:4000',
         changeOrigin: true,
       },
     },

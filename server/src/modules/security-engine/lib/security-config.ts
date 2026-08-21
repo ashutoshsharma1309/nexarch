@@ -227,6 +227,7 @@ import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 
 import { config } from './shared/config/index.js';
+import { prisma } from './shared/database/prisma.js';
 import { errorHandler, notFoundHandler } from './shared/middleware/error-handler.js';
 import { requestContext } from './shared/middleware/request-context.js';
 import { requestLogger } from './shared/middleware/request-logger.js';
@@ -274,8 +275,21 @@ export function createApp(): Express {
   app.use(requestLogger);
   app.use(apiLimiter);
 
-  app.get(config.server.apiPrefix + '/health', (_req, res) => {
-    res.json({ success: true, message: 'OK', data: { status: 'ok' }, meta: {} });
+  // Health answers 200 even when the database is down — a listening,
+  // degraded API is observable; the payload carries the truth.
+  app.get(config.server.apiPrefix + '/health', async (_req, res) => {
+    let database = 'up';
+    try {
+      await prisma.$queryRaw\`SELECT 1\`;
+    } catch {
+      database = 'down';
+    }
+    res.json({
+      success: true,
+      message: 'OK',
+      data: { status: database === 'up' ? 'ok' : 'degraded', checks: { database } },
+      meta: {},
+    });
   });
 
   app.use('/docs', swaggerUi.serve, swaggerUi.setup(openApiDocument));

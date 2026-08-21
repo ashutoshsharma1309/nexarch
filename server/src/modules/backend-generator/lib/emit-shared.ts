@@ -332,7 +332,13 @@ import { config } from '../config/index.js';
 const devFormat = winston.format.combine(
   winston.format.timestamp({ format: 'HH:mm:ss.SSS' }),
   winston.format.colorize({ level: true }),
-  winston.format.printf((info) => info.timestamp + ' ' + info.level + ' ' + String(info.message)),
+  winston.format.printf((info) => {
+    // Print metadata too — an "uncaught exception" line without the actual
+    // error is a debugging dead end.
+    const { timestamp, level, message, ...meta } = info;
+    const metaText = Object.keys(meta).length > 0 ? ' ' + JSON.stringify(meta, (_key, value) => (value instanceof Error ? value.stack : value)) : '';
+    return String(timestamp) + ' ' + String(level) + ' ' + String(message) + metaText;
+  }),
 );
 
 export const logger = winston.createLogger({
