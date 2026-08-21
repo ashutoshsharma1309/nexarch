@@ -21,6 +21,31 @@ const RULES: DiagnosticRule[] = [
       'The backend could not reach MySQL — start a database (e.g. docker compose up mysql) or point DATABASE_URL at one.',
   },
   {
+    pattern: /P1000|Access denied for user/i,
+    explain:
+      'MySQL rejected the credentials in DATABASE_URL — fix the user/password (for runner-provisioned databases, check NEXARCH_RUNNER_DATABASE_URL).',
+  },
+  {
+    pattern: /Unknown authentication plugin|sha256_password/i,
+    explain:
+      "The MySQL server uses an auth plugin Prisma doesn't support (often a host MySQL 9.x) — point at MySQL 8.x, e.g. the dockerized dev database.",
+  },
+  {
+    pattern: /prisma.*not recognized|prisma: command not found/i,
+    explain:
+      'The prisma CLI is missing from the generated project — check its devDependencies installed cleanly.',
+  },
+  {
+    pattern: /Cannot find module|ERR_MODULE_NOT_FOUND/,
+    explain:
+      'A generated import does not resolve — a dependency failed to install or a generated path is wrong; the log names the module.',
+  },
+  {
+    pattern: /@prisma\/client did not initialize|prisma generate/i,
+    explain:
+      'The Prisma client was not generated before start — the configure stage runs `prisma generate`; see its log output above.',
+  },
+  {
     pattern: /Missing script/i,
     explain:
       'The package.json does not define the expected npm script — regenerate the project or check its scripts.',

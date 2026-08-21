@@ -9,6 +9,7 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 
+import { childEnv } from './child-env.js';
 import { isPortAnswering } from './port-scanner.js';
 import type { LogBuffer } from './log-buffer.js';
 
@@ -49,16 +50,19 @@ function wire(
   });
 }
 
-/** Run an install-style command to completion. Resolves with the exit code. */
+/** Run an install/configure-style command to completion. Resolves with the exit code. */
 export function runToCompletion(
   command: string,
   args: string[],
   cwd: string,
   stream: 'backend' | 'frontend',
   logs: LogBuffer,
+  env: Record<string, string> = {},
 ): Promise<number> {
   return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd, shell: false, env: process.env });
+    // Whitelisted environment: children never see NexArch's own secrets
+    // (see child-env.ts for why inheriting DATABASE_URL is catastrophic).
+    const child = spawn(command, args, { cwd, shell: false, env: childEnv(env) });
     track(child);
     wire(child, stream, logs);
 
@@ -101,7 +105,7 @@ export function startProcess(
   const child = spawn(command, args, {
     cwd,
     shell: false,
-    env: { ...process.env, ...env },
+    env: childEnv(env),
   });
   track(child);
   wire(child, stream, logs);
@@ -126,6 +130,36 @@ export async function waitUntilAnswering(
   while (Date.now() < deadline) {
     if (isCancelled()) return false;
     if (await isPortAnswering(port)) return true;
+    await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS));
+  }
+  return false;
+}
+
+/**
+ * True once an HTTP GET on the path answers with any 2xx-4xx status. A
+ * TCP accept only proves a socket exists; RUNNING must mean the HTTP layer
+ * actually serves. 4xx still counts as alive — a dev server answering 404
+ * on / is up; only "no HTTP response at all" means not ready.
+ */
+export async function waitUntilHealthy(
+  port: number,
+  path: string,
+  isCancelled: () => boolean,
+): Promise<boolean> {
+  const deadline = Date.now() + READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (isCancelled()) return false;
+    try {
+      // `localhost`, not 127.0.0.1 — fetch tries both address families, and
+      // dev servers on some setups bind ::1 only.
+      const response = await fetch(`http://localhost:${String(port)}${path}`, {
+        signal: AbortSignal.timeout(2_000),
+        redirect: 'manual',
+      });
+      if (response.status < 500) return true;
+    } catch {
+      // not answering yet
+    }
     await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS));
   }
   return false;

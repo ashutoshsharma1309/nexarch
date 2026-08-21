@@ -16,6 +16,8 @@ import { generateBackend } from '../backend-generator/backend-generator.service.
 import { generateFrontend } from '../frontend-generator/frontend-generator.service.js';
 import { AppError } from '../../shared/utils/app-error.js';
 import { createSession, planSession } from './runner.service.js';
+import { childEnv } from './lib/child-env.js';
+import { planProvisioning, runDatabaseName } from './lib/database-provisioner.js';
 import { diagnose } from './lib/diagnostics.js';
 import { LogBuffer } from './lib/log-buffer.js';
 import { findFreePort, isPortAnswering } from './lib/port-scanner.js';
@@ -69,11 +71,19 @@ describe('run planning against a real generated project', () => {
       assert.match(target.startCommand, /npm run (dev|start)/);
       assert.ok(target.npmScript === 'dev' || target.npmScript === 'start');
     }
-    // The generated backend ships an .env.example the runner derives from.
+    // The generated backend ships an .env.example the runner derives from,
+    // a prisma schema the configure stage must handle, and a health route
+    // readiness verifies over HTTP.
     const backend = plan.targets.find((t) => t.kind === 'backend');
     assert.ok(backend?.envFile, 'backend should carry an env file derivation');
+    assert.equal(backend.prisma, true);
+    assert.equal(backend.healthPath, '/api/v1/health');
+    assert.ok(plan.steps.some((s) => s.name === 'configure-backend'));
+    const frontend = plan.targets.find((t) => t.kind === 'frontend');
+    assert.ok(frontend, 'frontend target must exist');
+    assert.equal(frontend.prisma, false);
+    assert.equal(frontend.healthPath, '/');
     assert.ok(plan.steps.some((s) => s.name === 'ready'));
-    assert.ok(plan.warnings.some((w) => w.includes('MySQL')));
   });
 
   it('rejects a run with nothing runnable instead of spawning blindly', () => {
@@ -142,10 +152,57 @@ describe('log buffer', () => {
   });
 });
 
+describe('environment isolation', () => {
+  it("never passes NexArch's own secrets to child processes", () => {
+    const env = childEnv({ PORT: '4321' });
+    assert.equal(env.DATABASE_URL, undefined);
+    assert.equal(env.JWT_SECRET, undefined);
+    assert.equal(env.PORT, '4321');
+    // The toolchain still works: PATH must survive the whitelist.
+    assert.ok(env.PATH, 'PATH must pass through');
+  });
+});
+
+describe('database provisioning plan', () => {
+  it('derives a safe per-project database name', () => {
+    assert.equal(runDatabaseName('Hotel Booking!'), 'nexarch_run_hotel_booking');
+    assert.equal(runDatabaseName('---'), 'nexarch_run_project');
+  });
+
+  it('plans creation against the configured server, ignoring any db path on it', () => {
+    const previous = process.env.NEXARCH_RUNNER_DATABASE_URL;
+    process.env.NEXARCH_RUNNER_DATABASE_URL = 'mysql://root:secret@127.0.0.1:3307/whatever';
+    try {
+      const plan = planProvisioning('task-flow');
+      assert.ok(plan);
+      assert.equal(plan.databaseUrl, 'mysql://root:secret@127.0.0.1:3307/nexarch_run_task_flow');
+      assert.equal(plan.serverUrl, 'mysql://root:secret@127.0.0.1:3307');
+    } finally {
+      if (previous === undefined) delete process.env.NEXARCH_RUNNER_DATABASE_URL;
+      else process.env.NEXARCH_RUNNER_DATABASE_URL = previous;
+    }
+  });
+
+  it('returns null (degraded mode) when no runner database is configured', () => {
+    const previous = process.env.NEXARCH_RUNNER_DATABASE_URL;
+    delete process.env.NEXARCH_RUNNER_DATABASE_URL;
+    try {
+      assert.equal(planProvisioning('anything'), null);
+    } finally {
+      if (previous !== undefined) process.env.NEXARCH_RUNNER_DATABASE_URL = previous;
+    }
+  });
+});
+
 describe('failure diagnosis', () => {
   it('translates a MySQL connection refusal into an actionable explanation', () => {
     const findings = diagnose(1, ['[backend] Error: connect ECONNREFUSED 127.0.0.1:3306']);
     assert.ok(findings.some((f) => f.includes('MySQL')));
+  });
+
+  it('recognizes the unsupported-auth-plugin failure a host MySQL 9 produces', () => {
+    const findings = diagnose(1, ["Unknown authentication plugin `sha256_password'."]);
+    assert.ok(findings.some((f) => f.includes('auth plugin')));
   });
 
   it('always says something useful, even with an unrecognized failure', () => {

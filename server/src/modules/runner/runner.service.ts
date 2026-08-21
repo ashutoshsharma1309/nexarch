@@ -14,6 +14,7 @@ import { logger } from '../../shared/logger/index.js';
 import { AppError } from '../../shared/utils/app-error.js';
 import { slugify } from '../../shared/utils/strings.js';
 import { planRun, portPreferenceFor } from './lib/command-planner.js';
+import { NO_DATABASE_HINT, planProvisioning } from './lib/database-provisioner.js';
 import { diagnose } from './lib/diagnostics.js';
 import { LogBuffer } from './lib/log-buffer.js';
 import { findFreePort } from './lib/port-scanner.js';
@@ -22,6 +23,7 @@ import {
   startProcess,
   stopChild,
   waitUntilAnswering,
+  waitUntilHealthy,
 } from './lib/process-supervisor.js';
 import { ensureEnvFile, writeWorkspace } from './lib/workspace-writer.js';
 import type { ChildProcess } from 'node:child_process';
@@ -43,7 +45,14 @@ interface SessionRuntime {
   cancelled: boolean;
 }
 
-const ACTIVE_PHASES: RunPhase[] = ['preparing', 'installing', 'starting', 'running', 'restarting'];
+const ACTIVE_PHASES: RunPhase[] = [
+  'preparing',
+  'installing',
+  'configuring',
+  'starting',
+  'running',
+  'restarting',
+];
 const MAX_SESSIONS = 30;
 
 const sessions = new Map<string, SessionRuntime>();
@@ -85,38 +94,112 @@ function processOf(runtime: SessionRuntime, kind: ProcessKind): RunProcess {
   return record;
 }
 
-async function startTargets(runtime: SessionRuntime): Promise<void> {
+/**
+ * Configure stage: synthesize .env files, then for prisma targets run
+ * `prisma generate` and — when a runner database is configured — create
+ * the session's own database and push the schema into it. Provisioning
+ * failures degrade (the generated backend boots without a database and
+ * says so); they never abort the run, because a browsable degraded app
+ * plus a precise warning beats a dead session.
+ */
+async function configureTargets(runtime: SessionRuntime): Promise<boolean> {
   const { plan, session } = runtime;
+  transition(runtime, 'configuring', 'Preparing environment and database');
 
-  transition(runtime, 'starting', 'Starting processes on auto-detected free ports');
-  const backendTarget = plan.targets.find((t) => t.kind === 'backend');
-  const backendPort = backendTarget ? await findFreePort(portPreferenceFor('backend')) : null;
+  const provision = planProvisioning(slugify(session.projectName) || 'project');
 
   for (const target of plan.targets) {
-    if (isCancelled(runtime)) return;
-    const record = processOf(runtime, target.kind);
-    const port =
-      target.kind === 'backend' && backendPort !== null
-        ? backendPort
-        : await findFreePort(portPreferenceFor(target.kind));
+    if (isCancelled(runtime)) return false;
+    const cwd = `${session.workspaceDir}/${target.directory}`;
 
     if (target.envFile) {
+      const overrides: Record<string, string> = {};
+      if (target.kind === 'backend' && provision) {
+        overrides.DATABASE_URL = `"${provision.databaseUrl}"`;
+      }
       await ensureEnvFile(
         session.workspaceDir,
         target.envFile.path,
         target.envFile.derivedFrom,
-        target.kind === 'backend' ? { PORT: String(port) } : {},
+        overrides,
       );
     }
 
+    if (!target.prisma) continue;
+
+    runtime.logs.append('system', `${target.kind}: npx prisma generate`);
+    const generateCode = await runToCompletion(
+      'npx',
+      ['prisma', 'generate'],
+      cwd,
+      target.kind,
+      runtime.logs,
+    );
+    if (isCancelled(runtime)) return false;
+    if (generateCode !== 0) {
+      fail(
+        runtime,
+        `prisma generate failed in ${target.directory}/ (code ${String(generateCode)})`,
+        generateCode,
+      );
+      return false;
+    }
+
+    if (!provision) {
+      runtime.logs.append('system', `warning: ${NO_DATABASE_HINT}`);
+      continue;
+    }
+
+    // Sync the schema into the session's own database — db push creates the
+    // database itself when missing. Best-effort: failure means degraded
+    // mode with an explanation, not a dead session.
+    runtime.logs.append('system', `${target.kind}: npx prisma db push → ${provision.databaseName}`);
+    const pushCode = await runToCompletion(
+      'npx',
+      ['prisma', 'db', 'push', '--accept-data-loss', '--skip-generate'],
+      cwd,
+      target.kind,
+      runtime.logs,
+    );
+    if (isCancelled(runtime)) return false;
+    if (pushCode !== 0) {
+      runtime.logs.append(
+        'system',
+        `warning: prisma db push failed (code ${String(pushCode)}) — check NEXARCH_RUNNER_DATABASE_URL credentials/privileges; the backend will run in degraded mode`,
+      );
+    }
+  }
+  return true;
+}
+
+async function startTargets(runtime: SessionRuntime): Promise<void> {
+  const { plan, session } = runtime;
+
+  transition(runtime, 'starting', 'Starting processes on auto-detected free ports');
+  // Allocate every port up front: the backend must know its own port, and
+  // the frontend proxy + backend CORS each need to know the other's.
+  const backendTarget = plan.targets.find((t) => t.kind === 'backend');
+  const frontendTarget = plan.targets.find((t) => t.kind === 'frontend');
+  const backendPort = backendTarget ? await findFreePort(portPreferenceFor('backend')) : null;
+  const frontendPort = frontendTarget ? await findFreePort(portPreferenceFor('frontend')) : null;
+
+  for (const target of plan.targets) {
+    if (isCancelled(runtime)) return;
+    const record = processOf(runtime, target.kind);
+    const port = target.kind === 'backend' ? backendPort : frontendPort;
+    if (port === null) continue;
+
     const env: Record<string, string> = { PORT: String(port) };
     const args = ['run', target.npmScript];
+    if (target.kind === 'backend' && frontendPort !== null) {
+      // Spawn env beats dotenv, so this wins over the .env default.
+      env.CORS_ORIGINS = `http://localhost:${String(frontendPort)},http://127.0.0.1:${String(frontendPort)}`;
+    }
     if (target.kind === 'frontend') {
-      // Vite honors --port/--strictPort; also point the client at the real
-      // backend for projects that read VITE_API_BASE_URL.
       args.push('--', '--port', String(port), '--strictPort');
-      if (backendPort !== null)
-        env.VITE_API_BASE_URL = `http://localhost:${String(backendPort)}/api/v1`;
+      // The generated vite.config proxies /api wherever BACKEND_URL points,
+      // keeping the browser same-origin — no CORS in the hot path.
+      if (backendPort !== null) env.BACKEND_URL = `http://127.0.0.1:${String(backendPort)}`;
     }
 
     const started = startProcess(
@@ -147,18 +230,31 @@ async function startTargets(runtime: SessionRuntime): Promise<void> {
     if (isCancelled(runtime)) return;
     const record = processOf(runtime, target.kind);
     if (record.port === null) continue;
-    const ready = await waitUntilAnswering(record.port, () => isCancelled(runtime));
+
+    const answering = await waitUntilAnswering(record.port, () => isCancelled(runtime));
     if (isCancelled(runtime)) return;
-    if (!ready) {
+    if (!answering) {
+      fail(runtime, `${target.kind} never opened port ${String(record.port)}`, record.exitCode);
+      return;
+    }
+
+    // A socket is not an application: RUNNING requires the HTTP layer to
+    // answer (backend: its health route; frontend: the root document).
+    const healthy = await waitUntilHealthy(record.port, target.healthPath, () =>
+      isCancelled(runtime),
+    );
+    if (isCancelled(runtime)) return;
+    if (!healthy) {
       fail(
         runtime,
-        `${target.kind} never answered on port ${String(record.port)}`,
+        `${target.kind} opened port ${String(record.port)} but never answered HTTP GET ${target.healthPath}`,
         record.exitCode,
       );
       return;
     }
     record.status = 'running';
     record.url = `http://localhost:${String(record.port)}`;
+    runtime.logs.append('system', `${target.kind} ready — ${record.url}`);
   }
 
   if (!isCancelled(runtime) && runtime.session.phase === 'starting') {
@@ -206,6 +302,9 @@ async function runPipeline(runtime: SessionRuntime, request: CreateSessionReques
     }
     record.status = 'pending';
   }
+
+  const configured = await configureTargets(runtime);
+  if (!configured) return;
 
   await startTargets(runtime);
 }

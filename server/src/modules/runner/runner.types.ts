@@ -26,8 +26,9 @@ export interface CreateSessionRequest {
 export type RunPhase =
   | 'preparing' // workspace being written
   | 'installing' // npm install running
-  | 'starting' // processes spawned, waiting for ports to answer
-  | 'running' // all processes up and answering
+  | 'configuring' // env files, prisma generate, database provisioning
+  | 'starting' // processes spawned, waiting for ports + health to answer
+  | 'running' // all processes up and answering over HTTP
   | 'stopping'
   | 'stopped'
   | 'restarting'
@@ -85,6 +86,10 @@ export interface RunPlan {
     /** The npm script `startCommand` displays — the supervisor spawns argv, never a shell string. */
     npmScript: string;
     envFile: { path: string; derivedFrom: string } | null;
+    /** Target ships a prisma/schema.prisma — configure runs generate + db push for it. */
+    prisma: boolean;
+    /** HTTP path probed for readiness once the port answers. */
+    healthPath: string;
   }[];
   steps: RunStep[];
   warnings: string[];

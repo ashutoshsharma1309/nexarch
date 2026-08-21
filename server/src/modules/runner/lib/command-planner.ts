@@ -65,6 +65,7 @@ export function planRun(request: CreateSessionRequest): RunPlan {
     const envFile = hasFile(files, envExamplePath)
       ? { path: `${layout.directory}/.env`, derivedFrom: envExamplePath }
       : null;
+    const prisma = hasFile(files, `${layout.directory}/prisma/schema.prisma`);
 
     targets.push({
       kind: layout.kind,
@@ -73,6 +74,10 @@ export function planRun(request: CreateSessionRequest): RunPlan {
       startCommand: `npm run ${script}`,
       npmScript: script,
       envFile,
+      prisma,
+      // Generated backends expose /api/v1/health; a frontend is ready when
+      // its root document answers.
+      healthPath: layout.kind === 'backend' ? '/api/v1/health' : '/',
     });
 
     if (envFile) {
@@ -85,6 +90,12 @@ export function planRun(request: CreateSessionRequest): RunPlan {
       name: `install-${layout.kind}`,
       description: `npm install in ${layout.directory}/`,
     });
+    if (prisma) {
+      steps.push({
+        name: `configure-${layout.kind}`,
+        description: `prisma generate + database provisioning in ${layout.directory}/`,
+      });
+    }
   }
 
   for (const target of targets) {
@@ -96,18 +107,13 @@ export function planRun(request: CreateSessionRequest): RunPlan {
   if (targets.length > 0) {
     steps.push({
       name: 'ready',
-      description: 'Wait until every started port answers, then report URLs',
+      description: 'Wait until every process answers over HTTP, then report URLs',
     });
   }
 
   if (targets.length === 0) {
     warnings.push(
       'No runnable targets found — expected backend/package.json or frontend/package.json',
-    );
-  }
-  if (targets.some((t) => t.kind === 'backend')) {
-    warnings.push(
-      'The backend expects a reachable MySQL (see its .env); without one it boots in degraded mode.',
     );
   }
 
