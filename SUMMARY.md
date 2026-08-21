@@ -7,19 +7,25 @@
 
 ## 1. What this project is
 
-NexArch is an **AI-powered full-stack application generation platform**. A user
+NexArch is an **AI-powered end-to-end software engineering platform**. A user
 describes an application in plain language; NexArch analyzes the requirements,
 plans the architecture, designs the database, generates hardened backend and
 frontend code, wires in security, tracks dependencies for incremental
 regeneration, generates deployment infrastructure, and scores the result for
-quality and release readiness.
+quality and release readiness. Since Phase 13 it also closes the loop after
+generation: run the generated project locally with one click (install, port
+allocation, log streaming), push it to GitHub, deploy it through provider
+abstractions (Vercel/Railway/Render), regenerate incrementally from a prompt
+diff, and auto-produce an architecture analysis with diagrams and scores.
 
 Two things matter to keep straight:
 
 - **NexArch itself** is a deterministic TypeScript platform (Express API + React
   console). Its analyzers, planners, and generators are rule/template engines —
-  they run without any LLM. The one exception is the `ai-orchestrator` module,
-  which can call LLMs through OpenRouter when `OPENROUTER_API_KEY` is set.
+  they run without any LLM. The exceptions are the integration modules, all
+  gated on optional credentials read at call time: `ai-orchestrator` (LLM calls
+  via OpenRouter), `github` (push flow), and `deployment`'s execute layer
+  (provider APIs). Without their tokens everything else still works.
 - **Generated projects** are the _output_: complete Express/Prisma backends and
   React/Vite frontends with tests, docs, Docker, and CI — produced _by_ the
   platform for the user's described app. Don't confuse the platform's own
@@ -42,8 +48,9 @@ implemented**.
 | Client  | React 19 · Vite · TypeScript · TailwindCSS 4 · React Router · TanStack Query · Zustand · React Hook Form · Zod · Axios · Framer Motion   |
 | Tooling | npm workspaces (`server/`, `client/`) · typed flat-config ESLint · Prettier · Husky + lint-staged · GitHub Actions CI · Docker + Compose |
 
-Scale: ~260 server TS files (~34k LOC), ~130 client TS/TSX files (~15k LOC),
-257 server tests (`node:test`) + 24 client tests (Vitest + Testing Library).
+Scale: ~282 server TS files (~35k LOC), ~128 client TS/TSX files (~14k LOC),
+257 server tests (`node:test`) + 24 client tests (Vitest + Testing Library) —
+281 total, all green.
 
 ## 3. Repository layout
 
@@ -63,7 +70,7 @@ server/
   src/
     index.ts              # process lifecycle: boot, listen, graceful shutdown
     app.ts                # middleware pipeline + module mounting; no socket, no DB
-    modules/              # 15 feature modules — see catalog below
+    modules/              # 17 feature modules — see catalog below
       index.ts            # THE module registry; a module exists iff it is listed here
     shared/               # the ONLY code modules may share
       config/env.ts       # every process.env read in the codebase, Zod-validated at boot
@@ -76,10 +83,10 @@ server/
 client/
   src/
     app/                  # router + 404
-    features/             # one folder per console page (19: dashboard, prompt, architecture, database,
+    features/             # one folder per console page (22: dashboard, prompt, architecture, database,
                           #   backend, frontend, security, dependency-graph, ai-orchestrator, projects,
-                          #   deployment, quality, documentation, exports, generation, logs,
-                          #   notifications, search, settings)
+                          #   deployment, quality, insights, runner, github, documentation, exports,
+                          #   generation, logs, notifications, search, settings)
     shared/
       services/           # one <module>.service.ts per server module + api-client.ts (the only axios use)
       components/ layouts/ hooks/ lib/ store/ styles/ types/
@@ -108,9 +115,12 @@ client/
    large type-mirror file — an accepted convention, don't split casually).
 6. **Config is validated at boot.** `process.env` is read in exactly one file
    (`shared/config/env.ts`) through Zod; a misconfigured server refuses to
-   start. Never read `process.env` elsewhere (one documented exception: the
-   OpenRouter provider checks its API key at call time so the platform runs
-   without it).
+   start. Never read `process.env` elsewhere. Documented exception: optional
+   integration credentials and knobs are checked at call time in their
+   provider/lib files so the platform boots and runs without them —
+   `OPENROUTER_API_KEY` (ai-orchestrator), `GITHUB_TOKEN` (github),
+   `VERCEL_TOKEN`/`RAILWAY_TOKEN`/`RENDER_API_KEY` (deployment execute), and
+   `NEXARCH_RUNNER_DIR`/`NEXARCH_RUNNER_MAX_SESSIONS` (runner).
 7. **The client never sees axios or envelopes.** Features consume typed hooks →
    services → `api-client.ts`, which unwraps envelopes and normalizes failures
    once.
@@ -136,13 +146,22 @@ Pipeline order — each stage consumes the previous stage's structured output:
 | 5   | `backend-generator`   | `/backend`      | `POST /generate` — SDS + design → complete Express/Prisma backend project (files as structured output)              |
 | 6   | `security-engine`     | `/security`     | `POST /analyze`, `POST /apply`, `GET /report` — JWT/RBAC hardening + security analysis of generated output          |
 | 7   | `frontend-generator`  | `/frontend`     | `POST /generate` — SDS + design → complete React/Vite frontend project                                              |
-| 8   | `dependency-graph`    | `/dependency`   | `POST /build`, `/analyze`, `/regenerate`, `GET /graph`, `/statistics` — change-impact analysis, incremental regen   |
+| 8   | `dependency-graph`    | `/dependency`   | `POST /build`, `/analyze`, `/diff` (old spec vs new spec → selective regeneration plan), `/regenerate`,             |
+|     |                       |                 | `GET /graph`, `/statistics` — change-impact analysis, prompt-diff incremental regeneration                          |
 | 9   | `ai-orchestrator`     | `/ai`           | `POST /generate`, `/retry`, `/workflow`, `GET /history`, `/statistics` — LLM routing via OpenRouter (needs API key) |
 | 10  | `workspace`           | `/`             | Projects CRUD (`/projects`, `/project/:id`, duplicate, generations), `/history`, `/statistics`, `/export` (zip),    |
 |     |                       |                 | `/documentation` — persistence layer over Prisma                                                                    |
-| 11  | `deployment`          | `/deployment`   | `POST /generate`, `/export`, `GET /status`, `/health` — deployment infra for GENERATED apps across 12 targets       |
+| 11  | `deployment`          | `/deployment`   | `POST /generate`, `/export`, `GET /status`, `/health` — deployment infra for GENERATED apps across 12 targets.      |
+|     |                       |                 | Phase 13 execute layer: `GET /providers`, `POST /execute/plan`, `POST /execute`, `GET /executions(/:id)` —          |
+|     |                       |                 | provider abstraction (Vercel/Railway/Render), state machine queued→building→deploying→live/failed, token-gated      |
 | 12  | `quality`             | `/`             | `/quality/analyze`, `/quality/export`, `/quality/report`, `/testing/run`, `/documentation/generate`,                |
 |     |                       |                 | `/performance/report`, `/release/readiness` — scoring (9 categories, A–F), test generation, docs, benchmarks        |
+| 13  | `insights`            | `/insights`     | `POST /generate` — automatic architecture analysis: summary, "why this tech?" justifications quoting planner        |
+|     |                       |                 | decisions, folder/db/api/security explanations, Mermaid architecture/ER/API-flow diagrams, explained scores         |
+| 14  | `github`              | `/github`       | `GET /status`, `/user`, `/repositories(/:owner/:repo)`, commits; `POST /repositories`, `/branches`,                 |
+|     |                       |                 | `/push/plan` (works untokened), `/push` — full GitHub service layer via Git Data API, gated on `GITHUB_TOKEN`       |
+| 15  | `runner`              | `/runner`       | `POST /plan`, `/sessions`, `/sessions/:id/stop`, `/restart`; `GET /sessions(/:id)`, `/sessions/:id/logs` —          |
+|     |                       |                 | one-click local run: workspace write, install, free-port allocation, log streaming (cursor), failure diagnostics    |
 | —   | `auth` _(scaffold)_   | `/auth`         | Manifest only. Planned: registration, JWT sessions, `requireAuth`/`requireRole`. Deps + config already wired.       |
 | —   | `review` _(scaffold)_ | `/review`       | Manifest only. Planned: static analysis + optimization pass gating REVIEWING → COMPLETED.                           |
 
@@ -211,7 +230,7 @@ Notes:
   commit).
 - **Prettier owns formatting** — run `npm run format` rather than hand-aligning.
 
-## 9. Known gaps and accepted tradeoffs (as of v1.0)
+## 9. Known gaps and accepted tradeoffs (as of v1.1)
 
 - `auth` and `review` are intentional scaffolds (§5). The console is currently
   single-workspace with no login; downstream generated apps DO get full
@@ -226,6 +245,12 @@ Notes:
   deliberately deferred to whichever hosting target is chosen.
 - Vercel can host the client only; the API needs a persistent-process host
   (Railway/Render/Fly) plus managed MySQL.
+- Phase 13's GitHub push and deploy-execute flows are fully built but remain
+  disabled until their tokens are configured (§4.6) — plan/status endpoints
+  work untokened; only final execution is gated. Runner sessions and deploy
+  executions live in process memory, not the database: a server restart
+  forgets them (the child processes are killed on shutdown), which fits a
+  local single-user console but would need persistence for multi-user hosting.
 
 ## 10. Where to dig deeper
 
