@@ -120,7 +120,10 @@ client/
    provider/lib files so the platform boots and runs without them —
    `OPENROUTER_API_KEY` (ai-orchestrator), `GITHUB_TOKEN` (github),
    `VERCEL_TOKEN`/`RAILWAY_TOKEN`/`RENDER_API_KEY` (deployment execute), and
-   `NEXARCH_RUNNER_DIR`/`NEXARCH_RUNNER_MAX_SESSIONS` (runner).
+   `NEXARCH_RUNNER_DIR`/`NEXARCH_RUNNER_MAX_SESSIONS`/`NEXARCH_RUNNER_DATABASE_URL`
+   (runner — the last one names a MySQL server whose user can CREATE DATABASE;
+   each run session then gets its own isolated `nexarch_run_<project>` schema,
+   and without it generated backends boot in degraded mode).
 7. **The client never sees axios or envelopes.** Features consume typed hooks →
    services → `api-client.ts`, which unwraps envelopes and normalizes failures
    once.
@@ -212,7 +215,9 @@ Notes:
 - Phase 13 integration tokens (all optional, same provider-key convention):
   `GITHUB_TOKEN` (push flow), `VERCEL_TOKEN` / `RAILWAY_TOKEN`+ids /
   `RENDER_API_KEY`+`RENDER_SERVICE_ID` (one-click deploy),
-  `NEXARCH_RUNNER_DIR` / `NEXARCH_RUNNER_MAX_SESSIONS` (runner knobs).
+  `NEXARCH_RUNNER_DIR` / `NEXARCH_RUNNER_MAX_SESSIONS` /
+  `NEXARCH_RUNNER_DATABASE_URL` (runner knobs — the DB URL gives each run its
+  own provisioned MySQL schema; without it runs boot in degraded mode).
   Everything is built and gated — only final execution needs the tokens.
 
 ## 8. Conventions an assistant must follow
