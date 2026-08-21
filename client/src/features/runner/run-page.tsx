@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { useGeneratedBackend } from '@/features/backend/use-generated-backend';
 import { useGeneratedFrontend } from '@/features/frontend/use-generated-frontend';
+import { useSecurityBundle } from '@/features/security/use-security-bundle';
 import { PageHeader } from '@/shared/components/page-header';
 import { Badge } from '@/shared/components/ui/badge';
 import { Button } from '@/shared/components/ui/button';
@@ -28,6 +29,7 @@ import type { RunPhase, RunSession } from '@/shared/types/api';
 const PHASE_VARIANT: Record<RunPhase, 'success' | 'accent' | 'warning' | 'danger' | 'neutral'> = {
   preparing: 'accent',
   installing: 'accent',
+  configuring: 'accent',
   starting: 'accent',
   running: 'success',
   stopping: 'warning',
@@ -39,7 +41,8 @@ const PHASE_VARIANT: Record<RunPhase, 'success' | 'accent' | 'warning' | 'danger
 const PHASE_LABEL: Record<RunPhase, string> = {
   preparing: 'Preparing',
   installing: 'Installing',
-  starting: 'Compiling',
+  configuring: 'Configuring',
+  starting: 'Starting',
   running: 'Running',
   stopping: 'Stopping',
   stopped: 'Stopped',
@@ -47,15 +50,22 @@ const PHASE_LABEL: Record<RunPhase, string> = {
   failed: 'Failed',
 };
 
-const ACTIVE_PHASES: RunPhase[] = ['preparing', 'installing', 'starting', 'restarting', 'running'];
+const ACTIVE_PHASES: RunPhase[] = [
+  'preparing',
+  'installing',
+  'configuring',
+  'starting',
+  'restarting',
+  'running',
+];
 
 function PhaseBadge({ phase }: { phase: RunPhase }) {
   return (
     <Badge variant={PHASE_VARIANT[phase]}>
       <span className="flex items-center gap-1.5">
-        {['preparing', 'installing', 'starting', 'restarting', 'stopping'].includes(phase) && (
-          <Spinner className="size-3" />
-        )}
+        {['preparing', 'installing', 'configuring', 'starting', 'restarting', 'stopping'].includes(
+          phase,
+        ) && <Spinner className="size-3" />}
         {PHASE_LABEL[phase]}
       </span>
     </Badge>
@@ -198,21 +208,39 @@ export function RunPage() {
   const architecture = usePipelineStore((state) => state.architecture);
   const backend = useGeneratedBackend();
   const frontend = useGeneratedFrontend();
+  const security = useSecurityBundle();
   const sessions = useRunSessions();
   const create = useCreateRunSession();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const activeSessionId = selectedId ?? sessions.data?.[0]?.id ?? null;
-  const hasProject = Boolean(architecture && backend.data && frontend.data);
+  const hasProject = Boolean(architecture && backend.data && frontend.data && security.data);
 
   const startRun = () => {
-    if (!architecture || !backend.data || !frontend.data) return;
+    if (!architecture || !backend.data || !frontend.data || !security.data) return;
+    // The runnable project is the generators' output OVERLAID with the
+    // Security Engine's hardened files — they share paths on purpose (the
+    // real authentication module replaces the generator's 501 stubs).
+    // Running the un-hardened set gives an app whose every route demands a
+    // token no endpoint can issue.
+    const overlay = (
+      base: { path: string; content: string }[],
+      hardened: { path: string; content: string }[],
+      prefix: string,
+    ) => {
+      const byPath = new Map(base.map((f) => [f.path, f.content]));
+      for (const f of hardened) byPath.set(f.path, f.content);
+      return [...byPath.entries()].map(([path, content]) => ({
+        path: `${prefix}/${path}`,
+        content,
+      }));
+    };
     create.mutate(
       {
         projectName: architecture.meta.projectName,
         files: [
-          ...backend.data.files.map((f) => ({ path: `backend/${f.path}`, content: f.content })),
-          ...frontend.data.files.map((f) => ({ path: `frontend/${f.path}`, content: f.content })),
+          ...overlay(backend.data.files, security.data.backendFiles, 'backend'),
+          ...overlay(frontend.data.files, security.data.frontendFiles, 'frontend'),
         ],
       },
       {

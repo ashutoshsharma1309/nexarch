@@ -1657,6 +1657,7 @@ export interface DeployExecutionPlan {
 export type RunPhase =
   | 'preparing'
   | 'installing'
+  | 'configuring'
   | 'starting'
   | 'running'
   | 'stopping'
