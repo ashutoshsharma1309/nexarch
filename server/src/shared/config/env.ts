@@ -34,8 +34,9 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
 
-  // Validated now, consumed by the auth module in a later phase: a deploy
-  // with a weak or missing secret should fail at boot, not at first login.
+  // Consumed by the auth module to sign access and refresh tokens. Validated
+  // here so a deploy with a weak or missing secret fails at boot, not at
+  // first login.
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   JWT_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),

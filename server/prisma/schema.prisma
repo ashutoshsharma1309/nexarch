@@ -31,8 +31,9 @@ model Role {
 model User {
   id           String    @id @default(cuid())
   email        String    @unique @db.VarChar(320)
-  /// bcrypt hash — never the raw password. Nullable until auth ships so
-  /// seed/staging users can exist without fake credentials.
+  /// bcrypt hash — never the raw password. Nullable so seed/staging users
+  /// can exist without fake credentials; a null hash simply cannot log in,
+  /// failing the same way a wrong password does.
   passwordHash String?   @map("password_hash") @db.VarChar(100)
   name         String    @db.VarChar(120)
   role         Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
