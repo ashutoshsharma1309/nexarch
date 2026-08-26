@@ -12,7 +12,7 @@
 
 /* ── Providers ────────────────────────────────────────────────────────── */
 
-export type ProviderId = 'claude' | 'openai' | 'gemini' | 'openrouter' | 'mock';
+export type ProviderId = 'groq' | 'claude' | 'openai' | 'gemini' | 'openrouter' | 'mock';
 
 export type TaskComplexity =
   'simple-extraction' | 'large-planning' | 'small-file-regen' | 'complex-refactor';
@@ -27,6 +27,8 @@ export interface ModelCallOptions {
   messages: ModelMessage[];
   maxTokens: number;
   temperature?: number;
+  /** Ask the provider to constrain output to a single JSON object, where it supports that. */
+  json?: boolean | undefined;
 }
 
 export interface ModelUsage {
@@ -42,7 +44,7 @@ export interface ModelCallResult {
   stopReason: string;
 }
 
-/** Every provider adapter (Claude, OpenAI, Gemini, OpenRouter, Mock) implements this — no call site depends on which one it is. */
+/** Every provider adapter (Groq, Claude, OpenAI, Gemini, OpenRouter, Mock) implements this — no call site depends on which one it is. */
 export interface ModelProvider {
   readonly id: ProviderId;
   readonly name: string;

@@ -65,6 +65,13 @@ function detectIdentityTable(design: DatabaseDesign): IdentityTableInfo | null {
       (c) => c.enumValues && c.enumValues.length > 0 && /role/i.test(c.field),
     );
 
+    // The generated frontend renders the signed-in user by name (avatars,
+    // the account menu, the profile page), so the auth module has to be able
+    // to return one.
+    const nameColumn = table.columns.find(
+      (c) => /^(name|full_?name|display_?name|username)$/i.test(c.name) && !c.enumValues,
+    );
+
     return {
       entity: table.entity,
       tableName: table.tableName,
@@ -72,6 +79,7 @@ function detectIdentityTable(design: DatabaseDesign): IdentityTableInfo | null {
       passwordField: passwordColumn.field,
       roleField: roleColumn?.field ?? null,
       roleValues: roleColumn?.enumValues ?? null,
+      displayNameField: nameColumn?.field ?? null,
     };
   }
   return null;

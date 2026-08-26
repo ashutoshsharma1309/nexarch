@@ -24,9 +24,9 @@ import { databaseModule, openapiModule } from './database-designer/index.js';
 import { dependencyGraphModule } from './dependency-graph/index.js';
 import { deploymentModule } from './deployment/index.js';
 import { frontendGeneratorModule } from './frontend-generator/index.js';
-import { githubModule } from './github/index.js';
 import { healthModule } from './health/index.js';
 import { insightsModule } from './insights/index.js';
+import { pipelineModule } from './pipeline/index.js';
 import { qualityModule } from './quality/index.js';
 import { reviewModule } from './review/index.js';
 import { runnerModule } from './runner/index.js';
@@ -47,11 +47,11 @@ export const modules: readonly AppModule[] = [
   securityEngineModule,
   dependencyGraphModule,
   aiOrchestratorModule,
+  pipelineModule,
   workspaceModule,
   deploymentModule,
   qualityModule,
   insightsModule,
-  githubModule,
   runnerModule,
   reviewModule,
 ];

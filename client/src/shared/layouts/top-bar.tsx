@@ -1,6 +1,7 @@
 import { Menu, Search } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 
+import { UserMenu } from '@/features/auth/user-menu';
 import { NotificationBell } from '@/features/notifications/notification-bell';
 import { StatusIndicator } from '@/shared/components/status-indicator';
 import { ThemeToggle } from '@/shared/components/theme-toggle';
@@ -65,6 +66,7 @@ export function TopBar() {
         <NotificationBell />
         <StatusIndicator />
         <ThemeToggle />
+        <UserMenu />
       </div>
     </header>
   );

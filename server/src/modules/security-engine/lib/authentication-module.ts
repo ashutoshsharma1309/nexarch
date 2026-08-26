@@ -70,6 +70,7 @@ export interface LoginInput {
 export interface AuthUser {
   id: string;
   email: string;
+  name: string;
   roles: string[];
 }
 
@@ -231,9 +232,17 @@ ${extraAssign}${roleAssign}
 
   private toPublicUser(record: ${identity.entity}Record): AuthUser {
     const asRecord = record as unknown as Record<string, unknown>;
+    const email = String(asRecord.${identity.emailField});
     return {
       id: String(asRecord.id),
-      email: String(asRecord.${identity.emailField}),
+      email,
+      // The UI always has something to render: a real name column when the
+      // schema has one, the email's local part when it doesn't.
+      name: ${
+        identity.displayNameField
+          ? `String(asRecord.${identity.displayNameField} ?? '').trim() || email.split('@')[0] || email`
+          : `email.split('@')[0] ?? email`
+      },
       roles: this.rolesOf(record),
     };
   }

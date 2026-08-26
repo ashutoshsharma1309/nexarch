@@ -1539,74 +1539,6 @@ export interface SpecDiffAnalysis {
   };
 }
 
-/* ── GitHub integration (Phase 13) ────────────────────────────────────── */
-
-export interface GithubStatus {
-  configured: boolean;
-  tokenSource: 'environment' | 'none';
-  capabilities: string[];
-  enableHint: string | null;
-}
-
-export interface GithubUser {
-  login: string;
-  name: string | null;
-  htmlUrl: string;
-  publicRepos: number;
-}
-
-export interface GithubRepoSummary {
-  owner: string;
-  name: string;
-  fullName: string;
-  private: boolean;
-  htmlUrl: string;
-  defaultBranch: string;
-  description: string | null;
-  updatedAt: string;
-}
-
-export interface GithubCommitSummary {
-  sha: string;
-  message: string;
-  author: string;
-  date: string;
-  htmlUrl: string;
-}
-
-export interface GithubPushFile {
-  path: string;
-  content: string;
-}
-
-export interface GithubPushRequest {
-  owner: string;
-  repo: string;
-  branch: string;
-  message: string;
-  files: GithubPushFile[];
-  generateReadme: boolean;
-  projectMeta?: { projectName: string; description?: string; stack?: string[] };
-}
-
-export interface GithubPushPlan {
-  owner: string;
-  repo: string;
-  branch: string;
-  fileCount: number;
-  totalBytes: number;
-  readmeIncluded: boolean;
-  steps: { name: string; description: string }[];
-  warnings: string[];
-}
-
-export interface GithubPushResult {
-  commitSha: string;
-  commitUrl: string;
-  branch: string;
-  filesPushed: number;
-}
-
 /* ── Deployment: one-click execution (Phase 13) ───────────────────────── */
 
 export type DeployProviderId = 'vercel' | 'railway' | 'render';
@@ -1719,4 +1651,70 @@ export interface RunLogLine {
 export interface RunLogChunk {
   lines: RunLogLine[];
   nextCursor: number;
+}
+
+/* ── Auth ─────────────────────────────────────────────────────────────── */
+
+export type RoleName = 'ADMIN' | 'USER';
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  role: RoleName;
+  createdAt: string;
+}
+
+/* ── End-to-end pipeline ──────────────────────────────────────────────── */
+
+export type PipelineStageId =
+  'analysis' | 'architecture' | 'database' | 'backend' | 'frontend' | 'security' | 'dependencies';
+
+export type PipelineStageStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+
+export interface PipelineStage {
+  id: PipelineStageId;
+  label: string;
+  status: PipelineStageStatus;
+  engine: 'ai' | 'deterministic';
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  summary: string | null;
+  error: string | null;
+  degraded: boolean;
+}
+
+export interface PipelineAiUsage {
+  calls: number;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number;
+}
+
+export interface PipelineRun {
+  id: string;
+  projectName: string;
+  prompt: string;
+  status: 'running' | 'completed' | 'failed';
+  stages: PipelineStage[];
+  ai: PipelineAiUsage;
+  createdAt: string;
+  updatedAt: string;
+  error: string | null;
+}
+
+export interface PipelineArtifacts {
+  runId: string;
+  requirements: RequirementSpec;
+  architecture: ArchitecturePlan;
+  architectureMarkdown: string;
+  design: DesignBundle;
+  backend: GeneratedProject;
+  frontend: GeneratedFrontend;
+  security: SecurityBundle;
+  dependencies: DependencyGraphBundle;
+  files: { path: string; content: string }[];
 }

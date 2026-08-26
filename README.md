@@ -26,18 +26,51 @@ in it is implemented, and it does not change anything described below).
 
 ## Getting started
 
-Requirements: Node ≥ 22, npm ≥ 10, Docker (for MySQL).
+Requirements: Node ≥ 22, npm ≥ 10, and a MySQL 8+ server (Docker Compose ships one).
 
 ```bash
 npm install                              # installs both workspaces + git hooks
-cp server/.env.example server/.env       # defaults work with the dev database
+cp server/.env.example server/.env       # then set AI_API_KEY (see below)
 npm run docker:dev                       # start MySQL 8.4 in Docker
 npm run db:push                          # sync the Prisma schema
 npm run dev                              # API on :4000, console on :5173
 ```
 
-Open http://localhost:5173. The console proxies `/api` to the server, and the top bar
-shows live API health. The API stays up in degraded mode if MySQL isn't running yet.
+Open http://localhost:5173, create an account, and describe an application in the
+Forge. The console proxies `/api` to the server, and the top bar shows live API health.
+
+### The AI key
+
+NexArch calls a real model for requirement analysis and entity design. Set one key in
+`server/.env`:
+
+```
+AI_PROVIDER=groq
+AI_API_KEY=your-key-here
+```
+
+`AI_PROVIDER` also accepts `claude`, `openai`, `gemini`, `openrouter` and `mock`;
+`AI_MODEL_FAST` / `AI_MODEL_DEEP` override the models per tier. The key is read
+**server-side only** — it never appears in an API response, the client bundle, or a
+browser request. Without a key the platform still runs end to end: the AI stages fall
+back to the built-in rule-based analyzer and report themselves as degraded rather than
+failing.
+
+### Ports
+
+Everything that listens on localhost, and why they never collide:
+
+| Port    | What                                                           |
+| ------- | -------------------------------------------------------------- |
+| `5173`  | NexArch console (Vite dev server)                              |
+| `4000`  | NexArch API                                                    |
+| `3306`  | MySQL (the platform's own database)                            |
+| `4001+` | A previewed project's **generated backend** (first free port)  |
+| `5174+` | A previewed project's **generated frontend** (first free port) |
+
+Preview processes get free ports scanned at start time, so running a preview never
+takes NexArch down — the console stays fully usable beside it, and every preview is
+stopped when the API process exits.
 
 ### Everyday commands
 
@@ -52,6 +85,9 @@ shows live API health. The API stays up in degraded mode if MySQL isn't running 
 | `npm run db:migrate` | Create/apply a Prisma migration                    |
 | `npm run db:studio`  | Prisma Studio against the dev database             |
 | `npm run docker:up`  | Full production-shaped stack (MySQL + API + nginx) |
+
+Generation runs and preview sessions live in the API process's memory, so restarting
+the server clears them — generate again to get a fresh run.
 
 ## Architecture
 
@@ -74,9 +110,9 @@ server/src/
     deployment/          # implemented: deployment infra generation (12 targets)
     quality/             # implemented: quality scoring, testing, docs, release readiness
     insights/            # implemented: automatic architecture analysis, diagrams, scores
-    github/              # implemented: repo/branch/commit management, Git Data API push
     runner/              # implemented: one-click local runs with ports, logs, diagnostics
-    auth/                # scaffold: JWT sessions, role guards
+    pipeline/            # implemented: prompt -> analysis -> plan -> code -> hardening -> graph
+    auth/                # implemented: local accounts, JWT cookie sessions, role guards
     review/              # scaffold: static analysis + optimization
   shared/                # config, logger, middleware, database client, types, utils
   app.ts                 # middleware pipeline + module mounting (no socket, no DB)
@@ -172,16 +208,21 @@ All 12 build phases are complete:
 10. ~~Workspace — projects, generation history, export~~
 11. ~~Deployment Engine — deployment infrastructure generation across 12 targets~~
 12. ~~Quality Engine — quality scoring, test generation, documentation, release readiness~~
-13. ~~End-to-End Application Lifecycle — one-click local runs, GitHub push, one-click deploy (Vercel/Railway/Render), prompt-diff incremental regeneration, automatic architecture insights~~
+13. ~~End-to-End Application Lifecycle — one-click local runs, one-click deploy (Vercel/Railway/Render), prompt-diff incremental regeneration, automatic architecture insights~~
+14. ~~Local v1 — real AI in the pipeline, local accounts, one-call end-to-end generation, interactive localhost preview~~
 
-Phase 13's integrations are credential-gated: the GitHub push flow and the
-deploy providers are fully built and ship disabled until `GITHUB_TOKEN` /
-provider tokens are set (see `server/.env.example`) — planning and status
-endpoints work without any secrets.
+Phase 14 made the platform usable as one product: `POST /pipeline/runs` composes every
+stage behind a single prompt, the `auth` module became a real local identity provider
+(no third-party sign-in), and the Preview runs the generated project on localhost and
+frames it beside its own file explorer and logs.
 
-`auth` and `review` remain intentional scaffolds — the platform doesn't need multi-user
-accounts for its own single-workspace console yet, and static-analysis/optimization
-review is future work rather than a blocker for any current capability.
+The deploy providers stay credential-gated: they are fully built and ship disabled
+until the relevant provider token is set (see `server/.env.example`) — planning and
+status endpoints work without any secrets. Repository hosting is deliberately out of
+scope for v1: local files, localhost and the API are the source of truth.
+
+`review` remains an intentional scaffold — static-analysis/optimization review is
+future work rather than a blocker for any current capability.
 
 **What's next:** [`docs/v2/NEXARCH_V2_ARCHITECTURE.md`](docs/v2/NEXARCH_V2_ARCHITECTURE.md)
 lays out the design for NexArch 2.0 — evolving from a single-model pipeline into a

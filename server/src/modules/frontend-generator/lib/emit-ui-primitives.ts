@@ -241,12 +241,14 @@ export function Badge({ variant = 'neutral', className, ...props }: BadgeProps) 
 const avatar = `import { cn } from '@/shared/lib/cn';
 
 export interface AvatarProps {
-  name: string;
+  name: string | null | undefined;
   className?: string;
 }
 
-function initialsOf(name: string): string {
-  const parts = name.trim().split(/\\s+/);
+function initialsOf(name: string | null | undefined): string {
+  // An avatar is decoration. It must never be the reason a page fails to
+  // render, so a missing name degrades to a placeholder instead of throwing.
+  const parts = (name ?? '').trim().split(/\\s+/);
   const first = parts[0]?.[0] ?? '';
   const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? '') : '';
   return (first + last).toUpperCase() || '?';
@@ -256,7 +258,7 @@ export function Avatar({ name, className }: AvatarProps) {
   return (
     <span
       role="img"
-      aria-label={name}
+      aria-label={name ?? 'Account'}
       className={cn(
         'inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-accent-soft font-mono text-2xs font-semibold text-accent',
         className,

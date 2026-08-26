@@ -8,11 +8,13 @@
 import type { ModelProvider, ProviderId } from '../../ai-orchestrator.types.js';
 import { ClaudeProvider } from './claude-provider.js';
 import { GeminiProvider } from './gemini-provider.js';
+import { GroqProvider } from './groq-provider.js';
 import { MockProvider } from './mock-provider.js';
 import { OpenAiProvider } from './openai-provider.js';
 import { OpenRouterProvider } from './openrouter-provider.js';
 
 const registry = new Map<ProviderId, ModelProvider>([
+  ['groq', new GroqProvider()],
   ['claude', new ClaudeProvider()],
   ['openai', new OpenAiProvider()],
   ['gemini', new GeminiProvider()],

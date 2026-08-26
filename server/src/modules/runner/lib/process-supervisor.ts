@@ -20,7 +20,7 @@ const INSTALL_TIMEOUT_MS = 5 * 60_000;
 /** Every live child, so one exit hook can sweep them all. */
 const liveChildren = new Set<ChildProcess>();
 
-process.on('exit', () => {
+function sweep(): void {
   for (const child of liveChildren) {
     try {
       child.kill('SIGKILL');
@@ -28,7 +28,21 @@ process.on('exit', () => {
       // already gone
     }
   }
-});
+  liveChildren.clear();
+}
+
+process.on('exit', sweep);
+
+// `exit` alone is not enough. A signalled shutdown (Ctrl-C, a watcher
+// restarting the dev server, an orchestrator stopping the container) drains
+// HTTP connections first, and if that outlives the grace period the process
+// is killed without ever emitting `exit` — leaving a generated app's dev
+// servers holding their ports with nothing left to stop them. Sweeping on
+// the signal itself makes the guarantee unconditional: no preview outlives
+// the NexArch process that started it.
+for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) {
+  process.on(signal, sweep);
+}
 
 function track(child: ChildProcess): void {
   liveChildren.add(child);

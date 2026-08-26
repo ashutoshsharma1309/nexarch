@@ -43,6 +43,7 @@ describe('prompt engine', () => {
       'backend-generator',
       'database-generator',
       'dependency-engine',
+      'entity-fields',
       'frontend-generator',
       'requirement-analyzer',
       'security-engine',

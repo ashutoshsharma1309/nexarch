@@ -7,9 +7,11 @@
  * from serverless adapters later. Process concerns live in `index.ts`.
  *
  * Pipeline order matters and is deliberate:
- *   context → security → parsing → logging → rate limit → modules → 404 → errors
+ *   context → security → parsing (body + cookies) → logging → rate limit →
+ *   modules → 404 → errors
  */
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import express from 'express';
 import type { Express } from 'express';
 
@@ -32,6 +34,9 @@ export function createApp(): Express {
   app.use(requestContext);
   app.use(...securityMiddleware());
   app.use(compression());
+  // Sessions live in httpOnly cookies, so the pipeline has to parse them
+  // before anything can authenticate a request.
+  app.use(cookieParser());
   app.use(express.json({ limit: config.server.bodyLimit }));
   app.use(express.urlencoded({ extended: false, limit: config.server.bodyLimit }));
   app.use(requestLogger);

@@ -250,12 +250,42 @@ Notes:
   deliberately deferred to whichever hosting target is chosen.
 - Vercel can host the client only; the API needs a persistent-process host
   (Railway/Render/Fly) plus managed MySQL.
-- Phase 13's GitHub push and deploy-execute flows are fully built but remain
-  disabled until their tokens are configured (§4.6) — plan/status endpoints
-  work untokened; only final execution is gated. Runner sessions and deploy
+- Phase 13's deploy-execute flows are fully built but remain disabled until
+  their tokens are configured (§4.6) — plan/status endpoints work untokened;
+  only final execution is gated. Generation runs, runner sessions and deploy
   executions live in process memory, not the database: a server restart
   forgets them (the child processes are killed on shutdown), which fits a
   local single-user console but would need persistence for multi-user hosting.
+
+## 9b. Phase 14 — local v1
+
+The platform became one product instead of a set of independently callable
+stages:
+
+- **Real AI in the pipeline.** A Groq adapter joins the provider registry, and
+  the routing table is now configuration (`AI_PROVIDER`, `AI_MODEL_FAST`,
+  `AI_MODEL_DEEP`). Two stages call a model: the Requirement Analyzer produces
+  the `RequirementSpec`, and the Architecture stage designs each entity's
+  business columns. Everything else stays deterministic — the model supplies
+  semantics, code supplies structure, which is what keeps a run to two bounded
+  calls (~3k tokens, ~$0.001) instead of eight open-ended ones. With no key,
+  both stages fall back to the rule-based analyzer and report `degraded`.
+- **One endpoint for the whole pipeline.** `POST /pipeline/runs` composes
+  analysis → architecture → database → backend → frontend → security →
+  dependencies and answers 202 immediately; the client polls real per-stage
+  status (never a synthetic percentage). Artifacts are a separate endpoint
+  because the bundle is megabytes and the run object is polled every second.
+- **Auth is real.** The `auth` scaffold became a local identity provider:
+  bcrypt hashes, JWT access/refresh tokens in httpOnly cookies, a
+  refresh-and-replay interceptor on the client, and `requireAuth` guarding the
+  pipeline subtree. There is no third-party sign-in, by design.
+- **Preview runs the project.** The Preview page hands the run's file set to
+  the Local Run Engine and frames the resulting app from its own localhost
+  port, beside a file explorer over the real generated tree and live logs.
+  Child processes are now swept on signalled shutdown, not just clean exit.
+- **GitHub removed from the product.** The module, feature, service, route and
+  nav entry are gone; generated CI/CD workflow artifacts (which describe the
+  _user's_ future deployment) stay.
 
 ## 10. Where to dig deeper
 

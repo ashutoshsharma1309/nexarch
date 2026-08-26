@@ -17,7 +17,6 @@ import {
   Rocket,
   ScrollText,
   Server,
-  Share2,
   Settings,
   ShieldCheck,
 } from 'lucide-react';
@@ -49,7 +48,6 @@ export const navigation: NavItem[] = [
   { to: '/ai-operations', label: 'AI Operations', icon: Bot },
   { to: '/insights', label: 'Insights', icon: BrainCircuit },
   { to: '/run', label: 'Run', icon: Play },
-  { to: '/github', label: 'GitHub', icon: Share2 },
   { to: '/deployment', label: 'Deployment', icon: Rocket },
   { to: '/projects', label: 'Projects', icon: FolderGit2 },
   { to: '/generations', label: 'Generations', icon: Layers },

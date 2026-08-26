@@ -181,6 +181,8 @@ export interface IdentityTableInfo {
   passwordField: string;
   roleField: string | null;
   roleValues: string[] | null;
+  /** Human-readable name column, when the identity table has one. */
+  displayNameField: string | null;
 }
 
 export interface SecurityStats {

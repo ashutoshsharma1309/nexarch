@@ -124,6 +124,10 @@ export async function generate(
         model: routed.model,
         messages: [{ role: 'user', content: compression.text }],
         maxTokens: MAX_TOKENS_BY_COMPLEXITY[request.complexity],
+        // Every prompt in this platform asks for one structured object.
+        // Where the provider can enforce that natively, let it — a schema
+        // failure the provider prevents is a retry the platform never pays for.
+        json: Boolean(request.schema),
       });
 
       const validation = validateResponse(result.content, request.schema);

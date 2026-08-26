@@ -29,7 +29,7 @@ describe('Sidebar', () => {
 
   it('includes the Phase 13 destinations in the primary navigation', () => {
     renderSidebar();
-    for (const label of ['Insights', 'Run', 'GitHub']) {
+    for (const label of ['Insights', 'Run', 'Deployment']) {
       expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
     }
   });
