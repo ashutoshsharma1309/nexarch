@@ -5,10 +5,19 @@
 > without breaking its conventions. The README covers usage; this file covers
 > understanding.
 >
-> **Accuracy contract:** every claim below was cross-checked against the code at
-> commit `6c4e3be` (Phase 14). If you change behaviour, update the matching line
-> here in the same commit — a stale summary is worse than none, because the next
-> assistant will trust it.
+> **Last verified: 2026-08-26 · Phase 14 · v1.2** — see the changelog in §11.
+>
+> **Accuracy contract:** every claim below was cross-checked against the code it
+> describes, not written from memory. If you change behaviour, update the
+> matching line here in the same commit and move the date above — a stale
+> summary is worse than none, because the next assistant will trust it.
+>
+> To confirm this file is still current before relying on it:
+>
+> ```bash
+> git log -1 --date=short --format='%ad %s'   # newer than the date above? re-read the diff
+> npm run lint && npm run typecheck && npm test
+> ```
 
 ## 0. Orientation — read this before you touch anything
 
@@ -75,7 +84,7 @@ Two things matter to keep straight:
 | Client  | React 19 · Vite · TypeScript · TailwindCSS 4 · React Router · TanStack Query · Zustand · React Hook Form · Zod · Axios · Framer Motion                                     |
 | Tooling | npm workspaces (`server/`, `client/`) · typed flat-config ESLint · Prettier · Husky + lint-staged · GitHub Actions CI · Docker + Compose                                   |
 
-Scale (measured at `6c4e3be`): ~290 server TS files (~36.1k LOC), ~139 client
+Scale (measured 2026-08-26): ~290 server TS files (~36.1k LOC), ~139 client
 TS/TSX files (~15.3k LOC), 272 server tests across 14 `node:test` suites + 24
 client tests across 6 Vitest suites — **296 total, all green**.
 
@@ -402,6 +411,30 @@ stages:
 |                                                          | live smoke test of the full pipeline). Also pre-Phase-14.                   |
 | `server/prisma/schema.prisma`                            | Data model with reasoning in doc comments                                   |
 | `server/src/shared/types/`                               | The contracts everything else obeys                                         |
+
+## 11. Changelog
+
+Newest first. This is the project's own history — dates are the commit dates on
+`main`, so "what changed and when" is answerable without reading 66 commits. If
+you are an assistant resuming work, the top entry is where you are.
+
+| Date       | What landed                                                                                                                                                                                                                                                                               |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-08-26 | **This file, rewritten and dated.** Every §1–§9 claim re-verified against the code; GitHub, the "no LLM anywhere" claim, and the modules-never-import-each-other invariant were all stale. Added §0 orientation, invariants §4.10/§4.11, the **Last verified** stamp, and this changelog. |
+| 2026-08-26 | **Phase 14 — one product** (`6c4e3be`). Real AI in two stages (Groq adapter, config-driven routing); `POST /pipeline/runs` composing all seven stages; real auth (bcrypt + JWT in httpOnly cookies, `requireAuth` on the pipeline); Preview page; GitHub module deleted. See §9b.         |
+| 2026-08-21 | **Runner made honest.** Real port reporting, isolated child env, per-run provisioned MySQL schema, HTTP readiness probing. Generated apps now actually boot (proxy, health, logging), and the runner serves the security-hardened output rather than raw generator files.                 |
+| 2026-08-01 | **Console test suite.** Vitest + Testing Library harness plus suites for the HTTP error contract, store invariants, shared libs, the design system, the sidebar/nav contract and the runner log accumulator — closing the "no client tests" gap.                                          |
+| 2026-07-31 | **Phase 13 — end-to-end lifecycle** (`b0f460e` and siblings). Insights engine, GitHub integration _(since removed)_, one-click deploy execution layer, prompt-diff incremental regeneration, the Local Run Engine, and console integration for all five.                                  |
+| 2026-07-25 | README brought current with the platform's actual state; two Docker build failures fixed while verifying deployment readiness.                                                                                                                                                            |
+| 2026-07-22 | **Phases 10–12.** Developer workspace / project management / export, DevOps + deployment + CI/CD automation, and the QA / testing / benchmarking / documentation engine. Final integration pass: verify, audit, polish all 12 phases, generate `reports/`.                                |
+| 2026-07-21 | **Phases 7–9.** Security engine (identity detection, JWT/RBAC, XSS + upload validation, hardened env/cookies/CSRF), dependency graph + incremental regeneration, AI orchestrator and prompt intelligence.                                                                                 |
+| 2026-07-20 | **Phases 5–6.** Backend generation engine, frontend generation engine.                                                                                                                                                                                                                    |
+| 2026-07-19 | **Phases 1–4.** Foundation (module contract, envelope, error pathway, config), Requirement Analyzer, Architecture Planner, Database Designer + API Contract Generator.                                                                                                                    |
+
+Conventions for this table: one row per meaningful change to what the platform
+_is_ — not per commit. Add a row when you change behaviour a future assistant
+would be wrong to assume, and update the **Last verified** date at the top of
+this file in the same commit.
 
 ---
 
