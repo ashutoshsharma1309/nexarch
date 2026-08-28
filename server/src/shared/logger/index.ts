@@ -9,8 +9,27 @@
 import winston from 'winston';
 
 import { config } from '../config/index.js';
+import { redactValue } from '../security/redact.js';
+
+/**
+ * Redacts secret-shaped values out of every log record's metadata before
+ * any transport sees it. This is the backstop for Step 24: even a caller
+ * that forgets to scrub — logging a whole request body, say — cannot leak
+ * a credential, because the transform runs on the way out regardless.
+ * `message`, `level` and `timestamp` are Winston's own and left intact;
+ * everything else is caller-supplied and gets walked.
+ */
+const redactMeta = winston.format((info) => {
+  const reserved = new Set(['level', 'message', 'timestamp', 'stack', 'label', 'ms']);
+  for (const key of Object.keys(info)) {
+    if (reserved.has(key)) continue;
+    (info as Record<string, unknown>)[key] = redactValue((info as Record<string, unknown>)[key]);
+  }
+  return info;
+});
 
 const developmentFormat = winston.format.combine(
+  redactMeta(),
   winston.format.timestamp({ format: 'HH:mm:ss.SSS' }),
   winston.format.errors({ stack: true }),
   winston.format.colorize({ level: true }),
@@ -25,6 +44,7 @@ const developmentFormat = winston.format.combine(
 );
 
 const productionFormat = winston.format.combine(
+  redactMeta(),
   winston.format.timestamp(),
   winston.format.errors({ stack: true }),
   winston.format.json(),

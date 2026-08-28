@@ -13,6 +13,7 @@ import type { ErrorRequestHandler, RequestHandler } from 'express';
 
 import { config } from '../config/index.js';
 import { logger } from '../logger/index.js';
+import { audit } from '../security/audit.js';
 import { AppError } from '../utils/app-error.js';
 import type { ApiFailure } from '../types/api.js';
 
@@ -46,6 +47,17 @@ function normalizeError(error: unknown): AppError {
     return AppError.badRequest('Request body is not valid JSON');
   }
 
+  // Body-parser rejects oversized payloads with a 413. Turn it into a
+  // clean, honest error rather than the opaque 500 it otherwise becomes.
+  if (
+    error &&
+    typeof error === 'object' &&
+    'type' in error &&
+    (error as { type?: string }).type === 'entity.too.large'
+  ) {
+    return AppError.badRequest('Request body is too large');
+  }
+
   return AppError.internal('Internal server error', error);
 }
 
@@ -65,6 +77,26 @@ export const errorHandler: ErrorRequestHandler = (error: unknown, req, res, _nex
   } else {
     // Programmer errors get the full original error and stack.
     logger.error(appError.message, { ...logContext, cause: error });
+  }
+
+  /*
+   * An authenticated request that resolves to 403/404 on a project-scoped
+   * path is a probe for someone else's data (ownership resolves as 404 by
+   * design — see workspace.service). Recorded as an audit event so a
+   * pattern of them is visible, without turning ordinary typos into noise:
+   * only authenticated, project-scoped paths qualify.
+   */
+  const user = (req as { user?: { id?: string } }).user;
+  if (
+    user?.id &&
+    (appError.statusCode === 403 || appError.statusCode === 404) &&
+    req.originalUrl.includes('/projects/')
+  ) {
+    audit('UNAUTHORIZED_ACCESS_ATTEMPT', {
+      userId: user.id,
+      requestId: req.id,
+      detail: { method: req.method, path: req.originalUrl, code: appError.code },
+    });
   }
 
   const body: ApiFailure = {
