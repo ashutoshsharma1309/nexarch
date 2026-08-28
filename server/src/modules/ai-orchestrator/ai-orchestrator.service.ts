@@ -13,6 +13,7 @@ import { estimateCost } from './lib/cost-estimator.js';
 import { CacheManager, globalCache } from './lib/cache-manager.js';
 import { buildContext } from './lib/context-builder.js';
 import { compressPrompt } from './lib/prompt-compressor.js';
+import { countTokens, recordActual } from '../context-engine/lib/token-counter.js';
 import { getPromptTemplate, renderPrompt } from './lib/prompt-engine.js';
 import { ModelRouter } from './lib/model-router.js';
 import { ProviderCallError } from './lib/providers/http-utils.js';
@@ -39,6 +40,7 @@ import type {
   GenerateResponse,
   GenerationRecord,
   PromptTemplate,
+  PromptVariables,
   ValidationResult,
   WorkflowDefinition,
   WorkflowRun,
@@ -82,7 +84,7 @@ function buildPromptText(request: GenerateRequest): {
 
 export async function generate(
   request: GenerateRequest,
-  options: { forceRefresh?: boolean } = {},
+  options: { forceRefresh?: boolean; maxOutputTokens?: number } = {},
 ): Promise<GenerateResponse> {
   const startedAt = Date.now();
   const { text, contextPackage } = buildPromptText(request);
@@ -123,7 +125,7 @@ export async function generate(
       const result = await routed.provider.call({
         model: routed.model,
         messages: [{ role: 'user', content: compression.text }],
-        maxTokens: MAX_TOKENS_BY_COMPLEXITY[request.complexity],
+        maxTokens: options.maxOutputTokens ?? MAX_TOKENS_BY_COMPLEXITY[request.complexity],
         // Every prompt in this platform asks for one structured object.
         // Where the provider can enforce that natively, let it — a schema
         // failure the provider prevents is a retry the platform never pays for.
@@ -142,6 +144,11 @@ export async function generate(
     });
 
     globalCache.set(cacheKey, outcome.result.result);
+
+    // What the counter predicted against what the provider charged. Keeps
+    // the estimate honest instead of merely plausible.
+    const predicted = countTokens(compression.text, routed.model);
+    recordActual(predicted.tokens, outcome.result.result.usage.inputTokens, predicted.method);
 
     const record: GenerationRecord = {
       id: randomUUID(),
@@ -234,3 +241,36 @@ export function getPromptTemplateMeta(id: string): PromptTemplate {
 }
 
 export { FULL_PIPELINE_WORKFLOW, NonRetryableError };
+
+/* ── Context-aware generation ─────────────────────────────────────────── */
+
+/**
+ * Generate with a compiled context in front of the prompt.
+ *
+ * This is the Context Engine's entry point into the existing orchestrator,
+ * and it deliberately adds nothing else: routing, caching, retries,
+ * validation, cost accounting and history are the same code path every
+ * other call takes. The only difference is *what* gets sent, which is the
+ * whole point — the engine decides relevance before the model is asked, so
+ * the model never receives the project and decides for itself.
+ *
+ * `maxTokens` comes from the context's own budget, which separates the
+ * input ceiling from the output ceiling. Conflating them is how a system
+ * ends up truncating its own answers as its inputs grow.
+ */
+export async function generateWithContext(
+  context: { text: string; budget: { maxOutputTokens: number } },
+  request: Omit<GenerateRequest, 'variables'> & { variables?: PromptVariables },
+): Promise<GenerateResponse> {
+  return generate(
+    {
+      ...request,
+      variables: {
+        ...(request.variables ?? {}),
+        // Every prompt template that opts in renders this one placeholder.
+        PROJECT_CONTEXT: context.text,
+      },
+    },
+    { maxOutputTokens: context.budget.maxOutputTokens },
+  );
+}

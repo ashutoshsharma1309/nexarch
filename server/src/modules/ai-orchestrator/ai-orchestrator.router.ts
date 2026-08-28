@@ -38,7 +38,14 @@ import {
 } from './ai-orchestrator.controller.js';
 import { generateValidation, workflowValidation } from './ai-orchestrator.validator.js';
 
+import { requireAuth } from '../auth/index.js';
+
 export const aiOrchestratorRouter: Router = Router();
+
+// Phase 16: every route here requires an authenticated session.
+// These endpoints were reachable unauthenticated; a release build must
+// not expose compute or data to anonymous callers.
+aiOrchestratorRouter.use(requireAuth);
 
 aiOrchestratorRouter.post('/generate', validate(generateValidation), generateHandler);
 aiOrchestratorRouter.post('/retry', validate(generateValidation), retryHandler);

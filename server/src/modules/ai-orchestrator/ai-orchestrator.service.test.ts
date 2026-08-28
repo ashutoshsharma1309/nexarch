@@ -41,12 +41,25 @@ describe('prompt engine', () => {
     assert.deepEqual(ids, [
       'architecture-planner',
       'backend-generator',
+      // The Context Engine's template: renders a compiled context into a
+      // task prompt via {{PROJECT_CONTEXT}}.
+      'context-task',
       'database-generator',
       'dependency-engine',
       'entity-fields',
       'frontend-generator',
+      // The Product Architect's template: the planning mesh's one new
+      // reasoning step.
+      'product-architect',
+      // The Repair Engineer's template: smallest change, authorized files only.
+      'repair-engineer',
       'requirement-analyzer',
       'security-engine',
+      // The Test Engineer's template: ranks the deterministic plan, only.
+      'test-planner',
+      // The UX Engineer's template: asked only what the deterministic
+      // checks cannot answer.
+      'ux-reviewer',
     ]);
   });
 

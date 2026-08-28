@@ -37,6 +37,19 @@ Return exactly one JSON object with these keys and no others:
   request actually mentions or clearly requires one. `[]` otherwise.
 - `missingRequirements` — string[]. Things a production build of this
   domain normally needs that the request never specified.
+- `goal` — string. One sentence: what this product is for.
+- `functionalRequirements` — string[]. Capabilities the system must
+  provide, stated in the user's terms ("A teacher can record attendance
+  for a class"). 5–12 of them.
+- `nonFunctionalRequirements` — string[]. Qualities it must have —
+  performance, availability, scale, compliance. Only those the domain or
+  the request actually implies.
+- `constraints` — string[]. Limits the solution must respect.
+- `assumptions` — string[]. What you took as given because the request
+  did not say.
+- `securityRequirements` — string[]. Access control, data protection and
+  audit needs this domain carries.
+- `acceptanceCriteria` — string[]. Testable statements of done.
 
 ## Rules
 
@@ -44,6 +57,8 @@ Return exactly one JSON object with these keys and no others:
 - Entity names in `database` must be PascalCase plural with no spaces.
 - Entity-backed module names must match their entity exactly.
 - Anything genuinely ambiguous belongs in `missingRequirements`, not in a
-  guess.
+  guess. The same goes for `assumptions`: record what you assumed rather
+  than presenting it as something the user asked for.
+- Preserve the user's intent. Do not enlarge the scope of the request.
 
 Return only the JSON object. No prose, no markdown fences.
