@@ -17,6 +17,7 @@ import { AppError } from '../../shared/utils/app-error.js';
 import {
   loginHandler,
   logoutHandler,
+  completeOnboardingHandler,
   meHandler,
   refreshHandler,
   registerHandler,
@@ -47,3 +48,6 @@ authRouter.post('/refresh', (req, res, next) => {
 });
 authRouter.post('/logout', logoutHandler);
 authRouter.get('/me', requireAuth, meHandler);
+authRouter.post('/onboarding/complete', requireAuth, (req, res, next) => {
+  completeOnboardingHandler(req, res).catch(next);
+});

@@ -7,9 +7,11 @@
  */
 import type { RequestHandler } from 'express';
 
+import { config } from '../../shared/config/index.js';
 import { AppError } from '../../shared/utils/app-error.js';
 import { findUserById } from './auth.service.js';
 import { ACCESS_COOKIE } from './lib/cookies.js';
+import { getLocalUser } from './lib/local-user.js';
 import { verifyAccessToken } from './lib/tokens.js';
 import type { RoleName } from './auth.types.js';
 
@@ -21,6 +23,12 @@ function readToken(req: Parameters<RequestHandler>[0]): string | null {
 }
 
 export const requireAuth: RequestHandler = (req, _res, next) => {
+  // No-auth mode: every request runs as the single built-in local user.
+  if (config.auth.disabled) {
+    req.user = getLocalUser();
+    next();
+    return;
+  }
   void (async () => {
     try {
       const token = readToken(req);

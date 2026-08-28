@@ -7,9 +7,11 @@
  * `ensureRole` lazily creates the two the platform ships with rather than
  * requiring a seed step before the first signup can succeed.
  */
+import { config } from '../../shared/config/index.js';
 import { prisma } from '../../shared/database/prisma.js';
 import { logger } from '../../shared/logger/index.js';
 import { AppError } from '../../shared/utils/app-error.js';
+import { completeLocalOnboarding, getLocalUser, LOCAL_USER_ID } from './lib/local-user.js';
 import { hashPassword, verifyPassword } from './lib/password.js';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from './lib/tokens.js';
 import type {
@@ -29,6 +31,7 @@ interface UserRow {
   name: string;
   passwordHash: string | null;
   createdAt: Date;
+  onboardedAt: Date | null;
   role: { name: string };
 }
 
@@ -39,7 +42,21 @@ function toAuthUser(user: UserRow): AuthUser {
     name: user.name,
     role: user.role.name === 'ADMIN' ? 'ADMIN' : 'USER',
     createdAt: user.createdAt.toISOString(),
+    onboardedAt: user.onboardedAt?.toISOString() ?? null,
   };
+}
+
+/** Marks the current user's onboarding complete. Idempotent. */
+export async function completeOnboarding(userId: string): Promise<AuthUser> {
+  if (config.auth.disabled || !config.database.enabled) {
+    return completeLocalOnboarding();
+  }
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { onboardedAt: new Date() },
+    include: { role: true },
+  });
+  return toAuthUser(updated);
 }
 
 /** Roles are a table, not an enum — so the first signup has to be able to create the row it needs. */
@@ -63,7 +80,15 @@ function issueTokens(user: AuthUser): IssuedTokens {
   };
 }
 
+/** Real accounts are off in no-auth mode; every request is already the local user. */
+function assertAuthEnabled(): void {
+  if (config.auth.disabled) {
+    throw AppError.badRequest('Authentication is disabled — the app runs as a single local user');
+  }
+}
+
 export async function register(input: RegisterInput): Promise<AuthResult> {
+  assertAuthEnabled();
   const email = input.email.trim().toLowerCase();
 
   const existing = await prisma.user.findUnique({ where: { email } });
@@ -94,6 +119,7 @@ export async function register(input: RegisterInput): Promise<AuthResult> {
 }
 
 export async function login(input: LoginInput): Promise<AuthResult> {
+  assertAuthEnabled();
   const email = input.email.trim().toLowerCase();
   const found = await prisma.user.findUnique({ where: { email }, include: { role: true } });
 
@@ -111,6 +137,7 @@ export async function login(input: LoginInput): Promise<AuthResult> {
 }
 
 export async function refresh(refreshToken: string): Promise<AuthResult> {
+  assertAuthEnabled();
   const payload = verifyRefreshToken(refreshToken);
   const found = await prisma.user.findUnique({
     where: { id: payload.sub },
@@ -123,6 +150,7 @@ export async function refresh(refreshToken: string): Promise<AuthResult> {
 }
 
 export async function findUserById(id: string): Promise<AuthUser | null> {
+  if (config.auth.disabled) return id === LOCAL_USER_ID ? getLocalUser() : null;
   const found = await prisma.user.findUnique({ where: { id }, include: { role: true } });
   return found ? toAuthUser(found) : null;
 }

@@ -11,6 +11,8 @@ export interface AuthUser {
   name: string;
   role: RoleName;
   createdAt: string;
+  /** ISO timestamp when onboarding finished, or null while it hasn't. */
+  onboardedAt: string | null;
 }
 
 export interface RegisterInput {
