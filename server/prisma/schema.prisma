@@ -36,6 +36,9 @@ model User {
   /// failing the same way a wrong password does.
   passwordHash String?   @map("password_hash") @db.VarChar(100)
   name         String    @db.VarChar(120)
+  /// When the user finished the onboarding flow. Null until they do; the
+  /// welcome experience shows only while this is null.
+  onboardedAt  DateTime? @map("onboarded_at")
   role         Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
   roleId       String    @map("role_id")
   projects     Project[]
@@ -57,15 +60,23 @@ enum ProjectStatus {
 model Project {
   id          String        @id @default(cuid())
   name        String        @db.VarChar(120)
-  slug        String        @unique @db.VarChar(140)
+  slug        String        @db.VarChar(140)
   description String?       @db.Text
   status      ProjectStatus @default(DRAFT)
+  /// Pinned in the project list. Presentation state, but it belongs to the
+  /// row rather than the browser — a pin should survive a different device.
+  favorite    Boolean       @default(false)
   owner       User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerId     String        @map("owner_id")
   generations Generation[]
+  graphNodes  GraphNode[]
+  graphEdges  GraphEdge[]
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
+  /// Scoped per owner, not globally: two users naming a project "Storefront"
+  /// is normal, and a global unique slug would make the second one fail.
+  @@unique([ownerId, slug])
   @@index([ownerId])
   @@map("projects")
 }
@@ -98,4 +109,105 @@ model Generation {
 
   @@index([projectId, createdAt])
   @@map("generations")
+}
+
+/// ── Engineering Graph ──────────────────────────────────────────────────
+///
+/// The project's structured knowledge: what was asked for, what was
+/// planned, what was generated, and how it all connects. Stored
+/// relationally rather than in a graph database because the shape here is
+/// small (hundreds of nodes per project, not millions) and bounded
+/// traversal over two indexed tables is faster than operating a second
+/// datastore would be worth.
+///
+/// Both tables cascade from `Project`: a graph is meaningless without the
+/// project it describes, and leaving orphaned nodes behind would slowly
+/// poison every query that filters by project.
+
+enum GraphNodeType {
+  PROJECT
+  REQUIREMENT
+  FEATURE
+  COMPONENT
+  SERVICE
+  API
+  ENTITY
+  FIELD
+  FILE
+  MODULE
+  SECURITY_RULE
+  DEPENDENCY
+  TEST
+  FINDING
+}
+
+enum GraphRelationship {
+  CONTAINS
+  IMPLEMENTS
+  DEPENDS_ON
+  USES
+  CALLS
+  EXPOSES
+  PERSISTS
+  BELONGS_TO
+  GENERATES
+  VALIDATES
+  TESTS
+  SECURED_BY
+  TARGETS
+}
+
+model GraphNode {
+  id        String        @id @default(cuid())
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String        @map("project_id")
+  /// The run that last produced or refreshed this node. Not a foreign key:
+  /// a node outlives the run that created it (the next run refreshes it in
+  /// place), so a deleted generation row must not take the node with it.
+  runId     String        @map("run_id")
+  type      GraphNodeType
+  /// Stable identity within (project, type). Two artifacts naming the same
+  /// thing differently resolve to one node through this column.
+  canonicalName String    @map("canonical_name") @db.VarChar(255)
+  name        String      @db.VarChar(255)
+  description String?     @db.Text
+  metadata    Json
+  /// The artifact type this node was derived from — the trace back to source.
+  sourceArtifactId String? @map("source_artifact_id") @db.VarChar(64)
+
+  outgoing GraphEdge[] @relation("edgeSource")
+  incoming GraphEdge[] @relation("edgeTarget")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The deduplication guarantee: one node per canonical name per type.
+  @@unique([projectId, type, canonicalName])
+  @@index([projectId, type])
+  @@index([runId])
+  @@map("graph_nodes")
+}
+
+model GraphEdge {
+  id        String            @id @default(cuid())
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String            @map("project_id")
+  runId     String            @map("run_id")
+
+  source       GraphNode @relation("edgeSource", fields: [sourceNodeId], references: [id], onDelete: Cascade)
+  sourceNodeId String    @map("source_node_id")
+  target       GraphNode @relation("edgeTarget", fields: [targetNodeId], references: [id], onDelete: Cascade)
+  targetNodeId String    @map("target_node_id")
+
+  relationship GraphRelationship
+  metadata     Json
+
+  createdAt DateTime @default(now())
+
+  /// One edge per (source, target, relationship). Re-running the builder
+  /// re-asserts the same edges; this is what makes that idempotent.
+  @@unique([sourceNodeId, targetNodeId, relationship])
+  @@index([projectId, sourceNodeId])
+  @@index([projectId, targetNodeId])
+  @@map("graph_edges")
 }
