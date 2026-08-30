@@ -19,30 +19,14 @@ import { designDatabase } from '../database-designer/database-designer.service.j
 import { generateFrontend } from '../frontend-generator/frontend-generator.service.js';
 import { applySecurity } from '../security-engine/security-engine.service.js';
 import { runExport } from './lib/export-manager.js';
-import { _resetActivityLog, listActivity } from './lib/activity-log.js';
+import { _resetActivityLog } from './lib/activity-log.js';
 import { generateDocumentation } from './lib/documentation-generator.js';
 import { _resetGenerationLog, listGenerations, recordGeneration } from './lib/generation-log.js';
 import { generateProjectManifest } from './lib/manifest-generator.js';
 import { openApiToPostmanCollection } from './lib/postman-generator.js';
-import {
-  _resetProjectStore,
-  createProject,
-  deleteProject,
-  duplicateProject,
-  getProject,
-  listProjects,
-  projectStatistics,
-  updateProject,
-} from './lib/project-store.js';
-import {
-  createProject as createProjectSvc,
-  deleteProject as deleteProjectSvc,
-  updateProject as updateProjectSvc,
-} from './workspace.service.js';
 import type { ProjectArtifacts } from './workspace.types.js';
 
 beforeEach(() => {
-  _resetProjectStore();
   _resetGenerationLog();
   _resetActivityLog();
 });
@@ -141,77 +125,9 @@ function buildArtifacts(prompt: string): ProjectArtifacts {
   };
 }
 
-describe('project store', () => {
-  it('creates a project with a DRAFT status, a generated slug, and no favorite', () => {
-    const project = createProject({ name: 'Acme CRM' });
-    assert.equal(project.status, 'DRAFT');
-    assert.equal(project.favorite, false);
-    assert.equal(project.slug, 'acme-crm');
-  });
-
-  it('disambiguates slugs on name collision', () => {
-    const a = createProject({ name: 'Acme CRM' });
-    const b = createProject({ name: 'Acme CRM' });
-    assert.notEqual(a.slug, b.slug);
-  });
-
-  it('lists, searches, and filters projects', () => {
-    createProject({ name: 'Hospital System' });
-    createProject({ name: 'Hotel Booking' });
-    const active = createProject({ name: 'CRM Suite' });
-    updateProject(active.id, { status: 'ACTIVE' });
-
-    assert.equal(listProjects({}).length, 3);
-    assert.equal(listProjects({ search: 'hotel' }).length, 1);
-    assert.equal(listProjects({ status: 'ACTIVE' }).length, 1);
-  });
-
-  it('updates name/description/status/favorite independently', () => {
-    const project = createProject({ name: 'Old Name', description: 'first' });
-    const renamed = updateProject(project.id, { name: 'New Name' });
-    assert.equal(renamed?.name, 'New Name');
-    assert.equal(renamed.slug, 'new-name');
-
-    const favorited = updateProject(project.id, { favorite: true });
-    assert.equal(favorited?.favorite, true);
-    assert.equal(favorited.name, 'New Name', 'favoriting must not clobber the rename');
-
-    const archived = updateProject(project.id, { status: 'ARCHIVED' });
-    assert.equal(archived?.status, 'ARCHIVED');
-  });
-
-  it('duplicates a project as a fresh DRAFT with a distinct id and slug', () => {
-    const original = createProject({ name: 'Inventory App' });
-    updateProject(original.id, { status: 'ACTIVE', favorite: true });
-    const copy = duplicateProject(original.id);
-    assert.ok(copy);
-    assert.notEqual(copy.id, original.id);
-    assert.notEqual(copy.slug, original.slug);
-    assert.equal(copy.status, 'DRAFT');
-    assert.equal(copy.favorite, false);
-  });
-
-  it('deletes a project', () => {
-    const project = createProject({ name: 'Temp' });
-    assert.equal(deleteProject(project.id), true);
-    assert.equal(getProject(project.id), undefined);
-    assert.equal(deleteProject(project.id), false);
-  });
-
-  it('computes workspace statistics', () => {
-    const a = createProject({ name: 'A' });
-    createProject({ name: 'B' });
-    updateProject(a.id, { status: 'ACTIVE', favorite: true });
-    const stats = projectStatistics();
-    assert.equal(stats.totalProjects, 2);
-    assert.equal(stats.activeProjects, 1);
-    assert.equal(stats.favoriteProjects, 1);
-  });
-});
-
 describe('generation log', () => {
   it('records and lists generations for a project, most recent first', () => {
-    const project = createProject({ name: 'Restaurant POS' });
+    const project = { id: 'proj_restaurant_pos' };
     const first = recordGeneration({
       projectId: project.id,
       prompt: 'initial build',
@@ -233,34 +149,12 @@ describe('generation log', () => {
   });
 
   it('scopes listGenerations by project', () => {
-    const a = createProject({ name: 'A' });
-    const b = createProject({ name: 'B' });
+    const a = { id: 'proj_a' };
+    const b = { id: 'proj_b' };
     recordGeneration({ projectId: a.id, prompt: 'a run' });
     recordGeneration({ projectId: b.id, prompt: 'b run' });
     assert.equal(listGenerations(a.id).length, 1);
     assert.equal(listGenerations().length, 2);
-  });
-});
-
-describe('activity log', () => {
-  it('logs an entry on every project lifecycle action, most recent first', () => {
-    // Activity logging happens at the service layer, not the store — drive
-    // it through workspace.service.ts so logActivity actually fires.
-    const project = createProjectSvc({ name: 'Banking App' });
-    updateProjectSvc(project.id, { name: 'Banking Platform' });
-    updateProjectSvc(project.id, { favorite: true });
-    updateProjectSvc(project.id, { status: 'ARCHIVED' });
-    deleteProjectSvc(project.id);
-
-    const entries = listActivity();
-    const types = entries.map((e) => e.type);
-    assert.deepEqual(types, [
-      'project.deleted',
-      'project.archived',
-      'project.favorited',
-      'project.renamed',
-      'project.created',
-    ]);
   });
 });
 

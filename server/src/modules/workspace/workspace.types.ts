@@ -21,22 +21,20 @@
  */
 import type { ArchitecturePlan } from '../../shared/types/architecture.js';
 import type { DatabaseDesign, OpenApiDocument } from '../../shared/types/design.js';
+import type { Project, ProjectStatus } from '../../shared/contracts/project.js';
 import type { RequirementSpec } from '../../shared/types/requirement.js';
 
 /* ── Projects ─────────────────────────────────────────────────────────── */
 
-export type ProjectStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+export type { ProjectStatus } from '../../shared/contracts/project.js';
 
-export interface Project {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  status: ProjectStatus;
-  favorite: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
+/**
+ * Re-exported from the v2 contracts so there is exactly one `Project` shape
+ * in the codebase. Workspace owns project *behaviour* (activity logging,
+ * documentation, export); it does not get its own definition of what a
+ * project is.
+ */
+export type { Project } from '../../shared/contracts/project.js';
 
 export interface CreateProjectInput {
   name: string;
@@ -107,7 +105,9 @@ export type ActivityEventType =
   | 'project.deleted'
   | 'generation.logged'
   | 'export.completed'
-  | 'documentation.generated';
+  | 'documentation.generated'
+  | 'project.imported'
+  | 'demo.reset';
 
 export interface ActivityLogEntry {
   id: string;
