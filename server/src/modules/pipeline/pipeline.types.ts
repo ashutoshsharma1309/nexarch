@@ -7,6 +7,7 @@
  * synthetic percentage: a client renders exactly what the server has
  * actually done.
  */
+import type { AgentId } from '../../shared/contracts/agent.js';
 import type { ArchitecturePlan } from '../../shared/types/architecture.js';
 import type { DesignBundle } from '../../shared/types/design.js';
 import type { RequirementSpec } from '../../shared/types/requirement.js';
@@ -16,7 +17,14 @@ import type { GeneratedFrontend } from '../frontend-generator/frontend-generator
 import type { SecurityBundle } from '../security-engine/security-engine.types.js';
 
 export type StageId =
-  'analysis' | 'architecture' | 'database' | 'backend' | 'frontend' | 'security' | 'dependencies';
+  | 'analysis'
+  | 'architecture'
+  | 'database'
+  | 'backend'
+  | 'frontend'
+  | 'security'
+  | 'dependencies'
+  | 'graph';
 
 export type StageStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
@@ -26,6 +34,8 @@ export interface PipelineStage {
   status: StageStatus;
   /** Which engine actually did the work — so "real AI" is visible, not claimed. */
   engine: 'ai' | 'deterministic';
+  /** The agent that will own this stage in v2. Declarative only — nothing dispatches on it yet. */
+  agentId: AgentId;
   startedAt: string | null;
   completedAt: string | null;
   durationMs: number | null;
@@ -50,6 +60,8 @@ export interface AiUsageSummary {
 
 export interface PipelineRun {
   id: string;
+  /** The project this run belongs to. Null only for a run started outside the API (tests). */
+  projectId: string | null;
   projectName: string;
   prompt: string;
   status: RunStatus;
@@ -77,5 +89,11 @@ export interface PipelineArtifacts {
 
 export interface StartRunInput {
   prompt: string;
+  /** Names the project the run should join; derived from the prompt when absent. */
   projectName?: string | undefined;
+  /** Resolved by the caller, which is the layer that knows who is asking. */
+  projectId?: string | undefined;
 }
+
+/** Lifecycle phases the generation engine announces. See `pipeline.service.ts`. */
+export type RunPhase = 'started' | 'settled';

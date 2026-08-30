@@ -33,6 +33,18 @@ export interface StageOutcome<T> {
   /** Why the stage degraded — surfaced to the user as a note, not an error. */
   note: string | null;
   usage: AiCallStat | null;
+  /**
+   * The model's parsed response, before normalization dropped anything the
+   * legacy shape has no field for.
+   *
+   * `normalizeSpec` exists to guarantee the deterministic pipeline receives
+   * exactly the fields it expects, which means it discards everything else
+   * the model returned. The planning mesh wants some of that — goal,
+   * constraints, acceptance criteria — so the raw object is carried
+   * alongside rather than widening the normalized type for one consumer.
+   * Absent whenever no model produced the result.
+   */
+  raw?: unknown;
 }
 
 /** True when some real provider (i.e. not the always-available mock) can serve a call. */
@@ -74,16 +86,35 @@ export async function analyzeWithAi(
 ): Promise<StageOutcome<RequirementSpec>> {
   if (aiConfigured()) {
     try {
-      const response = await generate({
-        promptId: 'requirement-analyzer',
-        variables: { PROJECT_NAME: projectName, USER_REQUEST: prompt },
-        complexity: 'simple-extraction',
-        schema: 'requirement-spec',
-      });
+      const response = await generate(
+        {
+          promptId: 'requirement-analyzer',
+          variables: { PROJECT_NAME: projectName, USER_REQUEST: prompt },
+          complexity: 'simple-extraction',
+          schema: 'requirement-spec',
+        },
+        {
+          /**
+           * The analyzer stopped being a "simple extraction" when the
+           * planning mesh asked it for goal, functional and non-functional
+           * requirements, constraints, assumptions and acceptance criteria
+           * as well. At the 2,048-token default the answer was cut off
+           * mid-object, and Groq's JSON mode rejected the whole request
+           * with `json_validate_failed` — so the stage silently degraded to
+           * the rule-based analyzer on every run.
+           *
+           * Sized to fit the enriched response and still leave room under
+           * the provider's per-request allowance.
+           */
+          maxOutputTokens: 4_096,
+        },
+      );
+      const parsed = parseJson(response.content);
       return {
-        value: normalizeSpec(parseJson(response.content), { projectName }),
+        value: normalizeSpec(parsed, { projectName }),
         degraded: false,
         note: null,
+        raw: parsed,
         usage: {
           provider: response.record.provider,
           model: response.record.model,

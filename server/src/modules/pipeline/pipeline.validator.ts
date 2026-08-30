@@ -6,8 +6,12 @@
 import { body } from 'express-validator';
 import type { ValidationChain } from 'express-validator';
 
-export const PROMPT_MIN_LENGTH = 15;
-export const PROMPT_MAX_LENGTH = 2000;
+// Kept in lock-step with the agent-orchestrator build (its controller enforces
+// 20–4000) and the client form (`forge-schema`, min 20 / max 4000). They must
+// agree: the Build tab's button posts here, so a limit narrower than the form's
+// turns a form-valid prompt into a confusing 422.
+export const PROMPT_MIN_LENGTH = 20;
+export const PROMPT_MAX_LENGTH = 4000;
 
 export const startRunValidation: ValidationChain[] = [
   body('prompt')

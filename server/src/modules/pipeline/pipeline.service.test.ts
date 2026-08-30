@@ -152,7 +152,17 @@ describe('pipeline runs', () => {
 
     const run = await settle(started.id);
     assert.equal(run.status, 'completed', run.error ?? '');
-    assert.ok(run.stages.every((stage) => stage.status === 'completed'));
+
+    // The graph stage attaches its output to a project, and a run started
+    // directly against the service has none — so it skips rather than
+    // fails. Every generation stage must still have completed.
+    const graph = run.stages.find((stage) => stage.id === 'graph');
+    assert.equal(graph?.status, 'skipped');
+    assert.ok(
+      run.stages
+        .filter((stage) => stage.id !== 'graph')
+        .every((stage) => stage.status === 'completed'),
+    );
     // Every stage reports what it actually produced, not a placeholder.
     assert.ok(run.stages.every((stage) => (stage.summary ?? '').length > 0));
 
