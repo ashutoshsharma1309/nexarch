@@ -65,11 +65,29 @@ export type ProjectStatus = 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
 
 export interface Project {
   id: string;
+  /** Owning user — projects became owner-scoped in v2 Phase 1. */
+  ownerId: string;
   name: string;
   slug: string;
   description: string | null;
   status: ProjectStatus;
   favorite: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One execution of the generation pipeline, owned by a project. */
+export type RunStatus =
+  'PENDING' | 'ANALYZING' | 'PLANNING' | 'GENERATING' | 'REVIEWING' | 'COMPLETED' | 'FAILED';
+
+export interface Run {
+  id: string;
+  projectId: string;
+  prompt: string;
+  status: RunStatus;
+  error: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -1663,6 +1681,7 @@ export interface AuthUser {
   name: string;
   role: RoleName;
   createdAt: string;
+  onboardedAt: string | null;
 }
 
 /* ── End-to-end pipeline ──────────────────────────────────────────────── */
@@ -1677,6 +1696,8 @@ export interface PipelineStage {
   label: string;
   status: PipelineStageStatus;
   engine: 'ai' | 'deterministic';
+  /** The agent that will own this stage in v2. Declarative only. */
+  agentId: string;
   startedAt: string | null;
   completedAt: string | null;
   durationMs: number | null;
@@ -1696,6 +1717,8 @@ export interface PipelineAiUsage {
 
 export interface PipelineRun {
   id: string;
+  /** The project this run belongs to. */
+  projectId: string | null;
   projectName: string;
   prompt: string;
   status: 'running' | 'completed' | 'failed';
@@ -1717,4 +1740,538 @@ export interface PipelineArtifacts {
   security: SecurityBundle;
   dependencies: DependencyGraphBundle;
   files: { path: string; content: string }[];
+}
+
+/* ── Engineering Graph (Phase 3) ──────────────────────────────────────── */
+
+export type EngNodeType =
+  | 'PROJECT'
+  | 'REQUIREMENT'
+  | 'FEATURE'
+  | 'COMPONENT'
+  | 'SERVICE'
+  | 'API'
+  | 'ENTITY'
+  | 'FIELD'
+  | 'FILE'
+  | 'MODULE'
+  | 'SECURITY_RULE'
+  | 'DEPENDENCY'
+  | 'TEST';
+
+export type EngRelationship =
+  | 'CONTAINS'
+  | 'IMPLEMENTS'
+  | 'DEPENDS_ON'
+  | 'USES'
+  | 'CALLS'
+  | 'EXPOSES'
+  | 'PERSISTS'
+  | 'BELONGS_TO'
+  | 'GENERATES'
+  | 'VALIDATES'
+  | 'TESTS'
+  | 'SECURED_BY';
+
+export interface EngGraphNode {
+  id: string;
+  projectId: string;
+  runId: string;
+  type: EngNodeType;
+  canonicalName: string;
+  name: string;
+  description: string | null;
+  metadata: Record<string, unknown>;
+  sourceArtifactId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EngGraphEdge {
+  id: string;
+  projectId: string;
+  runId: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  relationship: EngRelationship;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface EngGraphStats {
+  nodeCount: number;
+  edgeCount: number;
+  nodesByType: Partial<Record<EngNodeType, number>>;
+  edgesByRelationship: Partial<Record<EngRelationship, number>>;
+}
+
+export interface EngineeringGraph {
+  projectId: string;
+  runId: string;
+  nodes: EngGraphNode[];
+  edges: EngGraphEdge[];
+  stats: EngGraphStats;
+  generatedAt: string;
+}
+
+export interface NodeNeighbourhood {
+  node: EngGraphNode;
+  outgoing: { edge: EngGraphEdge; node: EngGraphNode }[];
+  incoming: { edge: EngGraphEdge; node: EngGraphNode }[];
+}
+
+export interface ImpactedNode {
+  node: EngGraphNode;
+  depth: number;
+  via: EngRelationship;
+  reason: string;
+}
+
+export interface GraphImpactAnalysis {
+  origin: EngGraphNode;
+  impacted: ImpactedNode[];
+  summary: Partial<Record<EngNodeType, number>>;
+  maxDepth: number;
+}
+
+export type EngGraphIssueKind =
+  | 'orphan-node'
+  | 'dangling-edge'
+  | 'duplicate-edge'
+  | 'invalid-relationship'
+  | 'self-loop'
+  | 'suspicious-cycle';
+
+export interface EngGraphIssue {
+  kind: EngGraphIssueKind;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  nodeIds: string[];
+}
+
+export interface EngGraphValidationReport {
+  valid: boolean;
+  checkedNodes: number;
+  checkedEdges: number;
+  issues: EngGraphIssue[];
+}
+
+/* ── Agent orchestrator (Phase 6) ─────────────────────────────────────── */
+
+export type AgentTaskStatus =
+  'PENDING' | 'READY' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'BLOCKED' | 'CANCELLED';
+
+export type AgentRunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+
+/* ── Project intelligence (Phase 12) ──────────────────────────────────── */
+
+export type HealthState = 'HEALTHY' | 'WARNING' | 'FAILED' | 'NOT_RUN' | 'BLOCKED';
+
+export interface HealthEntry {
+  category: string;
+  state: HealthState;
+  detail: string;
+}
+
+export interface RunHistoryEntry {
+  runId: string;
+  createdAt: string;
+  status: string;
+  durationMs: number | null;
+  agentsCompleted: number | null;
+  agentsTotal: number | null;
+  findings: number | null;
+  reviewScore: number | null;
+  gate: string | null;
+  testsPassed: number | null;
+  testsTotal: number | null;
+  tokens: { input: number; output: number; costUsd: number } | null;
+}
+
+export interface ProjectIntelligenceView {
+  status:
+    | 'NOT_RUN'
+    | 'BUILDING'
+    | 'REVIEWING'
+    | 'VALIDATING'
+    | 'REPAIRING'
+    | 'HEALTHY'
+    | 'HEALTHY_WITH_WARNINGS'
+    | 'REQUIRES_REVIEW'
+    | 'FAILED';
+  statusReason: string;
+  health: HealthEntry[];
+  metrics: {
+    graphNodes: number | null;
+    graphEdges: number | null;
+    services: number;
+    apis: number;
+    entities: number;
+    files: number;
+    agentsExecuted: number;
+    findings: number;
+    testsTotal: number;
+    testsPassed: number;
+    repairsFixed: number;
+  };
+  graphPreview: {
+    services: string[];
+    entities: string[];
+    apis: number;
+    dependencies: string[];
+  } | null;
+  agents:
+    | {
+        agentId: string;
+        name: string;
+        status: string;
+        durationMs: number | null;
+        summary: string | null;
+      }[]
+    | null;
+  timeline: { at: string; label: string; detail: string | null }[];
+  findings: {
+    total: number;
+    open: number;
+    fixed: number;
+    requiresReview: number;
+    bySeverity: Record<string, number>;
+  } | null;
+  validation: {
+    gate: string;
+    gateReason: string;
+    rows: { name: string; status: CheckStatus; detail: string }[];
+    tests: {
+      total: number;
+      passed: number;
+      failed: number;
+      blocked: number;
+      skipped: number;
+      failedCritical: number;
+    };
+  } | null;
+  repairs: {
+    finalState: string;
+    stopReason: string;
+    counts: RepairSessionView['counts'];
+  } | null;
+  tokens: {
+    aiCalls: number;
+    inputTokens: number;
+    outputTokens: number;
+    contextTokens: number;
+    costUsd: number;
+    byAgent: { agentId: string; name: string; tokens: number; costUsd: number }[];
+    efficiency: {
+      cacheHits: number;
+      cacheMisses: number;
+      tokensSaved: number;
+      aiCallsSaved: number;
+      cachedAgents: number;
+    } | null;
+  } | null;
+  runs: RunHistoryEntry[];
+}
+
+/* ── Self-repair (Phase 11) ───────────────────────────────────────────── */
+
+export interface RepairDiffHunk {
+  line: number;
+  removed: string[];
+  added: string[];
+}
+
+export interface RepairFileChange {
+  file: string;
+  addedLines: number;
+  removedLines: number;
+  hunks: RepairDiffHunk[];
+  previousVersion: number;
+  newVersion: number;
+}
+
+export interface RepairAttemptView {
+  attempt: number;
+  strategy: string;
+  applied: boolean;
+  checks: { kind: string; status: 'PASS' | 'FAIL'; evidence: string }[];
+  regressions: string[];
+  outcome: 'ACCEPTED' | 'VALIDATION_FAILED' | 'REGRESSION' | 'PATCH_FAILED';
+  error: string | null;
+  durationMs: number;
+}
+
+export interface RepairRecordView {
+  id: string;
+  findingId: string;
+  findingTitle: string;
+  severity: string;
+  eligibility: { eligibility: string; reason: string };
+  rootCause: { rootCause: string; confidence: number; affectedFiles: string[] } | null;
+  plan: {
+    strategy: string;
+    intent: string;
+    authorizedFiles: string[];
+    validation: string[];
+    rollback: string;
+  } | null;
+  attempts: RepairAttemptView[];
+  changeset: { files: RepairFileChange[]; rolledBack: boolean } | null;
+  result: string;
+  rolledBack: boolean;
+  tokens: { input: number; output: number; context: number };
+  durationMs: number;
+  createdAt: string;
+}
+
+export interface RepairSessionView {
+  id: string;
+  status: 'RUNNING' | 'COMPLETED' | 'FAILED';
+  finalState: string;
+  stopReason: string;
+  counts: {
+    considered: number;
+    autoRepairable: number;
+    fixed: number;
+    rejected: number;
+    requiresReview: number;
+    notRepairable: number;
+    rolledBack: number;
+    repairLoops: number;
+  };
+  tokens: { input: number; output: number; context: number };
+  startedAt: string;
+  completedAt: string | null;
+  activeFindingId: string | null;
+}
+
+export interface RepairsView {
+  session: RepairSessionView | null;
+  repairs: RepairRecordView[];
+}
+
+/* ── Validation (Phase 10) ────────────────────────────────────────────── */
+
+export type CheckStatus = 'PASS' | 'FAIL' | 'SKIPPED' | 'BLOCKED';
+export type ValidationGate =
+  'NOT_VALIDATED' | 'VALIDATING' | 'PASSED' | 'PASSED_WITH_WARNINGS' | 'FAILED' | 'BLOCKED';
+
+export interface ValidationTestCase {
+  id: string;
+  name: string;
+  type: 'UNIT' | 'INTEGRATION' | 'API' | 'E2E' | 'BUILD' | 'SMOKE';
+  priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  target: string;
+  steps: { action: string; expect: string }[];
+  expectedResult: string;
+  status: 'PENDING' | 'RUNNING' | 'PASSED' | 'FAILED' | 'SKIPPED' | 'BLOCKED';
+  duration: number | null;
+  error: string | null;
+  evidence: string | null;
+}
+
+export interface ValidationSummaryView {
+  runId: string;
+  generatedAt: string;
+  rows: { name: string; status: CheckStatus; detail: string }[];
+  tests: {
+    total: number;
+    passed: number;
+    failed: number;
+    blocked: number;
+    skipped: number;
+    failedCritical: number;
+  };
+  gate: ValidationGate;
+  gateReason: string;
+  agents: { agentId: string; status: 'COMPLETED' | 'FAILED'; durationMs: number | null }[];
+}
+
+export interface ValidationView {
+  summary: ValidationSummaryView;
+  runtime: {
+    commands: {
+      command: string;
+      area: string;
+      exitCode: number;
+      durationMs: number;
+      status: CheckStatus;
+      outputTail: string;
+    }[];
+    processes: { kind: string; status: string; port: number | null; url: string | null }[];
+    logSignals: { pattern: string; count: number; sample: string }[];
+    errors: string[];
+  } | null;
+  integration: {
+    checks: {
+      kind: string;
+      name: string;
+      status: CheckStatus;
+      evidence: string;
+      error: string | null;
+    }[];
+    endpoints: { method: string; path: string; status: number | null; verdict: string }[];
+  } | null;
+  tests: { cases: ValidationTestCase[] } | null;
+  versions: { version: number; createdAt: string }[];
+}
+
+/* ── Engineering review (Phase 9) ─────────────────────────────────────── */
+
+export type FindingStatus = 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED' | 'FALSE_POSITIVE';
+export type FindingType = 'SECURITY' | 'DEPENDENCY' | 'CODE_QUALITY' | 'UX' | 'GENERAL';
+
+export interface FindingRecord {
+  id: string;
+  projectId: string;
+  runId: string;
+  agentId: string;
+  type: FindingType;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
+  category: string;
+  title: string;
+  description: string;
+  evidence: string | null;
+  targetNodeId: string | null;
+  targetFile: string | null;
+  recommendation: string | null;
+  confidence: number;
+  status: FindingStatus;
+  firstSeenReview: number;
+  lastSeenReview: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReviewSeverityCounts {
+  CRITICAL: number;
+  HIGH: number;
+  MEDIUM: number;
+  LOW: number;
+  INFO: number;
+}
+
+export interface ReviewSummary {
+  reviewVersion: number;
+  generatedAt: string;
+  sections: {
+    type: FindingType;
+    total: number;
+    counts: ReviewSeverityCounts;
+    newSinceLastReview: number;
+  }[];
+  totals: { findings: number; counts: ReviewSeverityCounts; newSinceLastReview: number };
+  score: {
+    score: number;
+    deductions: { severity: string; count: number; penaltyEach: number; total: number }[];
+    totalDeducted: number;
+    basis: string;
+  };
+  agents: {
+    agentId: string;
+    status: 'COMPLETED' | 'FAILED';
+    findings: number;
+    error: string | null;
+  }[];
+  status: 'COMPLETE' | 'PARTIAL_REVIEW' | 'FAILED';
+  notes: string[];
+}
+
+export interface EngineeringReview {
+  reviewVersion: number;
+  projectId: string;
+  runId: string;
+  generatedAt: string;
+  summary: ReviewSummary;
+  findings: FindingRecord[];
+  usage: { agentId: string; durationMs: number | null; usage: AgentTask['usage'] }[];
+}
+
+export interface EngineeringReviewEnvelope {
+  current: EngineeringReview;
+  versions: { version: number; createdAt: string }[];
+}
+
+export interface AgentFinding {
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO';
+  category: string;
+  title: string;
+  description: string;
+  targetNodeId: string | null;
+  status: 'OPEN' | 'RESOLVED';
+}
+
+export interface AgentTask {
+  id: string;
+  projectId: string;
+  runId: string;
+  agentId: string;
+  status: AgentTaskStatus;
+  priority: 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW';
+  inputArtifactTypes: string[];
+  dependencyTaskIds: string[];
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  error: string | null;
+  failureKind: string | null;
+  retryCount: number;
+  summary: string | null;
+  usage: {
+    provider: string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
+    contextTokens: number;
+  } | null;
+  findings: AgentFinding[];
+}
+
+export interface AgentRun {
+  id: string;
+  projectId: string;
+  ownerId: string;
+  prompt: string;
+  status: AgentRunStatus;
+  tasks: AgentTask[];
+  currentTaskId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  error: string | null;
+  totals: {
+    aiCalls: number;
+    inputTokens: number;
+    outputTokens: number;
+    contextTokens: number;
+    costUsd: number;
+  };
+}
+
+export interface AgentRunProgress {
+  total: number;
+  completed: number;
+  failed: number;
+  blocked: number;
+  cancelled: number;
+  running: number;
+  pending: number;
+}
+
+export interface AgentRunView {
+  run: AgentRun;
+  progress: AgentRunProgress;
+}
+
+export interface AgentCatalogueEntry {
+  id: string;
+  name: string;
+  role: string;
+  version: string;
+  executionMode: string;
+  enabled: boolean;
+  implemented: boolean;
+  requires: string[];
+  produces: string[];
+  dependencies: string[];
 }

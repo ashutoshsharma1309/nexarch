@@ -10,6 +10,7 @@ import type {
   Project,
   ProjectArtifacts,
   ProjectDashboard,
+  Run,
   UpdateProjectInput,
   WorkspaceHistory,
   WorkspaceStatistics,
@@ -107,4 +108,14 @@ export async function runExport(
     projectId,
   });
   return unwrap(response.data);
+}
+
+/**
+ * A project's durable run history. Distinct from `fetchRuns()` in
+ * `pipeline.service`, which lists only the runs this server process still
+ * holds in memory — these come from the database and survive a restart.
+ */
+export async function listProjectRuns(projectId: string): Promise<Run[]> {
+  const { data } = await apiClient.get<ApiSuccess<Run[]>>(`/project/${projectId}/runs`);
+  return unwrap(data);
 }

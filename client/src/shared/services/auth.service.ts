@@ -66,3 +66,11 @@ export async function fetchSession(): Promise<AuthUser | null> {
     }
   }
 }
+
+/** Marks onboarding complete and returns the refreshed user. */
+export async function completeOnboarding(): Promise<AuthUser> {
+  const { data } = await apiClient.post<ApiSuccess<{ user: AuthUser }>>(
+    '/auth/onboarding/complete',
+  );
+  return unwrap(data).user;
+}
