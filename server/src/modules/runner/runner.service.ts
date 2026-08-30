@@ -39,6 +39,13 @@ import type {
 
 interface SessionRuntime {
   session: RunSession;
+  /**
+   * The user who created the session. A run writes files and spawns
+   * processes, so a session must never be visible to — or controllable by —
+   * anyone but its owner (Phase 16). Kept on the private runtime, not the
+   * public RunSession, so the wire shape and its tests are unchanged.
+   */
+  ownerId: string;
   logs: LogBuffer;
   children: Map<ProcessKind, ChildProcess>;
   plan: RunPlan;
@@ -56,6 +63,16 @@ const ACTIVE_PHASES: RunPhase[] = [
 const MAX_SESSIONS = 30;
 
 const sessions = new Map<string, SessionRuntime>();
+
+/**
+ * Owner tag for runner sessions the platform creates for itself — the
+ * validation mesh spins up a session to build and probe a generated project.
+ * These are internal and never surfaced through the runner HTTP routes; the
+ * tag is not a real user id, so no authenticated caller can ever list or
+ * control them. Using one consistent tag keeps their ownership self-consistent
+ * across create/poll/stop without threading a user through the validators.
+ */
+export const INTERNAL_RUNNER_OWNER = '@nexarch/internal-validation';
 
 /**
  * Read through a call boundary: `cancelled` is flipped concurrently by
@@ -313,7 +330,7 @@ export function planSession(request: CreateSessionRequest): RunPlan {
   return planRun(request);
 }
 
-export function createSession(request: CreateSessionRequest): RunSession {
+export function createSession(request: CreateSessionRequest, ownerId: string): RunSession {
   const plan = planRun(request);
   if (plan.targets.length === 0) {
     throw AppError.badRequest(
@@ -351,6 +368,7 @@ export function createSession(request: CreateSessionRequest): RunSession {
 
   const runtime: SessionRuntime = {
     session,
+    ownerId,
     logs: new LogBuffer(),
     children: new Map(),
     plan,
@@ -378,28 +396,32 @@ export function createSession(request: CreateSessionRequest): RunSession {
   return session;
 }
 
-function requireRuntime(id: string): SessionRuntime {
+function requireRuntime(id: string, ownerId: string): SessionRuntime {
   const runtime = sessions.get(id);
+  // Not-yours is reported as not-found, so a session id cannot be probed for
+  // existence across users.
   if (!runtime) throw AppError.notFound(`No run session with id ${id}`);
+  if (runtime.ownerId !== ownerId) throw AppError.notFound(`No run session with id ${id}`);
   return runtime;
 }
 
-export function getSession(id: string): RunSession {
-  return requireRuntime(id).session;
+export function getSession(id: string, ownerId: string): RunSession {
+  return requireRuntime(id, ownerId).session;
 }
 
-export function listSessions(): RunSession[] {
+export function listSessions(ownerId: string): RunSession[] {
   return [...sessions.values()]
+    .filter((r) => r.ownerId === ownerId)
     .map((r) => r.session)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export function getLogs(id: string, after: number): RunLogChunk {
-  return requireRuntime(id).logs.read(after);
+export function getLogs(id: string, after: number, ownerId: string): RunLogChunk {
+  return requireRuntime(id, ownerId).logs.read(after);
 }
 
-export function stopSession(id: string): RunSession {
-  const runtime = requireRuntime(id);
+export function stopSession(id: string, ownerId: string): RunSession {
+  const runtime = requireRuntime(id, ownerId);
   if (!ACTIVE_PHASES.includes(runtime.session.phase)) {
     throw AppError.conflict(`Session is ${runtime.session.phase} — nothing to stop`);
   }
@@ -415,8 +437,8 @@ export function stopSession(id: string): RunSession {
   return runtime.session;
 }
 
-export function restartSession(id: string): RunSession {
-  const runtime = requireRuntime(id);
+export function restartSession(id: string, ownerId: string): RunSession {
+  const runtime = requireRuntime(id, ownerId);
   if (ACTIVE_PHASES.includes(runtime.session.phase) && runtime.session.phase !== 'running') {
     throw AppError.conflict(`Session is ${runtime.session.phase} — wait for it to settle first`);
   }

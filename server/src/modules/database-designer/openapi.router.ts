@@ -11,6 +11,11 @@ import { validate } from '../../shared/middleware/validate.js';
 import { generateOpenApiHandler } from './database-designer.controller.js';
 import { designValidation } from './database-designer.validator.js';
 
+import { requireAuth } from '../auth/index.js';
+
 export const openapiRouter: Router = Router();
+
+// Phase 16: authenticated callers only.
+openapiRouter.use(requireAuth);
 
 openapiRouter.post('/generate', validate(designValidation), generateOpenApiHandler);

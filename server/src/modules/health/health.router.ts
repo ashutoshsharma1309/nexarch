@@ -8,7 +8,9 @@
 import { Router } from 'express';
 
 import { sendSuccess } from '../../shared/utils/api-response.js';
+import { requireAuth } from '../auth/index.js';
 import { getHealthReport } from './health.service.js';
+import { getSecurityStatus } from './security-status.js';
 
 export const healthRouter: Router = Router();
 
@@ -19,6 +21,13 @@ healthRouter.get('/', async (_req, res) => {
 
 healthRouter.get('/live', (_req, res) => {
   sendSuccess(res, { status: 'ok' });
+});
+
+// Behind auth (Step 39): the security posture is not an anonymous map of
+// the platform's defenses. It carries only presence and posture — no
+// secrets, no values.
+healthRouter.get('/security', requireAuth, (_req, res) => {
+  sendSuccess(res, getSecurityStatus());
 });
 
 healthRouter.get('/ready', async (_req, res) => {

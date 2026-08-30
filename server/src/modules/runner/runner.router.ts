@@ -12,6 +12,7 @@
  */
 import { Router } from 'express';
 
+import { requireAuth } from '../auth/index.js';
 import { validate } from '../../shared/middleware/validate.js';
 import {
   createSessionHandler,
@@ -25,6 +26,11 @@ import {
 import { createSessionValidation, logsValidation } from './runner.validator.js';
 
 export const runnerRouter: Router = Router();
+
+// Phase 16: the runner writes files and spawns processes. Every route
+// requires an authenticated session, and each session is owned by its
+// creator — these endpoints were previously reachable unauthenticated.
+runnerRouter.use(requireAuth);
 
 runnerRouter.post('/plan', validate(createSessionValidation), planHandler);
 runnerRouter.post('/sessions', validate(createSessionValidation), createSessionHandler);

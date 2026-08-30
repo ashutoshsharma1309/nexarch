@@ -34,7 +34,14 @@ import {
   generateValidation,
 } from './deployment.validator.js';
 
+import { requireAuth } from '../auth/index.js';
+
 export const deploymentRouter: Router = Router();
+
+// Phase 16: every route here requires an authenticated session.
+// These endpoints were reachable unauthenticated; a release build must
+// not expose compute or data to anonymous callers.
+deploymentRouter.use(requireAuth);
 
 deploymentRouter.post('/generate', validate(generateValidation), generateHandler);
 deploymentRouter.post('/export', validate(exportValidation), exportHandler);

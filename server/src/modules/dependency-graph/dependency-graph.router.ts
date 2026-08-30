@@ -54,7 +54,14 @@ import {
   specDiffValidation,
 } from './dependency-graph.validator.js';
 
+import { requireAuth } from '../auth/index.js';
+
 export const dependencyGraphRouter: Router = Router();
+
+// Phase 16: every route here requires an authenticated session.
+// These endpoints were reachable unauthenticated; a release build must
+// not expose compute or data to anonymous callers.
+dependencyGraphRouter.use(requireAuth);
 
 dependencyGraphRouter.post('/build', validate(graphInputsValidation), buildHandler);
 dependencyGraphRouter.post(

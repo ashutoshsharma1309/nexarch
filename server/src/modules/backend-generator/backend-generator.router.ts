@@ -12,6 +12,13 @@ import { validate } from '../../shared/middleware/validate.js';
 import { generateBackendHandler } from './backend-generator.controller.js';
 import { generateValidation } from './backend-generator.validator.js';
 
+import { requireAuth } from '../auth/index.js';
+
 export const backendGeneratorRouter: Router = Router();
+
+// Phase 16: every route here requires an authenticated session.
+// These endpoints were reachable unauthenticated; a release build must
+// not expose compute or data to anonymous callers.
+backendGeneratorRouter.use(requireAuth);
 
 backendGeneratorRouter.post('/generate', validate(generateValidation), generateBackendHandler);

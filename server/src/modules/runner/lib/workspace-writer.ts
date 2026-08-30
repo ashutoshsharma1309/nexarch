@@ -17,10 +17,25 @@ export function workspaceRoot(): string {
   return process.env.NEXARCH_RUNNER_DIR ?? path.join(os.tmpdir(), 'nexarch-runs');
 }
 
-function assertSafeRelativePath(filePath: string): void {
+/**
+ * Rejects any path that would write outside the workspace.
+ *
+ * Two layers, because the prefix check alone is not enough: a path can be
+ * relative and still escape (`a/../../b`), and one that survives the string
+ * test must still be confirmed to *resolve* inside the destination
+ * directory. The second check is the real guarantee — it compares the
+ * fully-resolved target against the resolved root, which no amount of `..`
+ * or separator trickery can defeat.
+ */
+function assertSafeRelativePath(filePath: string, dir: string): void {
   const normalized = path.normalize(filePath);
-  if (path.isAbsolute(normalized) || normalized.startsWith('..')) {
+  if (path.isAbsolute(normalized) || normalized.startsWith('..') || normalized.includes('\0')) {
     throw AppError.badRequest(`Unsafe file path in project files: ${filePath}`);
+  }
+  const resolvedRoot = path.resolve(dir);
+  const resolvedTarget = path.resolve(dir, filePath);
+  if (resolvedTarget !== resolvedRoot && !resolvedTarget.startsWith(resolvedRoot + path.sep)) {
+    throw AppError.badRequest(`File path escapes the project workspace: ${filePath}`);
   }
 }
 
@@ -33,7 +48,7 @@ export async function writeWorkspace(
   await mkdir(dir, { recursive: true });
 
   for (const file of files) {
-    assertSafeRelativePath(file.path);
+    assertSafeRelativePath(file.path, dir);
     const target = path.join(dir, file.path);
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, file.content, 'utf8');

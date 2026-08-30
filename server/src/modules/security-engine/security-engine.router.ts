@@ -23,7 +23,14 @@ import { validate } from '../../shared/middleware/validate.js';
 import { analyzeHandler, applyHandler, reportHandler } from './security-engine.controller.js';
 import { securityValidation } from './security-engine.validator.js';
 
+import { requireAuth } from '../auth/index.js';
+
 export const securityEngineRouter: Router = Router();
+
+// Phase 16: every route here requires an authenticated session.
+// These endpoints were reachable unauthenticated; a release build must
+// not expose compute or data to anonymous callers.
+securityEngineRouter.use(requireAuth);
 
 securityEngineRouter.post('/analyze', validate(securityValidation), analyzeHandler);
 securityEngineRouter.post('/apply', validate(securityValidation), applyHandler);

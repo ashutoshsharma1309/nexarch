@@ -13,6 +13,7 @@ import type { AppModule } from '../shared/types/module.js';
 // The Phase 1 `generation` scaffold is superseded by the Phase 9
 // orchestrator, the same way the Phase 1 `database` scaffold is
 // superseded by the designer.
+import { agentOrchestratorModule } from './agent-orchestrator/index.js';
 import { aiOrchestratorModule } from './ai-orchestrator/index.js';
 import { analysisModule } from './analysis/index.js';
 import { architectureModule } from './architecture/index.js';
@@ -20,9 +21,11 @@ import { authModule } from './auth/index.js';
 import { backendGeneratorModule } from './backend-generator/index.js';
 // The Phase 1 `database` scaffold is superseded by the Phase 4 designer,
 // which implements the schema-design capability the scaffold reserved.
+import { contextEngineModule } from './context-engine/index.js';
 import { databaseModule, openapiModule } from './database-designer/index.js';
 import { dependencyGraphModule } from './dependency-graph/index.js';
 import { deploymentModule } from './deployment/index.js';
+import { engineeringGraphModule } from './engineering-graph/index.js';
 import { frontendGeneratorModule } from './frontend-generator/index.js';
 import { healthModule } from './health/index.js';
 import { insightsModule } from './insights/index.js';
@@ -46,6 +49,9 @@ export const modules: readonly AppModule[] = [
   frontendGeneratorModule,
   securityEngineModule,
   dependencyGraphModule,
+  engineeringGraphModule,
+  contextEngineModule,
+  agentOrchestratorModule,
   aiOrchestratorModule,
   pipelineModule,
   workspaceModule,

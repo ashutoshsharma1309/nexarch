@@ -25,7 +25,14 @@ import {
 } from './quality.controller.js';
 import { artifactsValidation, exportValidation } from './quality.validator.js';
 
+import { requireAuth } from '../auth/index.js';
+
 export const qualityRouter: Router = Router();
+
+// Phase 16: every route here requires an authenticated session.
+// These endpoints were reachable unauthenticated; a release build must
+// not expose compute or data to anonymous callers.
+qualityRouter.use(requireAuth);
 
 qualityRouter.post('/quality/analyze', validate(artifactsValidation), analyzeHandler);
 qualityRouter.post('/quality/export', validate(exportValidation), exportHandler);

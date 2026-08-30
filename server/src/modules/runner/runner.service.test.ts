@@ -88,7 +88,11 @@ describe('run planning against a real generated project', () => {
 
   it('rejects a run with nothing runnable instead of spawning blindly', () => {
     assert.throws(
-      () => createSession({ projectName: 'Empty', files: [{ path: 'notes.txt', content: 'hi' }] }),
+      () =>
+        createSession(
+          { projectName: 'Empty', files: [{ path: 'notes.txt', content: 'hi' }] },
+          'owner-test',
+        ),
       (error: unknown) => AppError.isAppError(error) && error.code === 'BAD_REQUEST',
     );
   });

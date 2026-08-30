@@ -33,7 +33,14 @@ const analyzeValidation = [
     .withMessage(`prompt is too long — keep it under ${MAX_PROMPT_LENGTH} characters`),
 ];
 
+import { requireAuth } from '../auth/index.js';
+
 export const analysisRouter: Router = Router();
+
+// Phase 16: every route here requires an authenticated session.
+// These endpoints were reachable unauthenticated; a release build must
+// not expose compute or data to anonymous callers.
+analysisRouter.use(requireAuth);
 
 analysisRouter.post('/', validate(analyzeValidation), (req, res) => {
   const { prompt } = req.body as { prompt: string };
