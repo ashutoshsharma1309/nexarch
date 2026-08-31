@@ -10,7 +10,6 @@ import { Card, CardContent } from '@/shared/components/ui/card';
 import { EmptyState } from '@/shared/components/ui/empty-state';
 import { Input } from '@/shared/components/ui/input';
 import { Skeleton } from '@/shared/components/ui/skeleton';
-import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { cn } from '@/shared/lib/cn';
 import { slugify } from '@/shared/lib/slugify';
 import { downloadZip } from '@/shared/lib/zip';
@@ -132,8 +131,7 @@ function FileExplorer({ project }: { project: GeneratedProject }) {
   );
 }
 
-export function BackendPage() {
-  useDocumentTitle('Backend');
+export function BackendWorkspace() {
   const navigate = useNavigate();
   const architecture = usePipelineStore((state) => state.architecture);
   const backend = useGeneratedBackend();
@@ -141,7 +139,7 @@ export function BackendPage() {
   return (
     <>
       <PageHeader
-        eyebrow="console/backend"
+        variant="section"
         title="Backend"
         description={
           backend.data

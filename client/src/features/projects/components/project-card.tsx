@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/shared/components/ui/card';
 import { DropdownMenu } from '@/shared/components/ui/dropdown-menu';
 import { cn } from '@/shared/lib/cn';
 import { formatDate } from '@/shared/lib/format';
+import { isDemoProject } from '@/shared/lib/prompt-examples';
 import type { Project, ProjectStatus } from '@/shared/types/api';
 
 const statusVariant: Record<ProjectStatus, 'success' | 'neutral' | 'warning'> = {
@@ -17,6 +18,7 @@ const statusVariant: Record<ProjectStatus, 'success' | 'neutral' | 'warning'> = 
 export interface ProjectCardActions {
   onRename: (project: Project) => void;
   onDuplicate: (project: Project) => void;
+  onExport: (project: Project) => void;
   onToggleArchive: (project: Project) => void;
   onToggleFavorite: (project: Project) => void;
   onDelete: (project: Project) => void;
@@ -73,6 +75,12 @@ export function ProjectCard({ project, ...actions }: { project: Project } & Proj
                   },
                 },
                 {
+                  label: 'Export…',
+                  onSelect: () => {
+                    actions.onExport(project);
+                  },
+                },
+                {
                   label: project.status === 'ARCHIVED' ? 'Unarchive' : 'Archive',
                   onSelect: () => {
                     actions.onToggleArchive(project);
@@ -89,8 +97,9 @@ export function ProjectCard({ project, ...actions }: { project: Project } & Proj
             />
           </div>
         </div>
-        <div className="mt-2">
+        <div className="mt-2 flex items-center gap-1.5">
           <Badge variant={statusVariant[project.status]}>{project.status}</Badge>
+          {isDemoProject(project.name) && <Badge variant="ember">Demo</Badge>}
         </div>
         {project.description && (
           <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-fg-muted">

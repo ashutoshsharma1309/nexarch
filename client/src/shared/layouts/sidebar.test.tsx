@@ -1,7 +1,7 @@
 /**
  * Sidebar tests: the navigation is the product's mental model, so the
  * rendered rail must carry every registered nav item (a nav-items entry
- * without a visible link is a dead feature), plus the attribution link.
+ * without a visible link is a dead feature), and nothing else.
  */
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
@@ -27,11 +27,16 @@ describe('Sidebar', () => {
     }
   });
 
-  it('includes the Phase 13 destinations in the primary navigation', () => {
+  it('keeps the primary navigation to the three product-level destinations', () => {
+    // The rail used to carry one entry per internal module. Everything else
+    // now lives inside the project it belongs to, and a regression here
+    // would mean the workspace has started leaking back out into the shell.
     renderSidebar();
-    for (const label of ['Insights', 'Run', 'Deployment']) {
-      expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
-    }
+    const links = screen
+      .getAllByRole('link')
+      .map((link) => link.textContent.trim())
+      .filter((label) => !label.startsWith('Made by'));
+    expect(links).toEqual(['Home', 'Projects', 'Settings']);
   });
 
   it('credits the author with an outbound LinkedIn link', () => {

@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useMatch, useNavigate } from 'react-router-dom';
 import { Search } from 'lucide-react';
 
-import { useCurrentArtifacts } from '@/shared/hooks/use-current-artifacts';
 import { useProjects } from '@/shared/hooks/use-projects';
 import { cn } from '@/shared/lib/cn';
 import { navigation } from '@/shared/nav-items';
@@ -16,12 +15,26 @@ interface Result {
   onSelect: () => void;
 }
 
+/** The sections of an open project, offered as jump targets. */
+const WORKSPACE_SECTIONS = [
+  'Overview',
+  'Requirements',
+  'Build',
+  'Architecture',
+  'Database',
+  'Code',
+  'Intelligence',
+  'Preview',
+] as const;
+
 /**
- * Global search: always includes navigation and projects; additionally
- * surfaces API endpoints, frontend pages, and components from whatever the
- * pipeline currently has cached (`useCurrentArtifacts`) — the same
- * "search what's already loaded, don't fabricate a new index" scope every
- * other Phase 10 cross-cutting feature uses.
+ * Go anywhere, from anywhere.
+ *
+ * Three groups, in the order a user thinks: the handful of top-level
+ * destinations, the sections of the project currently open, and every
+ * project by name. It indexes nothing — navigation is a static list and
+ * projects are already loaded — which is what keeps it instant and keeps
+ * "search" from needing infrastructure.
  */
 export function CommandPalette() {
   const open = useUiStore((state) => state.commandPaletteOpen);
@@ -33,7 +46,12 @@ export function CommandPalette() {
   const [activeIndex, setActiveIndex] = useState(0);
 
   const projects = useProjects();
-  const { artifacts } = useCurrentArtifacts();
+  // The project whose workspace is open, if any — its sections become
+  // first-class jump targets while the user is inside it.
+  // One matcher, not two: `/*` matches zero trailing segments, so this
+  // covers both the workspace index and every tab under it.
+  const inProject = useMatch('/projects/:projectId/*');
+  const openProjectId = inProject?.params.projectId;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -84,63 +102,37 @@ export function CommandPalette() {
       }
     }
 
+    if (openProjectId) {
+      const current = projects.data?.find((project) => project.id === openProjectId);
+      for (const section of WORKSPACE_SECTIONS) {
+        if (!matches(section)) continue;
+        const path = section === 'Overview' ? '' : `/${section.toLowerCase()}`;
+        list.push({
+          id: `section:${section}`,
+          group: current ? current.name : 'This project',
+          label: section,
+          onSelect: () => {
+            void navigate(`/projects/${openProjectId}${path}`);
+          },
+        });
+      }
+    }
+
     for (const project of projects.data ?? []) {
-      if (matches(project.name)) {
-        list.push({
-          id: `project:${project.id}`,
-          group: 'Projects',
-          label: project.name,
-          hint: project.status,
-          onSelect: () => {
-            void navigate(`/projects/${project.id}`);
-          },
-        });
-      }
-    }
-
-    for (const route of artifacts?.backend?.routes.slice(0, 200) ?? []) {
-      const label = `${route.method} ${route.path}`;
-      if (matches(label)) {
-        list.push({
-          id: `endpoint:${label}`,
-          group: 'Endpoints',
-          label,
-          onSelect: () => {
-            void navigate('/api');
-          },
-        });
-      }
-    }
-
-    for (const page of artifacts?.frontend?.pages.slice(0, 200) ?? []) {
-      if (matches(page.name)) {
-        list.push({
-          id: `page:${page.route}`,
-          group: 'Frontend pages',
-          label: page.name,
-          hint: page.route,
-          onSelect: () => {
-            void navigate('/frontend');
-          },
-        });
-      }
-    }
-
-    for (const component of artifacts?.frontend?.components.slice(0, 200) ?? []) {
-      if (matches(component)) {
-        list.push({
-          id: `component:${component}`,
-          group: 'Components',
-          label: component,
-          onSelect: () => {
-            void navigate('/frontend');
-          },
-        });
-      }
+      if (project.id === openProjectId || !matches(project.name)) continue;
+      list.push({
+        id: `project:${project.id}`,
+        group: 'Projects',
+        label: project.name,
+        hint: project.status,
+        onSelect: () => {
+          void navigate(`/projects/${project.id}`);
+        },
+      });
     }
 
     return list.slice(0, 40);
-  }, [query, navigate, projects.data, artifacts]);
+  }, [query, navigate, projects.data, openProjectId]);
 
   const activate = (result: Result | undefined): void => {
     if (!result) return;

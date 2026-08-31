@@ -1,5 +1,5 @@
-import { FolderGit2, Search } from 'lucide-react';
-import { useState } from 'react';
+import { FolderGit2, Search, Upload, Sparkles } from 'lucide-react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { PageHeader } from '@/shared/components/page-header';
@@ -16,6 +16,8 @@ import {
   useDuplicateProject,
   useUpdateProject,
 } from '@/shared/hooks/use-workspace';
+import { useExportProject, useImportProject, useRunDemo } from '@/shared/hooks/use-portability';
+import { downloadJson, readJsonFile } from '@/shared/lib/download';
 import { toast } from '@/shared/store/toast.store';
 import type { Project } from '@/shared/types/api';
 import { ProjectCard } from './components/project-card';
@@ -37,6 +39,10 @@ export function ProjectsPage() {
   const updateProject = useUpdateProject();
   const deleteProject = useDeleteProject();
   const duplicateProject = useDuplicateProject();
+  const exportProject = useExportProject();
+  const importProject = useImportProject();
+  const runDemo = useRunDemo();
+  const importInputRef = useRef<HTMLInputElement>(null);
   const favoriteNewProjects = useSettingsStore((state) => state.favoriteNewProjects);
 
   const filtered = (projects.data ?? []).filter((project) =>
@@ -107,6 +113,48 @@ export function ProjectsPage() {
     });
   };
 
+  const handleExport = (project: Project): void => {
+    exportProject.mutate(project.id, {
+      onSuccess: (pkg) => {
+        downloadJson(pkg, project.slug || project.name);
+        toast(`Exported "${project.name}"`, 'success');
+      },
+      onError: () => {
+        toast('Could not export the project', 'error');
+      },
+    });
+  };
+
+  const handleImportFile = (file: File): void => {
+    void readJsonFile(file)
+      .then((pkg) => {
+        importProject.mutate(pkg, {
+          onSuccess: (result) => {
+            toast(`Imported "${result.project.name}"`, 'success');
+            void navigate(`/projects/${result.project.id}`);
+          },
+          onError: (error) => {
+            toast(error instanceof Error ? error.message : 'Could not import the package', 'error');
+          },
+        });
+      })
+      .catch((error: unknown) => {
+        toast(error instanceof Error ? error.message : 'Could not read that file', 'error');
+      });
+  };
+
+  const handleDemo = (): void => {
+    runDemo.mutate(undefined, {
+      onSuccess: (result) => {
+        toast('Demo project ready', 'success');
+        void navigate(`/projects/${result.project.id}`);
+      },
+      onError: () => {
+        toast('Could not start the demo', 'error');
+      },
+    });
+  };
+
   const handleDelete = (): void => {
     if (!deleting) return;
     deleteProject.mutate(deleting.id, {
@@ -125,17 +173,49 @@ export function ProjectsPage() {
       <PageHeader
         eyebrow="console/projects"
         title="Projects"
-        description="Every application this workspace has forged."
+        description="Every application in this workspace."
         actions={
-          <Button
-            variant="forge"
-            onClick={() => {
-              setCreateOpen(true);
-            }}
-          >
-            New project
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              icon={<Sparkles className="size-3.5" />}
+              loading={runDemo.isPending}
+              onClick={handleDemo}
+            >
+              Try the demo
+            </Button>
+            <Button
+              variant="secondary"
+              icon={<Upload className="size-3.5" />}
+              loading={importProject.isPending}
+              onClick={() => {
+                importInputRef.current?.click();
+              }}
+            >
+              Import
+            </Button>
+            <Button
+              variant="forge"
+              onClick={() => {
+                setCreateOpen(true);
+              }}
+            >
+              New project
+            </Button>
+          </div>
         }
+      />
+
+      <input
+        ref={importInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) handleImportFile(file);
+          event.target.value = '';
+        }}
       />
 
       <div className="relative mb-4 max-w-xs">
@@ -166,6 +246,7 @@ export function ProjectsPage() {
               project={project}
               onRename={setRenaming}
               onDuplicate={handleDuplicate}
+              onExport={handleExport}
               onToggleArchive={handleToggleArchive}
               onToggleFavorite={handleToggleFavorite}
               onDelete={setDeleting}
@@ -191,7 +272,7 @@ export function ProjectsPage() {
         <EmptyState
           icon={<FolderGit2 className="size-4" />}
           title="No projects yet"
-          description="Create a project to track its documentation, exports, and generation history."
+          description="A project holds one application — its requirements, architecture, code, security review and preview, all in one workspace."
           action={
             <Button
               variant="forge"

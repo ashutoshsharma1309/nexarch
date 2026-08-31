@@ -9,18 +9,12 @@ import {
   Square,
   TerminalSquare,
 } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
-
-import { publishArtifacts } from '@/features/pipeline/publish-artifacts';
 import { PageHeader } from '@/shared/components/page-header';
 import { Badge } from '@/shared/components/ui/badge';
 import { Button } from '@/shared/components/ui/button';
 import { Card, CardContent } from '@/shared/components/ui/card';
 import { EmptyState } from '@/shared/components/ui/empty-state';
-import { Skeleton } from '@/shared/components/ui/skeleton';
 import { Spinner } from '@/shared/components/ui/spinner';
-import { useDocumentTitle } from '@/shared/hooks/use-document-title';
-import { usePipelineArtifacts, usePipelineRun } from '@/shared/hooks/use-pipeline';
 import {
   useCreateRunSession,
   useRestartRunSession,
@@ -220,7 +214,7 @@ function LiveApp({ session }: { session: RunSession }) {
 /** A phase that means "this session still owns its ports and workspace". */
 const LIVE_PHASES: RunPhase[] = [...BUSY_PHASES, 'running'];
 
-function PreviewWorkspace({ artifacts }: { artifacts: PipelineArtifacts }) {
+export function PreviewWorkspace({ artifacts }: { artifacts: PipelineArtifacts }) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('app');
 
@@ -274,7 +268,7 @@ function PreviewWorkspace({ artifacts }: { artifacts: PipelineArtifacts }) {
   return (
     <div className="space-y-4">
       <PageHeader
-        eyebrow="console/preview"
+        variant="section"
         title={projectName}
         description="The generated project, installed and running on localhost."
         actions={
@@ -404,50 +398,4 @@ function PreviewWorkspace({ artifacts }: { artifacts: PipelineArtifacts }) {
       )}
     </div>
   );
-}
-
-export function PreviewPage() {
-  const { runId } = useParams<{ runId: string }>();
-  const navigate = useNavigate();
-  const run = usePipelineRun(runId ?? null);
-  const artifacts = usePipelineArtifacts(run.data);
-
-  useDocumentTitle(run.data ? `Preview · ${run.data.projectName}` : 'Preview');
-
-  // Landing here directly (a reload, a bookmarked link) has to repopulate the
-  // rest of the console too, or the Explorer pages would be empty behind it.
-  useEffect(() => {
-    if (artifacts.data) publishArtifacts(artifacts.data);
-  }, [artifacts.data]);
-
-  if (run.isError) {
-    return (
-      <EmptyState
-        icon={<AlertTriangle className="size-4" />}
-        title="That run isn't available"
-        description="Generation runs live in the API process and don't survive a server restart. Generate the project again to preview it."
-        action={
-          <Button
-            variant="forge"
-            onClick={() => {
-              void navigate('/forge');
-            }}
-          >
-            Open the Forge
-          </Button>
-        }
-      />
-    );
-  }
-
-  if (!artifacts.data) {
-    return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="h-72" />
-      </div>
-    );
-  }
-
-  return <PreviewWorkspace artifacts={artifacts.data} />;
 }

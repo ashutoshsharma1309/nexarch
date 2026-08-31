@@ -35,7 +35,7 @@ function NavItems({ onNavigate }: { onNavigate?: () => void }) {
 function SidebarFooter() {
   return (
     <div className="border-t border-line px-5 py-3">
-      <p className="font-mono text-2xs text-fg-subtle">18 modules · v1.0</p>
+      <p className="font-mono text-2xs text-fg-subtle">NexArch v2.0</p>
       <a
         href="https://www.linkedin.com/in/ashutoshsharma1309/"
         target="_blank"

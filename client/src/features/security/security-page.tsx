@@ -17,7 +17,6 @@ import { Button } from '@/shared/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
 import { EmptyState } from '@/shared/components/ui/empty-state';
 import { Skeleton } from '@/shared/components/ui/skeleton';
-import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { cn } from '@/shared/lib/cn';
 import { slugify } from '@/shared/lib/slugify';
 import { downloadZip } from '@/shared/lib/zip';
@@ -240,8 +239,7 @@ function SecurityTimeline({ generatedAt }: { generatedAt: string }) {
   );
 }
 
-export function SecurityPage() {
-  useDocumentTitle('Security');
+export function SecurityWorkspace() {
   const navigate = useNavigate();
   const architecture = usePipelineStore((state) => state.architecture);
   const security = useSecurityBundle();
@@ -249,7 +247,7 @@ export function SecurityPage() {
   return (
     <>
       <PageHeader
-        eyebrow="console/security"
+        variant="section"
         title="Security"
         description={
           security.data

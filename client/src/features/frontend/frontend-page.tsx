@@ -20,7 +20,6 @@ import { Card, CardContent } from '@/shared/components/ui/card';
 import { EmptyState } from '@/shared/components/ui/empty-state';
 import { Input } from '@/shared/components/ui/input';
 import { Skeleton } from '@/shared/components/ui/skeleton';
-import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { cn } from '@/shared/lib/cn';
 import { slugify } from '@/shared/lib/slugify';
 import { downloadZip } from '@/shared/lib/zip';
@@ -196,8 +195,7 @@ function ResponsivePreview() {
   );
 }
 
-export function FrontendPage() {
-  useDocumentTitle('Frontend');
+export function FrontendWorkspace() {
   const navigate = useNavigate();
   const architecture = usePipelineStore((state) => state.architecture);
   const frontend = useGeneratedFrontend();
@@ -205,7 +203,7 @@ export function FrontendPage() {
   return (
     <>
       <PageHeader
-        eyebrow="console/frontend"
+        variant="section"
         title="Frontend"
         description={
           frontend.data

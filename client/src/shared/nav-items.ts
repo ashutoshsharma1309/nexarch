@@ -1,25 +1,4 @@
-import {
-  Bot,
-  BrainCircuit,
-  Database,
-  DraftingCompass,
-  FileText,
-  FolderGit2,
-  Gauge,
-  GitBranch,
-  Hammer,
-  LayoutDashboard,
-  Layers,
-  Monitor,
-  Network,
-  Play,
-  PackageOpen,
-  Rocket,
-  ScrollText,
-  Server,
-  Settings,
-  ShieldCheck,
-} from 'lucide-react';
+import { FolderGit2, LayoutDashboard, Settings } from 'lucide-react';
 import type { ComponentType } from 'react';
 
 export interface NavItem {
@@ -30,30 +9,18 @@ export interface NavItem {
 }
 
 /**
- * Navigation mirrors the product's mental model: overview → forge (the
- * verb) → what the forge produced (projects, generations) → workspace
- * tooling (docs, exports, logs) → settings. Shared between the sidebar and
- * the command palette so both stay in sync with one list.
+ * Three destinations.
+ *
+ * This list used to hold twenty-one — one per internal module — which
+ * described how NexArch is built rather than what a user does with it.
+ * Architecture, Database, Code, Security and the rest are not gone; they
+ * moved inside the project they belong to, because none of them means
+ * anything except in the context of some project.
+ *
+ * Shared between the sidebar and the command palette so both stay in sync.
  */
 export const navigation: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/forge', label: 'Forge', icon: Hammer },
-  { to: '/architecture', label: 'Architecture', icon: DraftingCompass },
-  { to: '/database', label: 'Database', icon: Database },
-  { to: '/api', label: 'API Contract', icon: Network },
-  { to: '/backend', label: 'Backend', icon: Server },
-  { to: '/frontend', label: 'Frontend', icon: Monitor },
-  { to: '/security', label: 'Security', icon: ShieldCheck },
-  { to: '/dependency-graph', label: 'Dependency Graph', icon: GitBranch },
-  { to: '/ai-operations', label: 'AI Operations', icon: Bot },
-  { to: '/insights', label: 'Insights', icon: BrainCircuit },
-  { to: '/run', label: 'Run', icon: Play },
-  { to: '/deployment', label: 'Deployment', icon: Rocket },
+  { to: '/', label: 'Home', icon: LayoutDashboard, end: true },
   { to: '/projects', label: 'Projects', icon: FolderGit2 },
-  { to: '/generations', label: 'Generations', icon: Layers },
-  { to: '/documentation', label: 'Documentation', icon: FileText },
-  { to: '/exports', label: 'Exports', icon: PackageOpen },
-  { to: '/logs', label: 'Logs', icon: ScrollText },
-  { to: '/quality', label: 'Engineering Dashboard', icon: Gauge },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];

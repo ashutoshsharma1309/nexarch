@@ -7,7 +7,6 @@ import { Button } from '@/shared/components/ui/button';
 import { Card, CardContent } from '@/shared/components/ui/card';
 import { EmptyState } from '@/shared/components/ui/empty-state';
 import { Skeleton } from '@/shared/components/ui/skeleton';
-import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { downloadText } from '@/shared/lib/download';
 import { ApiClientError } from '@/shared/services/api-client';
 import { usePipelineStore } from '@/shared/store/pipeline.store';
@@ -15,8 +14,7 @@ import { CodeViewer } from './components/code-viewer';
 import { OpenApiExplorer } from './components/openapi-explorer';
 import { useDesignBundle } from './use-design';
 
-export function ApiContractPage() {
-  useDocumentTitle('API Contract');
+export function ApiContractWorkspace() {
   const navigate = useNavigate();
   const architecture = usePipelineStore((state) => state.architecture);
   const design = useDesignBundle();
@@ -25,7 +23,7 @@ export function ApiContractPage() {
   return (
     <>
       <PageHeader
-        eyebrow="console/api"
+        variant="section"
         title="API Contract"
         description={
           openapi

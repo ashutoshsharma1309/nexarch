@@ -18,7 +18,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui
 import { EmptyState } from '@/shared/components/ui/empty-state';
 import { Skeleton } from '@/shared/components/ui/skeleton';
 import { Textarea } from '@/shared/components/ui/textarea';
-import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { ApiClientError } from '@/shared/services/api-client';
 import { usePipelineStore } from '@/shared/store/pipeline.store';
 import type {
@@ -204,8 +203,7 @@ function SpecDiffPanel({ analysis }: { analysis: SpecDiffAnalysis }) {
   );
 }
 
-export function DependencyGraphPage() {
-  useDocumentTitle('Dependency Graph');
+export function DependencyGraphWorkspace() {
   const navigate = useNavigate();
   const architecture = usePipelineStore((state) => state.architecture);
   const graph = useDependencyGraph();
@@ -221,7 +219,7 @@ export function DependencyGraphPage() {
   return (
     <>
       <PageHeader
-        eyebrow="console/dependency-graph"
+        variant="section"
         title="Dependency Graph"
         description={
           graph.data

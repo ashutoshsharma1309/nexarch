@@ -9,7 +9,6 @@ import { Card, CardContent } from '@/shared/components/ui/card';
 import { EmptyState } from '@/shared/components/ui/empty-state';
 import { Input } from '@/shared/components/ui/input';
 import { Skeleton } from '@/shared/components/ui/skeleton';
-import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { cn } from '@/shared/lib/cn';
 import { slugify } from '@/shared/lib/slugify';
 import { ApiClientError } from '@/shared/services/api-client';
@@ -220,8 +219,7 @@ function DesignView({ bundle }: { bundle: DesignBundle }) {
   );
 }
 
-export function DatabasePage() {
-  useDocumentTitle('Database');
+export function DatabaseWorkspace() {
   const navigate = useNavigate();
   const architecture = usePipelineStore((state) => state.architecture);
   const design = useDesignBundle();
@@ -229,7 +227,7 @@ export function DatabasePage() {
   return (
     <>
       <PageHeader
-        eyebrow="console/database"
+        variant="section"
         title="Database"
         description={
           architecture

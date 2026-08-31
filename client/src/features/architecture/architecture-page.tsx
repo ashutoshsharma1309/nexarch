@@ -15,7 +15,6 @@ import { Button } from '@/shared/components/ui/button';
 import { Card, CardContent } from '@/shared/components/ui/card';
 import { EmptyState } from '@/shared/components/ui/empty-state';
 import { Skeleton } from '@/shared/components/ui/skeleton';
-import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { downloadText } from '@/shared/lib/download';
 import { slugify } from '@/shared/lib/slugify';
 import { ApiClientError } from '@/shared/services/api-client';
@@ -223,8 +222,7 @@ function PlanView({ result }: { result: ArchitectureResponse }) {
   );
 }
 
-export function ArchitecturePage() {
-  useDocumentTitle('Architecture');
+export function ArchitectureWorkspace() {
   const navigate = useNavigate();
   const spec = usePipelineStore((state) => state.spec);
   const setArchitecture = usePipelineStore((state) => state.setArchitecture);
@@ -244,7 +242,7 @@ export function ArchitecturePage() {
   return (
     <>
       <PageHeader
-        eyebrow="console/architecture"
+        variant="section"
         title="Architecture"
         description={
           spec
@@ -298,15 +296,15 @@ export function ArchitecturePage() {
         <EmptyState
           icon={<DraftingCompass className="size-4" />}
           title="No requirement spec yet"
-          description="Analyze an application description in the forge first — its specification flows here automatically."
+          description="The architecture is planned from an analyzed requirement spec. Build this project and it appears here."
           action={
             <Button
               variant="forge"
               onClick={() => {
-                void navigate('/forge');
+                void navigate('..', { relative: 'path' });
               }}
             >
-              Open the forge
+              Back to the project
             </Button>
           }
         />
