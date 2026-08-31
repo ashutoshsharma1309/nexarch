@@ -22,14 +22,14 @@ export function NotFoundPage() {
             void navigate('/');
           }}
         >
-          Back to dashboard
+          Back to home
         </Button>
         <Button
           onClick={() => {
-            void navigate('/forge');
+            void navigate('/projects');
           }}
         >
-          Open the forge
+          Your projects
         </Button>
       </div>
     </div>
