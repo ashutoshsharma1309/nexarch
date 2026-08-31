@@ -5,7 +5,7 @@
 > without breaking its conventions. The README covers usage; this file covers
 > understanding.
 >
-> **Last verified: 2026-08-26 · Phase 14 · v1.2** — see the changelog in §11.
+> **Last verified: 2026-08-27 · v2 foundations · v1.3** — see the changelog in §11.
 >
 > **Accuracy contract:** every claim below was cross-checked against the code it
 > describes, not written from memory. If you change behaviour, update the
@@ -21,31 +21,47 @@
 
 ## 0. Orientation — read this before you touch anything
 
-If you are an AI assistant picking this project up cold, these five facts
+If you are an AI assistant picking this project up cold, these six facts
 determine whether your first change fits or fights the codebase:
 
-1. **There is one product surface now, not eighteen.** A user signs in, types a
-   prompt on `/forge`, and `POST /api/v1/pipeline/runs` drives every generator
-   stage server-side. The individual module endpoints still exist and still
-   work, but they are the machinery, not the product.
-2. **Two stages call a real model; the other five are deterministic.** This is
-   deliberate and load-bearing — see §4.10. Do not "improve" the platform by
-   routing more stages through an LLM without reading that invariant first.
-3. **Auth is real and the pipeline is behind it.** `requireAuth` guards
-   `/api/v1/pipeline/*`. Anything you add that writes to a user's workspace
-   belongs behind it too.
-4. **GitHub integration was deleted in Phase 14.** If you find a reference to a
-   `github` module, `GITHUB_TOKEN`, or `/api/v1/github`, it is stale — report it
-   rather than rebuilding against it.
-5. **Nothing persists across a restart except users and projects.** Pipeline
-   runs, runner sessions and deploy executions are in-process maps. That is a
-   known, accepted tradeoff for a local single-user console (§9).
+1. **Everything is scoped to a project.** The console is `/projects` → one
+   project → tabs (`overview`, `requirements`, `build`, `architecture`,
+   `database`, `code`, `intelligence`, `preview`). The old flat pages
+   (`/forge`, `/architecture`, `/database`, …) are gone; `app/legacy-redirect.tsx`
+   keeps those URLs alive by redirecting them into the right tab. Server-side
+   the same shape holds: four modules mount under `/projects`.
+2. **Two runtimes coexist, on purpose.** The Phase 14 pipeline
+   (`POST /pipeline/runs`, seven stages) is still the default path and is
+   untouched. The new agent orchestrator
+   (`POST /projects/:projectId/agent-runs`) runs _alongside_ it over the five
+   stages that have agent adapters, so the migration proceeds one agent at a
+   time instead of as a rewrite. Do not delete either one assuming the other
+   replaced it.
+3. **v2 is no longer design-only.** `docs/v2/NEXARCH_V2_ARCHITECTURE.md` used
+   to describe unimplemented work; its foundations now exist as three modules —
+   `agent-orchestrator`, `context-engine`, `engineering-graph` (§5). The doc is
+   still ahead of the code, but "nothing in it is implemented" is no longer
+   true. Note the agents live in `agent-orchestrator/agents/`, not the
+   `server/src/agents/` the design proposed.
+4. **AI stages are deliberately bounded.** The model supplies semantics, code
+   supplies structure — see §4.10. Do not "improve" the platform by routing
+   more stages through an LLM without reading that invariant first.
+5. **Auth is real and projects are owner-scoped.** `requireAuth` guards
+   `auth`, `workspace`, `pipeline`, `agent-orchestrator`, `context-engine` and
+   `engineering-graph`. A project's slug is unique **per owner**, not globally.
+   Anything you add that writes to a user's workspace belongs behind the guard
+   too.
+6. **Runs persist; live progress does not.** The record that a run happened
+   (project, prompt, outcome) is written to the `generations` table and
+   survives a restart. The second-by-second stage state stays in memory
+   deliberately — writing a row per stage transition to serve data that is
+   worthless thirty seconds later would be the wrong trade. Runner sessions and
+   deploy executions are still memory-only (§9).
 
-**Status:** v1.2 — the 12 build phases, plus Phase 13 (end-to-end lifecycle) and
-Phase 14 (one product: real AI, one pipeline, real auth). All verified and
-pushed. A forward-looking multi-agent design for v2.0 lives at
-`docs/v2/NEXARCH_V2_ARCHITECTURE.md` but is **design only — nothing in it is
-implemented**.
+**Status:** v1.3 — the 12 build phases, Phase 13 (end-to-end lifecycle), Phase
+14 (one product: real AI, one pipeline, real auth), and the v2 foundations
+(agent runtime, engineering graph, context engine) landing alongside the
+existing pipeline.
 
 ## 1. What this project is
 
@@ -84,9 +100,9 @@ Two things matter to keep straight:
 | Client  | React 19 · Vite · TypeScript · TailwindCSS 4 · React Router · TanStack Query · Zustand · React Hook Form · Zod · Axios · Framer Motion                                     |
 | Tooling | npm workspaces (`server/`, `client/`) · typed flat-config ESLint · Prettier · Husky + lint-staged · GitHub Actions CI · Docker + Compose                                   |
 
-Scale (measured 2026-08-26): ~290 server TS files (~36.1k LOC), ~139 client
-TS/TSX files (~15.3k LOC), 272 server tests across 14 `node:test` suites + 24
-client tests across 6 Vitest suites — **296 total, all green**.
+Scale (measured 2026-08-27): ~353 server TS files (~46.6k LOC), ~154 client
+TS/TSX files (~15.6k LOC), 382 server tests across 20 `node:test` suites + 44
+client tests across 7 Vitest suites — **426 total, all green**.
 
 ## 3. Repository layout
 
@@ -96,39 +112,47 @@ docker-compose.yml        # NexArch's own production-shaped stack (MySQL + API +
 docker-compose.dev.yml    # dev MySQL only
 .github/workflows/ci.yml  # verify job (lint/typecheck/test/build) + docker job (builds both images)
 .env.example              # Compose-level vars (MYSQL_*, JWT_SECRET, ports)
-docs/v2/                  # NexArch 2.0 multi-agent DESIGN document (not implemented)
+docs/v2/                  # NexArch 2.0 multi-agent design — foundations now partly built (§0.3)
 reports/                  # generated audit artifacts from the final integration pass
 FINAL_PROJECT_SUMMARY.md  # narrative wrap-up of the original 12-phase build (PRE-Phase-13; historical only)
 
 server/
   .env.example            # the API's own runtime env contract (DATABASE_URL, JWT_*, AI_*, CORS_ORIGINS…)
-  prisma/schema.prisma    # Role, User, Project, Generation (platform bookkeeping)
+  prisma/schema.prisma    # Role, User, Project, Generation, GraphNode, GraphEdge
+  prisma/migrations/      # real migration history — use db:migrate, not db:push, from here on
   src/
     index.ts              # process lifecycle: boot, listen, graceful shutdown
     app.ts                # middleware pipeline + module mounting; no socket, no DB
-    modules/              # 17 module folders → 18 mounted AppModules — see catalog below
+    modules/              # 20 module folders → 21 mounted AppModules — see catalog below
       index.ts            # THE module registry; a module exists iff it is listed here
     shared/               # the ONLY code modules may share
       config/env.ts       # the Zod-validated env schema, read once at boot
       config/index.ts     # the typed `config` object every module imports (never process.env)
+      contracts/          # v2 cross-module contracts: agent, task, artifact, project,
+                          #   agent-context, agent-registry, engineering-graph
       database/prisma.ts  # prisma client + connect/disconnect
       logger/             # Winston logger
       middleware/         # error-handler, rate-limiter, request-context, request-logger, security, validate
-      types/              # api envelope, module contract, requirement/architecture/design types, express.d.ts
+      types/              # api envelope, module contract, requirement/architecture/design/product types
       utils/              # api-response, app-error, module-scaffold, strings
 
 client/
   src/
-    app/                  # router (auth-gated route tree) + 404
-    features/             # 24 folders: auth, dashboard, prompt (the Forge), pipeline, preview,
-                          #   architecture, database, backend, frontend, security, dependency-graph,
-                          #   ai-orchestrator, insights, runner, deployment, projects, generation,
-                          #   quality, documentation, exports, logs, notifications, search, settings
+    app/                  # router (auth-gated, project-scoped) + legacy-redirect + 404
+    features/             # 16 folders: auth, home, projects, workspace (the tabbed project shell),
+                          #   pipeline, preview, prompt, architecture, database, backend, frontend,
+                          #   security, dependency-graph, notifications, search, settings
+      workspace/tabs/     # overview, requirements, build, architecture, database, code,
+                          #   intelligence (+ sections), preview — each a real, bookmarkable route
     shared/
       services/           # one <module>.service.ts per server module + api-client.ts (the only axios use)
       components/ layouts/ hooks/ lib/ store/ styles/ types/
   nginx.conf              # prod serving: SPA fallback + /api proxy to the server container
 ```
+
+Navigation is deliberately three top-level entries — Home, Projects, Settings.
+Everything a project _is_ lives under that project's own URL as a tab, so each
+view is bookmarkable and survives the back button.
 
 Note: `features/pipeline/` and `features/preview/` are not nav entries. The
 pipeline components are used by the Forge page, and Preview is reached at
@@ -144,10 +168,17 @@ pipeline components are used by the Forge page, and Preview is reached at
    `requireRole` as its public surface, and `pipeline` composes the generator
    services by importing them (`architecture.service`, `database-designer.service`,
    …) rather than re-implementing them. Everything genuinely shared still lives
-   only in `server/src/shared/`.
+   only in `server/src/shared/` — now including `shared/contracts/`, which holds
+   the v2 types (`agent`, `task`, `artifact`, `project`, `engineering-graph`)
+   that several modules must agree on.
 2. **One module contract.** Every module exports an `AppModule`
    (`{ name, basePath, description, router }`, see `shared/types/module.ts`) and
    is mounted by adding exactly one line to `server/src/modules/index.ts`.
+   `basePath` is no longer unique per module: `workspace`, `engineering-graph`,
+   `context-engine` and `agent-orchestrator` all mount at `/projects`. They do
+   not collide because their paths diverge at the segment _after_ the project
+   id (`/graph`, `/context`, `/agent-runs`). If you add a fifth, check that
+   segment before assuming it is free.
 3. **Consistent module file layout.** `index.ts` (the AppModule),
    `<name>.router.ts`, `<name>.controller.ts`, `<name>.service.ts`,
    `<name>.validator.ts`, `<name>.types.ts`, `<name>.service.test.ts`, and
@@ -159,7 +190,7 @@ pipeline components are used by the Forge page, and Preview is reached at
 5. **One response envelope.** Every JSON response is `ApiSuccess<T>` or
    `ApiFailure` (`shared/types/api.ts`); clients branch on `success`. The
    client mirrors these types in `client/src/shared/types/api.ts` (a single
-   ~1720-line type-mirror file — an accepted convention, don't split casually).
+   ~1950-line type-mirror file — an accepted convention, don't split casually).
 6. **Config is validated at boot.** `process.env` is parsed in exactly one file
    (`shared/config/env.ts`) through Zod, and modules import the typed `config`
    object from `shared/config/index.ts` — never `process.env`. A misconfigured
@@ -205,40 +236,55 @@ pipeline components are used by the Forge page, and Preview is reached at
 
 ## 5. Module catalog (server, all under `/api/v1`)
 
-18 `AppModule`s from 17 folders (`database-designer` exports two). Pipeline
-order — each stage consumes the previous stage's structured output:
+21 `AppModule`s from 20 folders (`database-designer` exports two). Pipeline
+order — each stage consumes the previous stage's structured output. Modules
+marked 🔒 mount `requireAuth` on their whole subtree:
 
-| #   | Module                | Base path       | What it does                                                                                                        |
-| --- | --------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------- |
-| 1   | `health`              | `/health`       | `GET /`, `/live`, `/ready` — diagnostics; 503 + degraded report when MySQL is down                                  |
-| 2   | `auth`                | `/auth`         | `POST /register`, `/login`, `/refresh`, `/logout`; `GET /me` — local accounts, bcrypt, JWT in httpOnly cookies.     |
-|     |                       |                 | Exports `requireAuth` / `requireRole`. Credential endpoints carry their own tighter rate limit (20 / 15 min).       |
-| 3   | `pipeline`            | `/pipeline`     | **The product endpoint.** `POST /runs` (202), `GET /runs`, `GET /runs/:id`, `GET /runs/:id/artifacts`,              |
-|     |                       |                 | `POST /runs/:id/retry` — composes stages 4–10 into one run. Whole subtree behind `requireAuth`.                     |
-| 4   | `analysis`            | `/analyze`      | `POST /` — natural-language prompt → structured requirement spec (entities, features, roles, constraints)           |
-| 5   | `architecture`        | `/architecture` | `POST /` — requirement spec → Software Design Spec (SDS): tech choices, module plan, folder plan, API plan, scaling |
-| 6   | `database-designer`   | `/database`     | `POST /design` — SDS → schemas (Prisma/SQL), ER model, validation rules                                             |
-|     | (same module)         | `/openapi`      | `POST /generate` — OpenAPI 3.1 contract from SDS + design                                                           |
-| 7   | `backend-generator`   | `/backend`      | `POST /generate` — SDS + design → complete Express/Prisma backend project (files as structured output)              |
-| 8   | `frontend-generator`  | `/frontend`     | `POST /generate` — SDS + design → complete React/Vite frontend project                                              |
-| 9   | `security-engine`     | `/security`     | `POST /analyze`, `POST /apply`, `GET /report` — JWT/RBAC hardening + security analysis of generated output          |
-| 10  | `dependency-graph`    | `/dependency`   | `POST /build`, `/analyze`, `/diff` (old spec vs new spec → selective regeneration plan), `/regenerate`,             |
-|     |                       |                 | `GET /graph`, `/statistics` — change-impact analysis, prompt-diff incremental regeneration                          |
-| 11  | `ai-orchestrator`     | `/ai`           | `POST /generate`, `/retry`, `/workflow`, `GET /history`, `/statistics` — provider registry (groq, claude, openai,   |
-|     |                       |                 | gemini, openrouter, mock) + data-driven model router; resolves to `mock` when nothing is configured                 |
-| 12  | `workspace`           | `/`             | Projects CRUD (`/projects`, `/project/:id`, duplicate, generations), `/history`, `/statistics`, `/export` (zip),    |
-|     |                       |                 | `/documentation` — persistence layer over Prisma                                                                    |
-| 13  | `deployment`          | `/deployment`   | `POST /generate`, `/export`, `GET /status`, `/health` — deployment infra for GENERATED apps across 12 targets.      |
-|     |                       |                 | Execute layer: `GET /providers`, `POST /execute/plan`, `POST /execute`, `GET /executions(/:id)` —                   |
-|     |                       |                 | provider abstraction (Vercel/Railway/Render), state machine queued→building→deploying→live/failed, token-gated      |
-| 14  | `quality`             | `/`             | `/quality/analyze`, `/quality/export`, `/quality/report`, `/testing/run`, `/documentation/generate`,                |
-|     |                       |                 | `/performance/report`, `/release/readiness` — scoring (9 categories, A–F), test generation, docs, benchmarks        |
-| 15  | `insights`            | `/insights`     | `POST /generate` — automatic architecture analysis: summary, "why this tech?" justifications quoting planner        |
-|     |                       |                 | decisions, folder/db/api/security explanations, Mermaid architecture/ER/API-flow diagrams, explained scores         |
-| 16  | `runner`              | `/runner`       | `POST /plan`, `/sessions`, `/sessions/:id/stop`, `/restart`; `GET /sessions(/:id)`, `/sessions/:id/logs` —          |
-|     |                       |                 | one-click local run: workspace write, install, free-port allocation, log streaming (cursor), failure diagnostics.   |
-|     |                       |                 | Child processes are swept on signalled shutdown, not just clean exit.                                               |
-| —   | `review` _(scaffold)_ | `/review`       | Manifest only. Planned: static analysis + optimization pass gating REVIEWING → COMPLETED.                           |
+| #   | Module                  | Base path       | What it does                                                                                                        |
+| --- | ----------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------- |
+| 1   | `health`                | `/health`       | `GET /`, `/live`, `/ready` — diagnostics; 503 + degraded report when MySQL is down                                  |
+| 2   | `auth` 🔒               | `/auth`         | `POST /register`, `/login`, `/refresh`, `/logout`; `GET /me` — local accounts, bcrypt, JWT in httpOnly cookies.     |
+|     |                         |                 | Exports `requireAuth` / `requireRole`. Credential endpoints carry their own tighter rate limit (20 / 15 min).       |
+| 3   | `pipeline` 🔒           | `/pipeline`     | **The default product path.** `POST /runs` (202), `GET /runs`, `GET /runs/:id`, `GET /runs/:id/artifacts`,          |
+|     |                         |                 | `GET /runs/:id/artifacts/manifest` (what exists, without content), `GET /runs/:id/artifacts/:type`,                 |
+|     |                         |                 | `POST /runs/:id/retry` — composes stages 4–10 into one run. Live stage state in memory; the run _record_            |
+|     |                         |                 | is persisted to `generations` by `lib/run-recorder.ts` (§6). Note the literal `manifest` route is registered        |
+|     |                         |                 | before `:type` so it isn't swallowed as a parameter.                                                                |
+| 4   | `analysis`              | `/analyze`      | `POST /` — natural-language prompt → structured requirement spec (entities, features, roles, constraints)           |
+| 5   | `architecture`          | `/architecture` | `POST /` — requirement spec → Software Design Spec (SDS): tech choices, module plan, folder plan, API plan, scaling |
+| 6   | `database-designer`     | `/database`     | `POST /design` — SDS → schemas (Prisma/SQL), ER model, validation rules                                             |
+|     | (same module)           | `/openapi`      | `POST /generate` — OpenAPI 3.1 contract from SDS + design                                                           |
+| 7   | `backend-generator`     | `/backend`      | `POST /generate` — SDS + design → complete Express/Prisma backend project (files as structured output)              |
+| 8   | `frontend-generator`    | `/frontend`     | `POST /generate` — SDS + design → complete React/Vite frontend project                                              |
+| 9   | `security-engine`       | `/security`     | `POST /analyze`, `POST /apply`, `GET /report` — JWT/RBAC hardening + security analysis of generated output          |
+| 10  | `dependency-graph`      | `/dependency`   | `POST /build`, `/analyze`, `/diff` (old spec vs new spec → selective regeneration plan), `/regenerate`,             |
+|     |                         |                 | `GET /graph`, `/statistics` — change-impact analysis, prompt-diff incremental regeneration                          |
+| 11  | `ai-orchestrator`       | `/ai`           | `POST /generate`, `/retry`, `/workflow`, `GET /history`, `/statistics` — provider registry (groq, claude, openai,   |
+|     |                         |                 | gemini, openrouter, mock) + data-driven model router; resolves to `mock` when nothing is configured                 |
+| 12  | `workspace` 🔒          | `/`             | Projects CRUD (`/projects`, `/project/:id`, duplicate, generations), `/history`, `/statistics`, `/export` (zip),    |
+|     |                         |                 | `/documentation` — persistence layer over Prisma. Every query is scoped to the calling owner (§6).                  |
+| 13  | `engineering-graph` 🔒  | `/projects`     | `GET /:projectId/graph` (optional `?type=`), `/graph/validate`, `/graph/nodes/:nodeId`, `…/dependencies`,           |
+|     |                         |                 | `…/dependents`, `…/path?to=`, `/graph/impact/:nodeId` — the project's structured knowledge: nodes,                  |
+|     |                         |                 | relationships, traversal, impact analysis. Exports `synchronize`, which the pipeline calls when a run               |
+|     |                         |                 | finishes so the graph is never something a user has to remember to refresh.                                         |
+| 14  | `context-engine` 🔒     | `/projects`     | `POST /:projectId/context`, `/context/trace`, `/context/benchmark`; `GET /context/stats` — decides what the         |
+|     |                         |                 | model is told _before_ the call, from the graph. Selection, token budgeting, compression, caching. POST             |
+|     |                         |                 | rather than GET because a context request carries a task description in the body.                                   |
+| 15  | `agent-orchestrator` 🔒 | `/projects`     | `POST /:projectId/agent-runs`, `GET /agent-runs`, `/agent-runs/agents`, `/agent-runs/:runId`, `…/tasks`,            |
+|     |                         |                 | `…/events?after=`, `POST …/cancel`, `…/resume` — dependency-aware agent runtime: planning DAG, execution,           |
+|     |                         |                 | retries, resume. Five agents registered at module assembly (requirement-analyst, product-architect,                 |
+|     |                         |                 | architecture, database-architect, api-architect). Runs _alongside_ `pipeline`, not instead of it.                   |
+| 16  | `deployment`            | `/deployment`   | `POST /generate`, `/export`, `GET /status`, `/health` — deployment infra for GENERATED apps across 12 targets.      |
+|     |                         |                 | Execute layer: `GET /providers`, `POST /execute/plan`, `POST /execute`, `GET /executions(/:id)` —                   |
+|     |                         |                 | provider abstraction (Vercel/Railway/Render), state machine queued→building→deploying→live/failed, token-gated      |
+| 17  | `quality`               | `/`             | `/quality/analyze`, `/quality/export`, `/quality/report`, `/testing/run`, `/documentation/generate`,                |
+|     |                         |                 | `/performance/report`, `/release/readiness` — scoring (9 categories, A–F), test generation, docs, benchmarks        |
+| 18  | `insights`              | `/insights`     | `POST /generate` — automatic architecture analysis: summary, "why this tech?" justifications quoting planner        |
+|     |                         |                 | decisions, folder/db/api/security explanations, Mermaid architecture/ER/API-flow diagrams, explained scores         |
+| 19  | `runner`                | `/runner`       | `POST /plan`, `/sessions`, `/sessions/:id/stop`, `/restart`; `GET /sessions(/:id)`, `/sessions/:id/logs` —          |
+|     |                         |                 | one-click local run: workspace write, install, free-port allocation, log streaming (cursor), failure diagnostics.   |
+|     |                         |                 | Child processes are swept on signalled shutdown, not just clean exit.                                               |
+| —   | `review` _(scaffold)_   | `/review`       | Manifest only. Planned: static analysis + optimization pass gating REVIEWING → COMPLETED.                           |
 
 `review` is the **only** remaining scaffold. The `github` module was removed in
 Phase 14 — generated CI/CD workflow artifacts (which describe the _user's_
@@ -252,7 +298,7 @@ platform — and `spec-normalizer.ts`).
 
 ## 6. Data model (platform's own, Prisma + MySQL)
 
-Four models — the platform's bookkeeping, not generated-app data:
+Six models — the platform's bookkeeping, not generated-app data:
 
 - **Role** → **User**. Roles are rows, not an enum, and `auth.service.ts`
   lazily creates `ADMIN`/`USER` on first use so a fresh install needs no seed
@@ -261,10 +307,20 @@ Four models — the platform's bookkeeping, not generated-app data:
 - **User** — bcrypt `passwordHash`. Still nullable in the schema so
   seed/staging users can exist without fake credentials; a null hash simply
   cannot log in (it fails the same way a wrong password does).
-- **User** → **Project** (slug, status DRAFT/ACTIVE/ARCHIVED)
-- **Project** → **Generation** — one persisted pipeline record each; status
-  mirrors the pipeline (PENDING → ANALYZING → PLANNING → GENERATING →
-  REVIEWING → COMPLETED/FAILED).
+- **User** → **Project** (slug, `favorite`, status DRAFT/ACTIVE/ARCHIVED).
+  **The slug is unique per owner, not globally** — the global unique index was
+  dropped in the `project_owner_scope` migration, because two users naming
+  their project "blog" is not a conflict. Every workspace query takes an
+  `ownerId`; that is what makes the console safe for more than one account.
+- **Project** → **Generation** — one row per pipeline run, and it is now
+  actually written (`pipeline/lib/run-recorder.ts`). Status mirrors the
+  pipeline (PENDING → ANALYZING → PLANNING → GENERATING → REVIEWING →
+  COMPLETED/FAILED). A failed write here never fails a run: losing the audit
+  row is bad, throwing away a generated project because the audit row could
+  not be written is worse.
+- **GraphNode** / **GraphEdge** — the Engineering Graph's persistence
+  (`GraphNodeType`, `GraphRelationship` enums). This is what the context
+  engine selects from and what impact analysis traverses.
 
 Sessions are stateless: there is no session/refresh-token table. A refresh
 token is a JWT with a `type: 'refresh'` claim, verified against the expected
@@ -278,7 +334,7 @@ does not revoke server-side (see §9).
 npm install
 cp server/.env.example server/.env   # defaults work with the dev database
 npm run docker:dev                   # MySQL 8.4 in Docker
-npm run db:push
+npm run db:migrate                   # NOT db:push — see the note below
 npm run dev                          # API :4000, console :5173 (Vite proxies /api)
 # then open http://localhost:5173 → you'll land on /register. The first
 # account you create is the install's ADMIN.
@@ -286,6 +342,7 @@ npm run dev                          # API :4000, console :5173 (Vite proxies /a
 # Production shape (all in Docker: MySQL + API + nginx console)
 cp .env.example .env                 # set MYSQL_ROOT_PASSWORD, MYSQL_PASSWORD, JWT_SECRET
 docker compose up --build            # console :8080, API :4000
+# deploying elsewhere: npm run db:deploy applies migrations without prompting
 ```
 
 Verification suite (run all before committing; CI runs the same):
@@ -299,6 +356,11 @@ Notes:
 - **A database is now required to use the console at all** — signing in needs
   the `users` table. The API still boots degraded without MySQL in development,
   but you cannot get past `/login`.
+- **The schema has a real migration history now** (`server/prisma/migrations/`:
+  `init`, `project_owner_scope`, `engineering_graph`). Use `npm run db:migrate`
+  in development and `npm run db:deploy` in a deploy. `db:push` still exists but
+  will drift you off the migration history — reach for it only on a throwaway
+  database.
 - Dockerfiles use the REPO ROOT as build context (`docker build -f server/Dockerfile .`)
   and pass `--ignore-scripts` to `npm ci` (the root `prepare` script runs husky,
   which isn't installed by `npm ci --workspace <name>` — this was a real bug, fixed).
@@ -336,18 +398,24 @@ Notes:
   commit).
 - **Prettier owns formatting** — run `npm run format` rather than hand-aligning.
 
-## 9. Known gaps and accepted tradeoffs (as of v1.2)
+## 9. Known gaps and accepted tradeoffs (as of v1.3)
 
 - `review` is the last intentional scaffold (§5).
-- **Nothing about a run survives a restart.** Pipeline runs (capped at the last
-  20, in a process-local `Map`), runner sessions and deploy executions live in
-  memory, not the database — a server restart forgets them and kills the child
-  processes. This fits a local single-user console but would need persistence
-  for multi-user hosting.
+- **Live run progress still evaporates on restart.** The run _record_ now
+  persists (§6), but the in-memory stage state does not: restart mid-run and
+  the client loses per-stage progress for that run. Runner sessions and deploy
+  executions remain memory-only, and their child processes are killed on
+  shutdown. Deliberate for the live half, still a genuine gap for the other
+  two.
 - **Sessions cannot be revoked server-side.** Logout clears the cookies, but a
   stolen refresh JWT stays valid until it expires (7 days). A token
   denylist/session table is the fix if this ever ships multi-user.
-- `client/src/shared/types/api.ts` is a single ~1720-line type-mirror file —
+- **Two runtimes is a transitional state, not the destination.** The pipeline
+  and the agent orchestrator both plan a project, by different means. That is
+  intentional while agents are migrated one at a time (§0.2), but it is
+  duplication with a shelf life — don't build new work assuming it is
+  permanent, and don't collapse it before the agent path covers every stage.
+- `client/src/shared/types/api.ts` is a single ~1950-line type-mirror file —
   known, accepted convention; don't split it without cause.
 - CI builds Docker images but doesn't push/deploy them — publishing is
   deliberately deferred to whichever hosting target is chosen.
@@ -359,7 +427,38 @@ Notes:
 - The AI cost/token figures (~3k tokens, ~$0.001 per run) are the Groq
   defaults; a different `AI_PROVIDER` changes them substantially.
 
-## 9b. What Phase 14 changed (the most recent work)
+## 9a. What the v2 foundations changed (the most recent work)
+
+Three new modules put the v2 architecture's spine in place, and the console
+reorganized around the project rather than around the pipeline's stages:
+
+- **Engineering Graph** — the project's structured knowledge as persisted
+  nodes and edges (`GraphNode`/`GraphEdge`), with traversal, validation,
+  shortest-path and impact analysis over it. The pipeline calls its
+  `synchronize` when a run finishes, so the graph is never something a user
+  has to remember to refresh.
+- **Context Engine** — decides what the model is told _before_ the call, by
+  selecting from the graph. Relevance scoring, token budgeting, compression,
+  sanitization and caching, plus a benchmark endpoint that measures selective
+  context against sending everything. The premise: handing the model the whole
+  project pays for the whole project on every request and still leaves it a
+  needle-in-haystack problem.
+- **Agent Orchestrator** — a dependency-aware runtime with five registered
+  agents (requirement-analyst, product-architect, architecture,
+  database-architect, api-architect). It plans a DAG, executes with retries,
+  and supports cancel/resume with an event log. It runs _alongside_ the Phase
+  14 pipeline over the stages that have adapters, so the migration is
+  incremental rather than a rewrite.
+- **Project-scoped console.** Navigation collapsed to Home / Projects /
+  Settings; everything a project is now lives under `/projects/:projectId` as
+  a real, bookmarkable tab route. `app/legacy-redirect.tsx` keeps every
+  pre-workspace URL working.
+- **Multi-user groundwork.** Project slugs became unique per owner instead of
+  globally, every workspace query is owner-scoped, and run records persist to
+  `generations`. Three Prisma migrations replace `db:push` as the way the
+  schema moves.
+
+## 9b. What Phase 14 changed
 
 The platform became one product instead of a set of independently callable
 stages:
@@ -394,23 +493,28 @@ stages:
 
 ## 10. Where to dig deeper
 
-| Document                                                 | What it holds                                                               |
-| -------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `README.md`                                              | Current usage-facing docs: stack, commands, API table, roadmap              |
-| `server/src/modules/pipeline/`                           | The product path end to end — start at `pipeline.service.ts`                |
-| `server/src/modules/pipeline/lib/ai-stages.ts`           | **The only two model calls in the platform**, and the degradation rules     |
-| `server/src/modules/ai-orchestrator/lib/model-router.ts` | The routing table + the test-mode pin (§4.11)                               |
-| `server/src/modules/auth/`                               | Identity: `lib/password.ts`, `lib/tokens.ts`, `lib/cookies.ts`, middleware  |
-| `client/src/shared/services/api-client.ts`               | The single axios instance + refresh-and-replay interceptor                  |
-| `docs/v2/NEXARCH_V2_ARCHITECTURE.md`                     | The 2.0 design: 15 named agents, message protocol, memory/learning systems, |
-|                                                          | quality gates, roadmap M0–M9, research-paper outline, commercialization —   |
-|                                                          | **design only, additive-only (`server/src/agents/` when implemented)**      |
-| `FINAL_PROJECT_SUMMARY.md`                               | Narrative wrap-up of the original 12-phase build. **Historical — predates   |
-|                                                          | Phases 13 and 14; trust this file over it wherever they disagree.**         |
-| `reports/`                                               | Machine-readable audit artifacts (quality-summary, architecture audit,      |
-|                                                          | live smoke test of the full pipeline). Also pre-Phase-14.                   |
-| `server/prisma/schema.prisma`                            | Data model with reasoning in doc comments                                   |
-| `server/src/shared/types/`                               | The contracts everything else obeys                                         |
+| Document                                                    | What it holds                                                               |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `README.md`                                                 | Current usage-facing docs: stack, commands, API table, roadmap              |
+| `server/src/modules/pipeline/`                              | The product path end to end — start at `pipeline.service.ts`                |
+| `server/src/modules/pipeline/lib/ai-stages.ts`              | **The only two model calls in the platform**, and the degradation rules     |
+| `server/src/modules/ai-orchestrator/lib/model-router.ts`    | The routing table + the test-mode pin (§4.11)                               |
+| `server/src/modules/auth/`                                  | Identity: `lib/password.ts`, `lib/tokens.ts`, `lib/cookies.ts`, middleware  |
+| `server/src/shared/contracts/`                              | The v2 contracts several modules agree on — read before touching agents     |
+| `server/src/modules/agent-orchestrator/lib/planner.ts`      | How the agent DAG is built; `lib/executor.ts` is how it runs                |
+| `server/src/modules/context-engine/lib/relevance.ts`        | What gets selected for a call, and `lib/budgets.ts` for how much fits       |
+| `server/src/modules/engineering-graph/lib/graph-builder.ts` | How a finished run becomes graph nodes and edges                            |
+| `client/src/features/workspace/`                            | The tabbed project shell — `project-workspace-layout.tsx` and `tabs/`       |
+| `client/src/shared/services/api-client.ts`                  | The single axios instance + refresh-and-replay interceptor                  |
+| `docs/v2/NEXARCH_V2_ARCHITECTURE.md`                        | The 2.0 design: 15 named agents, message protocol, memory/learning systems, |
+|                                                             | quality gates, roadmap M0–M9, research-paper outline, commercialization —   |
+|                                                             | **design only, additive-only (`server/src/agents/` when implemented)**      |
+| `FINAL_PROJECT_SUMMARY.md`                                  | Narrative wrap-up of the original 12-phase build. **Historical — predates   |
+|                                                             | Phases 13 and 14; trust this file over it wherever they disagree.**         |
+| `reports/`                                                  | Machine-readable audit artifacts (quality-summary, architecture audit,      |
+|                                                             | live smoke test of the full pipeline). Also pre-Phase-14.                   |
+| `server/prisma/schema.prisma`                               | Data model with reasoning in doc comments                                   |
+| `server/src/shared/types/`                                  | The contracts everything else obeys                                         |
 
 ## 11. Changelog
 
@@ -418,18 +522,19 @@ Newest first. This is the project's own history — dates are the commit dates o
 `main`, so "what changed and when" is answerable without reading 66 commits. If
 you are an assistant resuming work, the top entry is where you are.
 
-| Date       | What landed                                                                                                                                                                                                                                                                               |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-08-26 | **This file, rewritten and dated.** Every §1–§9 claim re-verified against the code; GitHub, the "no LLM anywhere" claim, and the modules-never-import-each-other invariant were all stale. Added §0 orientation, invariants §4.10/§4.11, the **Last verified** stamp, and this changelog. |
-| 2026-08-26 | **Phase 14 — one product** (`6c4e3be`). Real AI in two stages (Groq adapter, config-driven routing); `POST /pipeline/runs` composing all seven stages; real auth (bcrypt + JWT in httpOnly cookies, `requireAuth` on the pipeline); Preview page; GitHub module deleted. See §9b.         |
-| 2026-08-21 | **Runner made honest.** Real port reporting, isolated child env, per-run provisioned MySQL schema, HTTP readiness probing. Generated apps now actually boot (proxy, health, logging), and the runner serves the security-hardened output rather than raw generator files.                 |
-| 2026-08-01 | **Console test suite.** Vitest + Testing Library harness plus suites for the HTTP error contract, store invariants, shared libs, the design system, the sidebar/nav contract and the runner log accumulator — closing the "no client tests" gap.                                          |
-| 2026-07-31 | **Phase 13 — end-to-end lifecycle** (`b0f460e` and siblings). Insights engine, GitHub integration _(since removed)_, one-click deploy execution layer, prompt-diff incremental regeneration, the Local Run Engine, and console integration for all five.                                  |
-| 2026-07-25 | README brought current with the platform's actual state; two Docker build failures fixed while verifying deployment readiness.                                                                                                                                                            |
-| 2026-07-22 | **Phases 10–12.** Developer workspace / project management / export, DevOps + deployment + CI/CD automation, and the QA / testing / benchmarking / documentation engine. Final integration pass: verify, audit, polish all 12 phases, generate `reports/`.                                |
-| 2026-07-21 | **Phases 7–9.** Security engine (identity detection, JWT/RBAC, XSS + upload validation, hardened env/cookies/CSRF), dependency graph + incremental regeneration, AI orchestrator and prompt intelligence.                                                                                 |
-| 2026-07-20 | **Phases 5–6.** Backend generation engine, frontend generation engine.                                                                                                                                                                                                                    |
-| 2026-07-19 | **Phases 1–4.** Foundation (module contract, envelope, error pathway, config), Requirement Analyzer, Architecture Planner, Database Designer + API Contract Generator.                                                                                                                    |
+| Date       | What landed                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-08-27 | **v2 foundations.** Three new modules — `engineering-graph` (persisted project knowledge), `context-engine` (pre-call context selection), `agent-orchestrator` (dependency-aware runtime, five agents) — running alongside the Phase 14 pipeline. Console reorganized into project-scoped workspace tabs. Projects owner-scoped, run records persisted, real Prisma migrations. See §9a. |
+| 2026-08-26 | **This file, rewritten and dated.** Every §1–§9 claim re-verified against the code; GitHub, the "no LLM anywhere" claim, and the modules-never-import-each-other invariant were all stale. Added §0 orientation, invariants §4.10/§4.11, the **Last verified** stamp, and this changelog.                                                                                                |
+| 2026-08-26 | **Phase 14 — one product** (`6c4e3be`). Real AI in two stages (Groq adapter, config-driven routing); `POST /pipeline/runs` composing all seven stages; real auth (bcrypt + JWT in httpOnly cookies, `requireAuth` on the pipeline); Preview page; GitHub module deleted. See §9b.                                                                                                        |
+| 2026-08-21 | **Runner made honest.** Real port reporting, isolated child env, per-run provisioned MySQL schema, HTTP readiness probing. Generated apps now actually boot (proxy, health, logging), and the runner serves the security-hardened output rather than raw generator files.                                                                                                                |
+| 2026-08-01 | **Console test suite.** Vitest + Testing Library harness plus suites for the HTTP error contract, store invariants, shared libs, the design system, the sidebar/nav contract and the runner log accumulator — closing the "no client tests" gap.                                                                                                                                         |
+| 2026-07-31 | **Phase 13 — end-to-end lifecycle** (`b0f460e` and siblings). Insights engine, GitHub integration _(since removed)_, one-click deploy execution layer, prompt-diff incremental regeneration, the Local Run Engine, and console integration for all five.                                                                                                                                 |
+| 2026-07-25 | README brought current with the platform's actual state; two Docker build failures fixed while verifying deployment readiness.                                                                                                                                                                                                                                                           |
+| 2026-07-22 | **Phases 10–12.** Developer workspace / project management / export, DevOps + deployment + CI/CD automation, and the QA / testing / benchmarking / documentation engine. Final integration pass: verify, audit, polish all 12 phases, generate `reports/`.                                                                                                                               |
+| 2026-07-21 | **Phases 7–9.** Security engine (identity detection, JWT/RBAC, XSS + upload validation, hardened env/cookies/CSRF), dependency graph + incremental regeneration, AI orchestrator and prompt intelligence.                                                                                                                                                                                |
+| 2026-07-20 | **Phases 5–6.** Backend generation engine, frontend generation engine.                                                                                                                                                                                                                                                                                                                   |
+| 2026-07-19 | **Phases 1–4.** Foundation (module contract, envelope, error pathway, config), Requirement Analyzer, Architecture Planner, Database Designer + API Contract Generator.                                                                                                                                                                                                                   |
 
 Conventions for this table: one row per meaningful change to what the platform
 _is_ — not per commit. Add a row when you change behaviour a future assistant
