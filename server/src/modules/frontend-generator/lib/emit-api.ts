@@ -151,8 +151,16 @@ export interface RegisterPayload {
   password: string;
 }
 
+/**
+ * The sign-in response, named the way the API actually names it.
+ *
+ * This said "token" while the generated API returned "accessToken", so
+ * every sign-in succeeded, stored undefined, and left the app looking
+ * signed in while every request after it went out unauthenticated. The
+ * field name is the contract; it must be spelled the same on both sides.
+ */
 export interface AuthResult {
-  token: string;
+  accessToken: string;
   user: AuthUser;
 }
 
@@ -182,9 +190,9 @@ export function useLogin() {
   return useMutation({
     mutationFn: (payload: LoginPayload) => login(payload),
     onSuccess: (result) => {
-      setSession(result.token, result.user);
+      setSession(result.accessToken, result.user);
       toast('Signed in', 'success');
-      void navigate('/');
+      void navigate('/dashboard');
     },
     onError: (error: Error) => {
       toast(error.message, 'error');
@@ -199,9 +207,9 @@ export function useRegister() {
   return useMutation({
     mutationFn: (payload: RegisterPayload) => register(payload),
     onSuccess: (result) => {
-      setSession(result.token, result.user);
+      setSession(result.accessToken, result.user);
       toast('Account created', 'success');
-      void navigate('/');
+      void navigate('/dashboard');
     },
     onError: (error: Error) => {
       toast(error.message, 'error');

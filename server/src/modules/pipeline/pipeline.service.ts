@@ -32,7 +32,12 @@ import { buildDependencyGraphBundle } from '../dependency-graph/dependency-graph
 import { synchronize as synchronizeGraph } from '../engineering-graph/index.js';
 import { generateFrontend } from '../frontend-generator/frontend-generator.service.js';
 import { applySecurity } from '../security-engine/security-engine.service.js';
-import { analyzeWithAi, deriveProjectName, designEntityFields } from './lib/ai-stages.js';
+import {
+  analyzeWithAi,
+  deriveProjectName,
+  designEntityFields,
+  writeSiteContent,
+} from './lib/ai-stages.js';
 import { describeAll, isArtifactType, selectArtifact } from './lib/artifact-index.js';
 import type { AiCallStat } from './lib/ai-stages.js';
 import type { AgentId } from '../../shared/contracts/agent.js';
@@ -343,6 +348,9 @@ async function execute(runId: string, prompt: string): Promise<void> {
     /* Stage 5 — frontend generation */
     beginStage(run, 'frontend');
     const backendManifest = { modules: backend.modules, routes: backend.routes };
+    // The one model call in this stage: the landing page's copy.
+    const siteContent = await writeSiteContent(prompt, requirements);
+    recordUsage(run, siteContent.usage);
     const frontend = generateFrontend(
       plan,
       requirements,
@@ -350,11 +358,13 @@ async function execute(runId: string, prompt: string): Promise<void> {
       design.openapi,
       backendManifest,
       design.entityMetadata,
+      siteContent.value,
     );
     completeStage(
       run,
       'frontend',
-      `${frontend.files.length} files · ${frontend.pages.length} pages · ${frontend.components.length} components`,
+      `${frontend.files.length} files · ${frontend.pages.length} pages · ${frontend.components.length} components · landing page`,
+      { degraded: siteContent.degraded, note: siteContent.note },
     );
 
     /* Stage 6 — security hardening */

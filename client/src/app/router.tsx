@@ -72,6 +72,13 @@ export const router = createBrowserRouter([
             },
           },
           {
+            path: 'agent',
+            lazy: async () => {
+              const { AgentPage } = await import('@/features/agent/agent-page');
+              return { Component: AgentPage };
+            },
+          },
+          {
             path: 'projects/:projectId',
             lazy: async () => {
               const { ProjectWorkspaceLayout } =

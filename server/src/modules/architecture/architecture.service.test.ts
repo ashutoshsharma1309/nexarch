@@ -9,7 +9,11 @@ import { describe, it } from 'node:test';
 
 import type { RequirementSpec } from '../../shared/types/requirement.js';
 import { analyzeRequirements } from '../analysis/analysis.service.js';
+import { contractDeclaresAuth } from '../agent-orchestrator/lib/contract-audit.js';
+import { designDatabase } from '../database-designer/database-designer.service.js';
+import { generateOpenApi } from '../database-designer/lib/openapi-generator.js';
 import { planArchitecture } from './architecture.service.js';
+import { withoutAuthentication } from './lib/public-mvp.js';
 import type { ArchitectureDecision, ArchitecturePlan } from './architecture.types.js';
 
 function spec(
@@ -283,5 +287,79 @@ describe('pipeline integration (analyzer → planner)', () => {
     assert.equal(plan.meta.projectType, 'Ecommerce');
     assert.ok(plan.apiModules.some((m) => m.basePath === '/products'));
     assert.ok(markdown.includes('POST | `/auth/login`'));
+  });
+});
+
+/* ── Public MVP (generated apps without sign-in) ───────────────────────── */
+
+describe('public MVP plan', () => {
+  const analysis = analyzeRequirements(
+    'Build an e-commerce platform with authentication, products, cart, orders and an admin dashboard.',
+  );
+  if (analysis.status !== 'COMPLETE') {
+    assert.fail(`expected COMPLETE analysis, got ${analysis.status}`);
+  }
+  const shopSpec = analysis.spec;
+  const full = planArchitecture(shopSpec).plan;
+  const mvp = withoutAuthentication(full);
+
+  it('starts from a plan that does have sign-in', () => {
+    assert.ok(full.apiModules.some((m) => m.module === 'Authentication'));
+    assert.ok(full.apiModules.flatMap((m) => m.endpoints).some((e) => e.auth));
+  });
+
+  it('removes the Authentication module and guards every endpoint off', () => {
+    assert.equal(
+      mvp.apiModules.some((m) => m.module === 'Authentication'),
+      false,
+    );
+    for (const endpoint of mvp.apiModules.flatMap((m) => m.endpoints)) {
+      assert.equal(endpoint.auth, false, `${endpoint.method} ${endpoint.path} is still guarded`);
+      assert.equal(endpoint.roles, undefined);
+    }
+    assert.equal(
+      mvp.services.some((s) => s.module === 'Authentication'),
+      false,
+    );
+  });
+
+  it('keeps every data module and endpoint', () => {
+    const dataModules = full.apiModules.filter((m) => m.module !== 'Authentication');
+    assert.deepEqual(
+      mvp.apiModules.map((m) => [m.module, m.endpoints.length]),
+      dataModules.map((m) => [m.module, m.endpoints.length]),
+    );
+  });
+
+  it('drops sign-in pages, layout, guards and folders', () => {
+    assert.equal(
+      mvp.frontend.pages.some((p) => /^\/(login|register|profile)/.test(p.route)),
+      false,
+    );
+    assert.ok(mvp.frontend.pages.every((p) => p.layout === 'AppLayout'));
+    assert.equal(mvp.frontend.layouts.includes('AuthLayout'), false);
+    assert.equal(
+      mvp.middleware.some((m) => m.name === 'authGuard'),
+      false,
+    );
+    const names = (nodes: ArchitecturePlan['folderStructure']): string[] =>
+      nodes.flatMap((n) => [n.name, ...names(n.children ?? [])]);
+    assert.equal(names(mvp.folderStructure).includes('auth'), false);
+  });
+
+  it('says so in the security plan and leaves no dependency on Authentication', () => {
+    assert.deepEqual(mvp.security.authentication, []);
+    assert.equal(
+      mvp.dependencyGraph.edges.some((e) => /authentication/i.test(`${e.from} ${e.to}`)),
+      false,
+    );
+  });
+
+  it('yields a contract that declares no sign-in — what turns login off downstream', () => {
+    const design = designDatabase(mvp, shopSpec);
+    const api = generateOpenApi(mvp, design.databaseDesign);
+    assert.equal(contractDeclaresAuth(api), false);
+    const withAuth = generateOpenApi(full, designDatabase(full, shopSpec).databaseDesign);
+    assert.equal(contractDeclaresAuth(withAuth), true);
   });
 });

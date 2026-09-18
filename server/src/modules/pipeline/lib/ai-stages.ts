@@ -13,6 +13,11 @@
  */
 import { analyzeRequirements } from '../../analysis/analysis.service.js';
 import { generate } from '../../ai-orchestrator/ai-orchestrator.service.js';
+import {
+  deriveSiteContent,
+  normalizeSiteContent,
+} from '../../frontend-generator/frontend-generator.service.js';
+import type { SiteContent } from '../../frontend-generator/frontend-generator.service.js';
 import { resolveProvider } from '../../ai-orchestrator/lib/providers/provider-registry.js';
 import { logger } from '../../../shared/logger/index.js';
 import type { EntityPlan } from '../../../shared/types/architecture.js';
@@ -260,7 +265,25 @@ export async function designEntityFields(
       const existingBusiness = entity.keyFields.filter(
         (field) => !RESERVED_FIELDS.has(field) && !foreignKeys.includes(field) && field !== 'id',
       );
-      const business = [...new Set([...aiFields, ...existingBusiness])].slice(0, 9);
+      /*
+       * Dedupe on the column *name*, not the string.
+       *
+       * A field carries an optional " (unique)" marker, so the model's
+       * `name (unique)` and the rule table's `name` are two different
+       * strings naming one column. A Set of strings kept both, the schema
+       * declared `name` twice, and `prisma generate` rejected the whole
+       * file — which fails the run at the configure step, after the
+       * install everyone already waited for.
+       */
+      const business: string[] = [];
+      const claimed = new Set<string>();
+      for (const field of [...aiFields, ...existingBusiness]) {
+        const bare = field.replace(/\s*\(unique\)$/, '');
+        if (claimed.has(bare)) continue;
+        claimed.add(bare);
+        business.push(field);
+        if (business.length === 9) break;
+      }
 
       return {
         ...entity,
@@ -301,4 +324,60 @@ export function aiUnavailableNote(error: unknown): string {
     return 'The AI provider timed out — continued with built-in rules.';
   }
   return 'The AI provider was unreachable — continued with built-in rules.';
+}
+
+/**
+ * The generated site's landing-page copy, written for the user's own request.
+ *
+ * Only what the copy needs goes over the wire — the request, the product's
+ * name and kind, and its capability names — never the plan or the schema.
+ * The answer is validated field by field (`normalizeSiteContent`) before it
+ * reaches generated source. Without a model, or when the call fails, the
+ * copy is derived from the spec, which adds no pricing and no testimonials:
+ * a fallback must not invent prices or customers.
+ */
+export async function writeSiteContent(
+  prompt: string,
+  spec: RequirementSpec,
+): Promise<StageOutcome<SiteContent>> {
+  const derived = deriveSiteContent(spec);
+  if (!aiConfigured()) {
+    return { value: derived, degraded: true, note: null, usage: null };
+  }
+
+  try {
+    const response = await generate(
+      {
+        promptId: 'site-content',
+        variables: {
+          USER_REQUEST: prompt,
+          PROJECT_NAME: spec.projectName,
+          PROJECT_TYPE: spec.projectType,
+          CAPABILITIES: spec.modules.join(', ') || 'none stated',
+        },
+        complexity: 'simple-extraction',
+        schema: 'generic-json',
+      },
+      // Features, plans, testimonials and an FAQ in one object: the 2,048
+      // default truncates it mid-object and JSON mode rejects the whole call.
+      { maxOutputTokens: 4_096 },
+    );
+    return {
+      value: normalizeSiteContent(parseJson(response.content), derived),
+      degraded: false,
+      note: null,
+      usage: {
+        provider: response.record.provider,
+        model: response.record.model,
+        inputTokens: response.record.tokens.inputTokens,
+        outputTokens: response.record.tokens.outputTokens,
+        costUsd: response.record.cost.totalCostUsd,
+      },
+    };
+  } catch (error) {
+    logger.warn('site content fell back to the spec-derived copy', {
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return { value: derived, degraded: true, note: aiUnavailableNote(error), usage: null };
+  }
 }

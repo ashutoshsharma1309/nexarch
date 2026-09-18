@@ -27,7 +27,7 @@ describe('Sidebar', () => {
     }
   });
 
-  it('keeps the primary navigation to the three product-level destinations', () => {
+  it('keeps the primary navigation to the four product-level destinations', () => {
     // The rail used to carry one entry per internal module. Everything else
     // now lives inside the project it belongs to, and a regression here
     // would mean the workspace has started leaking back out into the shell.
@@ -36,7 +36,7 @@ describe('Sidebar', () => {
       .getAllByRole('link')
       .map((link) => link.textContent.trim())
       .filter((label) => !label.startsWith('Made by'));
-    expect(links).toEqual(['Home', 'Projects', 'Settings']);
+    expect(links).toEqual(['Home', 'Projects', 'Agent', 'Settings']);
   });
 
   it('credits the author with an outbound LinkedIn link', () => {

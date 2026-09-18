@@ -18,7 +18,7 @@ import type { Express } from 'express';
 import { registerModules } from './modules/index.js';
 import { config } from './shared/config/index.js';
 import { errorHandler, notFoundHandler } from './shared/middleware/error-handler.js';
-import { apiRateLimiter } from './shared/middleware/rate-limiter.js';
+import { apiRateLimiter, isPolledRead, pollingLimiter } from './shared/middleware/rate-limiter.js';
 import { requestContext } from './shared/middleware/request-context.js';
 import { requestLogger } from './shared/middleware/request-logger.js';
 import { securityMiddleware } from './shared/middleware/security.js';
@@ -42,6 +42,13 @@ export function createApp(): Express {
   app.use(requestLogger);
 
   app.use(config.server.apiPrefix, apiRateLimiter);
+  // Live-view polling is exempt from the budget above and metered on its own,
+  // so a running preview can never starve the rest of the API — including the
+  // token refresh that keeps the session alive.
+  app.use(config.server.apiPrefix, (req, res, next) => {
+    if (isPolledRead(req)) pollingLimiter(req, res, next);
+    else next();
+  });
   registerModules(app, config.server.apiPrefix);
 
   app.use(notFoundHandler);

@@ -8,7 +8,9 @@ import {
   startAgentRun,
 } from '@/shared/services/agent.service';
 
-const POLL_MS = 1000;
+// A mesh run lasts minutes; polling twice as often only spends the API
+// budget faster without telling the viewer anything new.
+const POLL_MS = 2000;
 
 /** Polls only while the run is live — a settled run is terminal server-side. */
 export function useAgentRun(projectId: string | undefined, runId: string | null) {

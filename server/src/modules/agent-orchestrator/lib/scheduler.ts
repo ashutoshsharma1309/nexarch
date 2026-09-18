@@ -231,9 +231,10 @@ export async function runPlan(run: AgentRun, prompt: string): Promise<void> {
   // never arrived and never will. Counting it as success would report a run
   // that did nothing as a run that finished.
   const stalled = progress.pending > 0;
-  run.status = progress.failed > 0 || progress.blocked > 0 || stalled ? 'FAILED' : 'COMPLETED';
+  const finalStatus =
+    progress.failed > 0 || progress.blocked > 0 || stalled ? 'FAILED' : 'COMPLETED';
 
-  if (run.status === 'FAILED') {
+  if (finalStatus === 'FAILED') {
     const firstFailure = run.tasks.find((task) => task.status === 'FAILED');
     const firstBlocked = run.tasks.find((task) =>
       ['BLOCKED', 'PENDING', 'READY'].includes(task.status),
@@ -248,12 +249,19 @@ export async function runPlan(run: AgentRun, prompt: string): Promise<void> {
       run.error = 'One or more agents could not run';
     }
   }
-  recordGenerationManifest(run, before);
-  await recordEngineeringReview(run);
-  await recordValidationSummary(run);
-  reviewVersions.delete(run.id);
-  // Step 13: validation processes never outlive the validation.
-  releaseValidationSession(run.id);
+  try {
+    recordGenerationManifest(run, before);
+    await recordEngineeringReview(run);
+    await recordValidationSummary(run);
+  } finally {
+    reviewVersions.delete(run.id);
+    // Step 13: validation processes never outlive the validation.
+    releaseValidationSession(run.id);
+    // Published last: a run reads as finished only once its review and
+    // validation summary exist. Setting it first let a poller see COMPLETED
+    // and then find "no validation has been run" for the same run.
+    run.status = finalStatus;
+  }
 
   touch(run);
   logger.info('agent run settled', { runId: run.id, status: run.status, ...progress });

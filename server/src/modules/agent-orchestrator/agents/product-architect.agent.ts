@@ -65,6 +65,12 @@ export const productArchitectAgent: Agent<ProductSpec> = {
       );
 
       product = normalizeProductSpec(JSON.parse(response.content), spec);
+      // Well-formed JSON with no modules in it (the offline mock provider's
+      // echo, or a model that ignored the schema) is unusable output, not a
+      // product spec — take the same derivation path as a failed call.
+      if (product.modules.length === 0) {
+        throw new Error(`The ${response.record.provider} response contained no product modules`);
+      }
       usage = {
         provider: response.record.provider,
         model: response.record.model,

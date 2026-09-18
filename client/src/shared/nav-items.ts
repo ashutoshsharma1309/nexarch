@@ -1,4 +1,4 @@
-import { FolderGit2, LayoutDashboard, Settings } from 'lucide-react';
+import { Bot, FolderGit2, LayoutDashboard, Settings } from 'lucide-react';
 import type { ComponentType } from 'react';
 
 export interface NavItem {
@@ -9,7 +9,7 @@ export interface NavItem {
 }
 
 /**
- * Three destinations.
+ * Four destinations.
  *
  * This list used to hold twenty-one — one per internal module — which
  * described how NexArch is built rather than what a user does with it.
@@ -22,5 +22,6 @@ export interface NavItem {
 export const navigation: NavItem[] = [
   { to: '/', label: 'Home', icon: LayoutDashboard, end: true },
   { to: '/projects', label: 'Projects', icon: FolderGit2 },
+  { to: '/agent', label: 'Agent', icon: Bot },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];

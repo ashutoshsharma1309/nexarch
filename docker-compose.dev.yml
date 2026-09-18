@@ -1,22 +1,47 @@
 # Development dependencies only — the apps run on the host with `npm run dev`.
 #   npm run docker:dev
 # Credentials intentionally match server/.env.example for zero-config startup.
+#
+# Two databases, two jobs:
+#   postgres — NexArch's own data. Skip it entirely when DATABASE_URL points
+#              at a Supabase project.
+#   mysql    — the sandbox the Local Run engine gives *generated* apps, one
+#              `nexarch_run_<project>` database per run. Generated backends are
+#              MySQL-shaped, so this stays MySQL regardless of where the
+#              platform's own data lives.
 
 name: nexarch-dev
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nexarch
+      POSTGRES_USER: nexarch
+      POSTGRES_PASSWORD: change-me
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U nexarch -d nexarch']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
   mysql:
     image: mysql:8.4
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: change-me-root
-      MYSQL_DATABASE: nexarch
-      MYSQL_USER: nexarch
-      MYSQL_PASSWORD: change-me
+      MYSQL_DATABASE: nexarch_runner
+      MYSQL_USER: runner
+      MYSQL_PASSWORD: runner_local_dev
     ports:
-      - '3306:3306'
+      - '3307:3306'
     volumes:
-      - mysql-dev-data:/var/lib/mysql
+      - mysql-runner-data:/var/lib/mysql
     healthcheck:
       test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-pchange-me-root']
       interval: 5s
@@ -24,4 +49,5 @@ services:
       retries: 12
 
 volumes:
-  mysql-dev-data:
+  postgres-dev-data:
+  mysql-runner-data:

@@ -31,9 +31,10 @@ function router(model: FrontendProjectModel): string {
     )
     .join('\n');
 
+  // The dashboard lives at /dashboard: `/` is the app's public landing page.
   const dashboardRoute = routeEntry(
     '          ',
-    null,
+    'dashboard',
     '@/features/dashboard/DashboardPage',
     'DashboardPage',
   );
@@ -92,6 +93,8 @@ import { AppLayout } from '@/shared/layouts/app-layout';
 ${authImports}import { NotFoundPage } from './NotFoundPage';
 
 export const router = createBrowserRouter([
+  // The public website: always reachable, never behind sign-in.
+${routeEntry('  ', '/', '@/features/landing/LandingPage', 'LandingPage')}
   ${dashboardShell}${authRoutesBlock},
 ]);
 `;
@@ -133,6 +136,20 @@ createRoot(container).render(
 );
 `;
 
+/** The project name reaches HTML from a (possibly model-written) spec: escape it. */
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+// Inline, so the site never requests a /favicon.ico it does not have.
+const FAVICON =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M10 22V10l12 12V10' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E";
+
 function indexHtml(projectName: string): string {
   return `<!doctype html>
 <html lang="en" class="dark">
@@ -140,7 +157,8 @@ function indexHtml(projectName: string): string {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark light" />
-    <title>${projectName}</title>
+    <link rel="icon" href="${FAVICON}" />
+    <title>${escapeHtml(projectName)}</title>
   </head>
   <body>
     <div id="root"></div>

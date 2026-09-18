@@ -26,7 +26,7 @@ import { resetHistoryForTests } from './lib/generation-history.js';
 import { ModelRouter } from './lib/model-router.js';
 import { getProvider, resolveProvider } from './lib/providers/provider-registry.js';
 import { MockProvider } from './lib/providers/mock-provider.js';
-import { ProviderCallError } from './lib/providers/http-utils.js';
+import { ProviderCallError, retryAfterOf } from './lib/providers/http-utils.js';
 import { withRetry, NonRetryableError } from './lib/retry-manager.js';
 import { validateResponse } from './lib/response-validator.js';
 
@@ -41,6 +41,8 @@ describe('prompt engine', () => {
     assert.deepEqual(ids, [
       'architecture-planner',
       'backend-generator',
+      // The Builder Agent's decision prompt: one JSON action set per turn.
+      'builder-agent',
       // The Context Engine's template: renders a compiled context into a
       // task prompt via {{PROJECT_CONTEXT}}.
       'context-task',
@@ -55,6 +57,8 @@ describe('prompt engine', () => {
       'repair-engineer',
       'requirement-analyzer',
       'security-engine',
+      // The landing page's copy for a generated website.
+      'site-content',
       // The Test Engineer's template: ranks the deterministic plan, only.
       'test-planner',
       // The UX Engineer's template: asked only what the deterministic
@@ -191,7 +195,7 @@ describe('retry manager', () => {
         if (calls < 3) throw new ProviderCallError('rate-limit', 'slow down');
         return 'ok';
       },
-      { baseDelayMs: 1, maxAttempts: 5 },
+      { baseDelayMs: 1, maxAttempts: 5, rateLimitFloorMs: 1 },
     );
     assert.equal(outcome.result, 'ok');
     assert.equal(outcome.attempts.length, 2);
@@ -431,5 +435,32 @@ describe('generation history + statistics', () => {
     assert.ok(stats.totalTokens > 0);
     assert.ok('mock' in stats.byProvider);
     assert.ok(stats.byComplexity['simple-extraction'] === 1);
+  });
+});
+
+describe('rate-limit backoff', () => {
+  it("reads the provider's retry-after in every format it sends", () => {
+    assert.equal(retryAfterOf(new Headers({ 'retry-after': '7' })), 7_000);
+    assert.equal(retryAfterOf(new Headers({ 'x-ratelimit-reset-tokens': '1m2.5s' })), 62_500);
+    assert.equal(retryAfterOf(new Headers({ 'x-ratelimit-reset-tokens': '250ms' })), 250);
+    assert.equal(
+      retryAfterOf(
+        new Headers({ 'x-ratelimit-reset-tokens': '3s', 'x-ratelimit-reset-requests': '9s' }),
+      ),
+      9_000,
+    );
+    assert.equal(retryAfterOf(new Headers()), undefined);
+  });
+
+  it('waits as long as the provider asked, not a sub-second backoff', async () => {
+    let calls = 0;
+    const outcome = await withRetry(async () => {
+      await Promise.resolve();
+      calls += 1;
+      if (calls === 1) throw new ProviderCallError('rate-limit', 'slow down', 429, 20);
+      return 'ok';
+    });
+    assert.equal(outcome.result, 'ok');
+    assert.equal(outcome.attempts[0]?.delayMs, 270);
   });
 });

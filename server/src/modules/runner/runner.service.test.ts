@@ -15,7 +15,12 @@ import { designDatabase } from '../database-designer/database-designer.service.j
 import { generateBackend } from '../backend-generator/backend-generator.service.js';
 import { generateFrontend } from '../frontend-generator/frontend-generator.service.js';
 import { AppError } from '../../shared/utils/app-error.js';
-import { createSession, planSession } from './runner.service.js';
+import {
+  createSession,
+  planSession,
+  runAdmission,
+  INTERNAL_RUNNER_OWNER,
+} from './runner.service.js';
 import { childEnv } from './lib/child-env.js';
 import { planProvisioning, runDatabaseName } from './lib/database-provisioner.js';
 import { diagnose } from './lib/diagnostics.js';
@@ -104,6 +109,37 @@ describe('run planning against a real generated project', () => {
     });
     assert.equal(plan.targets.length, 0);
     assert.ok(plan.warnings.some((w) => w.includes('no dev or start script')));
+  });
+});
+
+describe('how many runs one person may start', () => {
+  const alice = 'user-alice';
+  const bob = 'user-bob';
+
+  it("counts only the asker's own runs against their limit", () => {
+    // Bob is at his own limit; that must say nothing about Alice.
+    const active = [{ ownerId: bob }, { ownerId: bob }];
+    assert.deepEqual(runAdmission(active, alice, 2, 100), { allowed: true });
+    assert.ok(!runAdmission(active, bob, 2, 100).allowed);
+  });
+
+  it("never lets the platform's own validation runs block a user's preview", () => {
+    // The regression: the validation mesh holds sessions under an internal
+    // owner, and a shared budget let those refuse a user a preview — while
+    // telling them to stop a session their session list did not contain.
+    const active = [{ ownerId: INTERNAL_RUNNER_OWNER }, { ownerId: INTERNAL_RUNNER_OWNER }];
+    assert.deepEqual(runAdmission(active, alice, 2, 100), { allowed: true });
+  });
+
+  it('tells the user to stop one of theirs only when one of them is theirs', () => {
+    const refusal = runAdmission([{ ownerId: alice }, { ownerId: alice }], alice, 2, 100);
+    assert.ok(!refusal.allowed);
+    assert.match(refusal.message, /You already have 2 runs going/);
+
+    const atCapacity = runAdmission([{ ownerId: bob }, { ownerId: bob }], alice, 2, 2);
+    assert.ok(!atCapacity.allowed);
+    // Different fact, different sentence — nothing here is the caller's to stop.
+    assert.match(atCapacity.message, /at its run capacity/);
   });
 });
 

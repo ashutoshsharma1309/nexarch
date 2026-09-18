@@ -11,7 +11,18 @@ export interface RetryOptions {
   maxAttempts?: number;
   baseDelayMs?: number;
   maxDelayMs?: number;
+  /** Smallest wait after a 429 the provider gave no retry-after for. */
+  rateLimitFloorMs?: number;
 }
+
+/**
+ * Rate limits are windows, not blips — a per-minute token budget does not
+ * refill in 300ms. Honour the provider's retry-after when it gives one,
+ * never below a floor when it does not, and never beyond this ceiling: past
+ * it the caller's fallback serves the user better than more waiting.
+ */
+const RATE_LIMIT_MAX_WAIT_MS = 30_000;
+const DEFAULT_RATE_LIMIT_FLOOR_MS = 2_000;
 
 export interface RetryOutcome<T> {
   result: T;
@@ -56,7 +67,20 @@ export async function withRetry<T>(
 
       const { kind, message } = classify(error);
       const isLastAttempt = attempt === maxAttempts;
-      const backoffDelay = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
+      const exponential = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
+      const backoffDelay =
+        kind === 'rate-limit'
+          ? Math.min(
+              RATE_LIMIT_MAX_WAIT_MS,
+              error instanceof ProviderCallError && error.retryAfterMs !== undefined
+                ? // A little past the reset, so the retry lands in the new window.
+                  error.retryAfterMs + 250
+                : Math.max(
+                    exponential,
+                    (options.rateLimitFloorMs ?? DEFAULT_RATE_LIMIT_FLOOR_MS) * 2 ** (attempt - 1),
+                  ),
+            )
+          : exponential;
 
       attempts.push({
         attempt,

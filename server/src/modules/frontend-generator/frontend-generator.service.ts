@@ -33,6 +33,9 @@ import type {
 import { emitApiLayer } from './lib/emit-api.js';
 import { emitEntityPages } from './lib/emit-entity-pages.js';
 import { emitFixedPages } from './lib/emit-fixed-pages.js';
+import { emitLanding } from './lib/emit-landing.js';
+import { deriveSiteContent } from './lib/site-content.js';
+import type { SiteContent } from './lib/site-content.js';
 import { emitForms } from './lib/emit-forms.js';
 import { emitLayouts } from './lib/emit-layouts.js';
 import { emitProjectFiles } from './lib/emit-project-files.js';
@@ -59,9 +62,17 @@ function summarizePages(
     files: files.filter((f) => f.path.startsWith(`src/features/${page.slug}/`)).map((f) => f.path),
   }));
 
+  summaries.unshift({
+    name: 'Landing',
+    route: '/',
+    kind: 'landing',
+    entity: null,
+    implemented: true,
+    files: ['src/features/landing/LandingPage.tsx', 'src/content/site.ts'],
+  });
   summaries.push({
     name: 'Dashboard',
-    route: '/',
+    route: '/dashboard',
     kind: 'dashboard',
     entity: null,
     implemented: true,
@@ -149,7 +160,8 @@ function summarizeComponents(
 
 function summarizeRoutes(model: FrontendProjectModel): GeneratedRouteSummary[] {
   const routes: GeneratedRouteSummary[] = [
-    { path: '/', page: 'Dashboard', protected: model.authEnabled, lazy: true },
+    { path: '/', page: 'Landing', protected: false, lazy: true },
+    { path: '/dashboard', page: 'Dashboard', protected: model.authEnabled, lazy: true },
     ...model.pages.map((page) => ({
       path: page.route,
       page: page.name,
@@ -189,6 +201,8 @@ export function generateFrontend(
   openapi: OpenApiDocument,
   backendManifest: BackendManifest,
   entityMetadata: EntityMetadataSet,
+  /** The landing page's copy — model-written by the pipeline; derived from the spec when absent. */
+  siteContent?: SiteContent,
 ): GeneratedFrontend {
   const startedAt = performance.now();
 
@@ -213,6 +227,7 @@ export function generateFrontend(
     ...emitForms(model.pages),
     ...emitEntityPages(model.pages),
     ...emitFixedPages(model),
+    ...emitLanding(siteContent ?? deriveSiteContent(requirements)),
     ...emitRouting(model),
   ];
 
@@ -263,3 +278,8 @@ export function generateFrontend(
 
   return generated;
 }
+
+// The landing page's copy is the one generator input a model writes; the
+// pipeline asks for it and hands the validated result to `generateFrontend`.
+export { deriveSiteContent, normalizeSiteContent } from './lib/site-content.js';
+export type { SiteContent } from './lib/site-content.js';

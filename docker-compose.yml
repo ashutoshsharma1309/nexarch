@@ -1,28 +1,47 @@
-# Full production-shaped stack: MySQL + API + console.
+# Full production-shaped stack: PostgreSQL + API + console.
 #   cp .env.example .env   (set real passwords)
 #   docker compose up --build
 # Console: http://localhost:8080 · API: http://localhost:4000/api/v1/health
+#
+# To run against Supabase instead of the bundled Postgres, set DATABASE_URL in
+# .env to the project's connection string and drop the `postgres` service plus
+# the server's `depends_on`.
 
 name: nexarch
 
 services:
-  mysql:
-    image: mysql:8.4
+  postgres:
+    image: postgres:16-alpine
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set in .env}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-nexarch}
-      MYSQL_USER: ${MYSQL_USER:-nexarch}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-nexarch}
+      POSTGRES_USER: ${POSTGRES_USER:-nexarch}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
     ports:
-      - '${MYSQL_PORT:-3306}:3306'
+      - '${POSTGRES_PORT:-5432}:5432'
     volumes:
-      - mysql-data:/var/lib/mysql
+      - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-p${MYSQL_ROOT_PASSWORD}']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-nexarch} -d ${POSTGRES_DB:-nexarch}']
       interval: 5s
       timeout: 3s
       retries: 12
+
+  # One-shot schema migration. Runs from the image's build stage, which has
+  # the Prisma CLI and the migrations; the runtime image deliberately has
+  # neither. The API starts only after this succeeds.
+  migrate:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+      target: build
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-nexarch}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nexarch}}
+    command: ['npx', 'prisma', 'migrate', 'deploy', '--schema', 'server/prisma/schema.prisma']
+    restart: 'no'
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   server:
     build:
@@ -33,16 +52,22 @@ services:
       NODE_ENV: production
       PORT: 4000
       LOG_LEVEL: info
-      DATABASE_URL: mysql://${MYSQL_USER:-nexarch}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE:-nexarch}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://${POSTGRES_USER:-nexarch}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nexarch}}
       # Same-origin via the nginx proxy — no browser origin needs allowing,
       # but the variable stays configurable for split deployments.
       CORS_ORIGINS: http://localhost:${CLIENT_PORT:-8080}
-      JWT_SECRET: ${JWT_SECRET:?set in .env (openssl rand -base64 48)}
+      # No login by default; set AUTH_DISABLED=false and a real JWT_SECRET for accounts.
+      AUTH_DISABLED: ${AUTH_DISABLED:-true}
+      JWT_SECRET: ${JWT_SECRET:-}
+      # Server-side only — never reaches the browser bundle.
+      AI_PROVIDER: ${AI_PROVIDER:-groq}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MAX_REQUEST_TOKENS: ${AI_MAX_REQUEST_TOKENS:-8000}
     ports:
       - '${SERVER_PORT:-4000}:4000'
     depends_on:
-      mysql:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   client:
     build:
@@ -55,4 +80,4 @@ services:
       - server
 
 volumes:
-  mysql-data:
+  postgres-data:

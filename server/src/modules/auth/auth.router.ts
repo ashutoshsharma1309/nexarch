@@ -35,6 +35,22 @@ const credentialLimiter = rateLimit({
   },
 });
 
+/**
+ * Refreshing is not a credential guess — it either presents a valid refresh
+ * cookie or it does not — so it gets a budget of its own: high enough that
+ * normal use (once per access-token lifetime, plus a retry after any 401)
+ * never trips it, low enough to bound a client stuck in a refresh loop.
+ */
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, _res, next) => {
+    next(AppError.rateLimited('Too many session refreshes — wait a moment and try again'));
+  },
+});
+
 export const authRouter: Router = Router();
 
 authRouter.post('/register', credentialLimiter, validate(registerValidation), (req, res, next) => {
@@ -43,7 +59,7 @@ authRouter.post('/register', credentialLimiter, validate(registerValidation), (r
 authRouter.post('/login', credentialLimiter, validate(loginValidation), (req, res, next) => {
   loginHandler(req, res).catch(next);
 });
-authRouter.post('/refresh', (req, res, next) => {
+authRouter.post('/refresh', refreshLimiter, (req, res, next) => {
   refreshHandler(req, res).catch(next);
 });
 authRouter.post('/logout', logoutHandler);

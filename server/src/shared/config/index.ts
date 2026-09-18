@@ -50,6 +50,15 @@ export const config = {
   logging: {
     level: env.LOG_LEVEL,
   },
+
+  generation: {
+    /**
+     * Sign-in inside generated apps. The test suite always plans it — its
+     * fixtures and assertions cover the authenticated shape, and the public
+     * MVP transform has tests of its own.
+     */
+    appAuth: env.NODE_ENV === 'test' ? true : env.GENERATED_APP_AUTH,
+  },
 } as const;
 
 // Turning auth back on requires a real secret — fail loudly at boot rather

@@ -10,6 +10,7 @@ import { describe, it } from 'node:test';
 import { analyzeRequirements } from '../analysis/analysis.service.js';
 import { planArchitecture } from '../architecture/architecture.service.js';
 import { designDatabase } from './database-designer.service.js';
+import { designTable } from './lib/table-designer.js';
 import type { DesignBundle } from './database-designer.types.js';
 
 const DOMAIN_PROMPTS: readonly [string, string][] = [
@@ -94,6 +95,44 @@ describe('database design across domains', () => {
       assertSound(designFor(prompt));
     });
   }
+});
+
+describe('a column name is claimed exactly once', () => {
+  it('keeps one column when a field is named twice, with and without the unique marker', () => {
+    // The regression: keyFields is assembled from a built-in rule table and
+    // a model's suggestions, so `name` and `name (unique)` could both
+    // survive — two different strings naming one column. Prisma rejects the
+    // whole schema for that, which killed the run at `prisma generate`
+    // after the install the user had already waited through.
+    const { table } = designTable({
+      name: 'MenuItems',
+      tableName: 'menu_items',
+      keyFields: ['id', 'name (unique)', 'price', 'name', 'created_at', 'updated_at'],
+      relations: [],
+      primaryKey: 'id',
+      indexes: [],
+    });
+
+    const names = table.columns.map((column) => column.name);
+    assert.deepEqual(
+      names.filter((name) => name === 'name'),
+      ['name'],
+    );
+    assert.equal(new Set(names).size, names.length, `duplicate column in: ${names.join(', ')}`);
+  });
+
+  it('never emits a duplicate column for any domain the designer supports', () => {
+    for (const [label, prompt] of DOMAIN_PROMPTS) {
+      for (const table of designFor(prompt).databaseDesign.tables) {
+        const names = table.columns.map((column) => column.name);
+        assert.equal(
+          new Set(names).size,
+          names.length,
+          `${label}/${table.entity} has a duplicate column: ${names.join(', ')}`,
+        );
+      }
+    }
+  });
 });
 
 describe('relational design correctness', () => {

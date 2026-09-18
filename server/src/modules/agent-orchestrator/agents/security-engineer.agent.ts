@@ -22,6 +22,7 @@
 import { analyzeSecurity } from '../../security-engine/security-engine.service.js';
 import { generateEntityMetadata } from '../../database-designer/lib/entity-metadata-generator.js';
 import { getAgentDefinition } from '../../../shared/contracts/index.js';
+import { contractDeclaresAuth } from '../lib/contract-audit.js';
 import { AgentError } from '../lib/executor.js';
 import { scanSource } from '../lib/source-security.js';
 import type {
@@ -161,9 +162,9 @@ export const securityEngineerAgent: Agent<{
       );
     }
 
-    const authExpected =
-      requirements.modules.some((mod) => /auth|login|sign|role|permission|access/i.test(mod)) ||
-      (requirements.securityRequirements ?? []).length > 0;
+    // Unguarded routes are only a defect when the app was generated with
+    // sign-in; a public MVP is public on purpose. The contract says which.
+    const authExpected = contractDeclaresAuth(api);
 
     const sourceFindings = scanSource({ files, authExpected });
     const findings = [...fromDesignAnalysis(analysis), ...sourceFindings];

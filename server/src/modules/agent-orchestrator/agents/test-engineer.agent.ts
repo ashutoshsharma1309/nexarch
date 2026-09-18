@@ -18,6 +18,7 @@
 import { generateWithContext } from '../../ai-orchestrator/ai-orchestrator.service.js';
 import { getAgentDefinition } from '../../../shared/contracts/index.js';
 import { logger } from '../../../shared/logger/index.js';
+import { contractDeclaresAuth } from '../lib/contract-audit.js';
 import { AgentError } from '../lib/executor.js';
 import { deriveTestPlan } from '../lib/test-plan.js';
 import { executeTestPlan } from '../lib/test-executor.js';
@@ -112,9 +113,9 @@ export const testEngineerAgent: Agent<{ cases: TestCase[] }> = {
       );
     }
 
-    const authExpected = requirements.modules.some((mod) =>
-      /auth|login|sign|role|permission|access/i.test(mod),
-    );
+    // Whether the app has sign-in is the contract's to say: a prompt can
+    // ask for "authentication" of a project generated as a public MVP.
+    const authExpected = contractDeclaresAuth(api);
 
     /* ── Plan: deterministic ───────────────────────────────────────────── */
 

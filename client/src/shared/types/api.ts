@@ -481,7 +481,7 @@ export interface FrontendGeneratedFile {
 export interface FrontendPageSummary {
   name: string;
   route: string;
-  kind: 'entity-list' | 'dashboard' | 'auth' | 'settings' | 'profile' | 'not-found';
+  kind: 'landing' | 'entity-list' | 'dashboard' | 'auth' | 'settings' | 'profile' | 'not-found';
   entity: string | null;
   implemented: boolean;
   files: string[];
@@ -1615,6 +1615,29 @@ export type RunPhase =
   | 'restarting'
   | 'failed';
 
+/**
+ * Phases the session is still moving through, so the UI must keep asking.
+ *
+ * Declared beside RunPhase because two hand-written copies of this list had
+ * already drifted: the poller's copy omitted `configuring` and `stopping`, so
+ * polling stopped the moment a session began configuring its database. The
+ * backend went on to start and run; the screen kept saying "Configuring
+ * database" forever, because nothing ever asked again. Anything that decides
+ * "is this still moving?" must read this list.
+ */
+export const TRANSIENT_RUN_PHASES: RunPhase[] = [
+  'preparing',
+  'installing',
+  'configuring',
+  'starting',
+  'restarting',
+  'stopping',
+];
+
+export function isTransientRunPhase(phase: RunPhase): boolean {
+  return TRANSIENT_RUN_PHASES.includes(phase);
+}
+
 export type RunProcessKind = 'backend' | 'frontend';
 
 export interface RunProcess {
@@ -2274,4 +2297,76 @@ export interface AgentCatalogueEntry {
   requires: string[];
   produces: string[];
   dependencies: string[];
+}
+
+/* ── Builder Agent ─────────────────────────────────────────────────────── */
+
+export type BuilderToolName =
+  | 'create_project'
+  | 'build_app'
+  | 'review_app'
+  | 'repair_app'
+  | 'preview_app'
+  | 'inspect_website'
+  | 'list_files'
+  | 'read_file'
+  | 'finish';
+
+export type BuilderStatus = 'running' | 'succeeded' | 'failed' | 'cancelled';
+
+export interface BuilderStep {
+  id: string;
+  index: number;
+  kind: 'decision' | 'tool' | 'note';
+  by: 'model' | 'policy';
+  tool: BuilderToolName | null;
+  args: Record<string, unknown> | null;
+  status: 'running' | 'ok' | 'failed';
+  summary: string;
+  detail: Record<string, unknown> | null;
+  startedAt: string;
+  completedAt: string | null;
+  durationMs: number | null;
+}
+
+export interface BuilderSession {
+  id: string;
+  task: string;
+  status: BuilderStatus;
+  plan: string[];
+  steps: BuilderStep[];
+  state: {
+    projectId: string | null;
+    projectName: string | null;
+    pipelineRunId: string | null;
+    agentRunId: string | null;
+    previewSessionId: string | null;
+    frontendUrl: string | null;
+    backendUrl: string | null;
+    validationGate: string | null;
+    repaired: boolean;
+    inspected: boolean;
+    buildDegraded: boolean | null;
+    landingSections: string[];
+  };
+  result: {
+    complete: boolean;
+    summary: string;
+    projectId: string | null;
+    frontendUrl: string | null;
+    backendUrl: string | null;
+    validationGate: string | null;
+    landingSections: string[];
+  } | null;
+  error: string | null;
+  usage: {
+    decisions: number;
+    modelDecisions: number;
+    policyDecisions: number;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
+  };
+  createdAt: string;
+  updatedAt: string;
 }

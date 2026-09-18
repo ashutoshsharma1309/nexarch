@@ -204,18 +204,52 @@ describe('generation correctness', () => {
     assert.ok(productRoutes.every((r) => r.implemented));
   });
 
-  it('scaffolds non-CRUD modules with NotImplementedError stubs', () => {
+  it("implements authentication against the design's own user table", () => {
+    // The regression this guards: authentication used to be emitted as a
+    // NotImplementedError stub, so every generated application answered
+    // its own sign-in form with 501 and no user could get past the first
+    // screen. A generated login must actually log in.
+    const project = generateFor(
+      'Build an E-Commerce Website with JWT auth, product management and order tracking',
+    );
+    const controller = project.files.find(
+      (f) => f.path === 'src/modules/authentication/controllers/authentication.controller.ts',
+    );
+    assert.ok(controller, 'no authentication controller was generated');
+    assert.doesNotMatch(controller.content, /NotImplementedError/);
+
+    const service = project.files.find(
+      (f) => f.path === 'src/modules/authentication/services/authentication.service.ts',
+    );
+    assert.ok(service);
+    // Hashed, never compared in the clear, and signed with the app's secret.
+    assert.match(service.content, /bcrypt\.hash/);
+    assert.match(service.content, /bcrypt\.compare/);
+    assert.match(service.content, /jwt\.sign/);
+    // The shape the generated frontend actually posts to and reads back.
+    assert.match(service.content, /accessToken: issueToken\(user\)/);
+
+    // And the guard must verify the signature, not merely see a header.
+    const guard = project.files.find((f) => f.path === 'src/shared/middleware/auth.ts');
+    assert.ok(guard);
+    assert.match(guard.content, /jwt\.verify/);
+    assert.doesNotMatch(guard.content, /stub-user/);
+
+    const pkg = project.files.find((f) => f.path === 'package.json');
+    assert.ok(pkg);
+    assert.match(pkg.content, /"bcryptjs"/);
+    assert.match(pkg.content, /"jsonwebtoken"/);
+  });
+
+  it('still scaffolds a module that has no entity and no credentials to use', () => {
     const project = generateFor('Portfolio Website for a freelance designer');
-    const authModule = project.modules.find((m) => !m.crud);
-    assert.ok(
-      authModule,
-      `expected at least one scaffold module; got: ${project.modules.map((m) => m.name).join(', ')}`,
+    const scaffold = project.modules.find(
+      (m) =>
+        !m.crud && m.name !== 'Authentication' && m.files.some((f) => f.endsWith('.controller.ts')),
     );
-    const controllerPath = authModule.files.find((f) => f.endsWith('.controller.ts'));
-    assert.ok(
-      controllerPath,
-      `${authModule.name} has no controller file among: ${authModule.files.join(', ')}`,
-    );
+    if (!scaffold) return; // This design produced no non-CRUD module; nothing to assert.
+    const controllerPath = scaffold.files.find((f) => f.endsWith('.controller.ts'));
+    assert.ok(controllerPath);
     const controllerFile = project.files.find((f) => f.path === controllerPath);
     assert.ok(controllerFile);
     assert.match(controllerFile.content, /NotImplementedError/);

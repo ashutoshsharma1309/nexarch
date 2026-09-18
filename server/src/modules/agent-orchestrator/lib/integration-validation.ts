@@ -24,6 +24,7 @@
  * anywhere in this file, per Step 26 — every question here has a status
  * code for an answer.
  */
+import { contractDeclaresAuth } from './contract-audit.js';
 import { scrub } from './runtime-validation.js';
 import type {
   IntegrationCheck,
@@ -124,12 +125,13 @@ export async function validateIntegration(input: IntegrationInput): Promise<Inte
 
   if (!base || input.runtime.startupStatus !== 'PASS') {
     const evidence = `runtime startupStatus=${input.runtime.startupStatus}; no live base URL`;
-    for (const kind of [
+    const kinds = [
       'API_CONTRACT',
-      'AUTHENTICATION',
+      ...(contractDeclaresAuth(input.api) ? (['AUTHENTICATION'] as const) : []),
       'DATABASE',
       'FRONTEND_BACKEND',
-    ] as const) {
+    ] as const;
+    for (const kind of kinds) {
       checks.push({
         kind,
         name: `${kind.toLowerCase().replace(/_/g, ' ')} (live)`,
@@ -223,51 +225,55 @@ export async function validateIntegration(input: IntegrationInput): Promise<Inte
 
   /* ── Authentication: a real round trip with disposable credentials ─── */
 
-  const email = `validation.${input.runId.slice(0, 8)}@test.invalid`;
-  const password = `Validate#${input.runId.slice(0, 8)}A1`;
+  // A public MVP has no sign-in to test; probing /auth would only report a
+  // 404 against a feature the app was deliberately generated without.
+  if (contractDeclaresAuth(input.api)) {
+    const email = `validation.${input.runId.slice(0, 8)}@test.invalid`;
+    const password = `Validate#${input.runId.slice(0, 8)}A1`;
 
-  const register = await request('POST', `${base}${input.apiPrefix}/auth/register`, {
-    body: { email, password, name: 'Validation Probe' },
-  });
-  const login = await request('POST', `${base}${input.apiPrefix}/auth/login`, {
-    body: { email, password },
-  });
-
-  const authWorks =
-    register.status !== null &&
-    register.status < 300 &&
-    login.status !== null &&
-    login.status < 300;
-
-  if (authWorks) {
-    checks.push({
-      kind: 'AUTHENTICATION',
-      name: 'register → login round trip',
-      status: 'PASS',
-      evidence: `POST /auth/register → ${String(register.status)} · POST /auth/login → ${String(login.status)}`,
-      error: null,
+    const register = await request('POST', `${base}${input.apiPrefix}/auth/register`, {
+      body: { email, password, name: 'Validation Probe' },
     });
-  } else {
-    const detail = `POST /auth/register → ${String(register.status ?? 'no answer')} · POST /auth/login → ${String(login.status ?? 'no answer')}`;
-    checks.push({
-      kind: 'AUTHENTICATION',
-      name: 'register → login round trip',
-      status: 'FAIL',
-      evidence: detail,
-      error: 'A new user cannot sign up and sign in against the running application.',
+    const login = await request('POST', `${base}${input.apiPrefix}/auth/login`, {
+      body: { email, password },
     });
-    findings.push(
-      finding(
-        'HIGH',
-        'AUTHENTICATION',
-        'The authentication flow does not work against the running application',
-        register.status === 501
-          ? 'Register and login are mounted as scaffolds returning 501. Every protected feature is unreachable through the front door.'
-          : 'The register/login round trip failed against the live backend.',
-        detail,
-        'Implement the authentication handlers; the routes and middleware are already mounted.',
-      ),
-    );
+
+    const authWorks =
+      register.status !== null &&
+      register.status < 300 &&
+      login.status !== null &&
+      login.status < 300;
+
+    if (authWorks) {
+      checks.push({
+        kind: 'AUTHENTICATION',
+        name: 'register → login round trip',
+        status: 'PASS',
+        evidence: `POST /auth/register → ${String(register.status)} · POST /auth/login → ${String(login.status)}`,
+        error: null,
+      });
+    } else {
+      const detail = `POST /auth/register → ${String(register.status ?? 'no answer')} · POST /auth/login → ${String(login.status ?? 'no answer')}`;
+      checks.push({
+        kind: 'AUTHENTICATION',
+        name: 'register → login round trip',
+        status: 'FAIL',
+        evidence: detail,
+        error: 'A new user cannot sign up and sign in against the running application.',
+      });
+      findings.push(
+        finding(
+          'HIGH',
+          'AUTHENTICATION',
+          'The authentication flow does not work against the running application',
+          register.status === 501
+            ? 'Register and login are mounted as scaffolds returning 501. Every protected feature is unreachable through the front door.'
+            : 'The register/login round trip failed against the live backend.',
+          detail,
+          'Implement the authentication handlers; the routes and middleware are already mounted.',
+        ),
+      );
+    }
   }
 
   /* ── Authorization: does the guard actually reject? ────────────────── */

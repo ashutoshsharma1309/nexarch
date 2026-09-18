@@ -191,6 +191,8 @@ export function buildProjectModel(
   const validationByEntity = new Map(validation.map((v) => [v.entity, v]));
   const metadataByEntity = new Map(entityMetadata.entities.map((m) => [m.entity, m]));
   const allRoles = requirements.roles.length > 0 ? requirements.roles : ['Admin', 'User'];
+  // Same signal the frontend generator keys its login pages on.
+  const signIn = openapi.tags.some((t) => t.name === 'Authentication');
 
   const modules: ModuleModel[] = [];
 
@@ -236,7 +238,9 @@ export function buildProjectModel(
         return this.entity !== null && this.endpoints.some((e) => e.kind !== 'custom');
       },
       get deleteRoles(): string[] | null {
-        if (!metadata) return null;
+        // No sign-in, no roles: a role guard in a public app would only ever
+        // answer 401, leaving delete permanently unusable.
+        if (!signIn || !metadata) return null;
         const roles = metadata.permissions
           .filter((p) => p.actions.includes('delete'))
           .map((p) => p.role);

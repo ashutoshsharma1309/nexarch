@@ -11,7 +11,10 @@ interface DiagnosticRule {
 
 const RULES: DiagnosticRule[] = [
   {
-    pattern: /EADDRINUSE/,
+    // Node reports EADDRINUSE, but a generated backend and Vite both print
+    // their own friendlier wording — match all three or the next rule
+    // downstream ends up explaining the wrong failure.
+    pattern: /EADDRINUSE|address already in use|[Pp]ort \d+ is already in use/,
     explain:
       'A port the project needed was taken between detection and start — restart the session.',
   },
@@ -41,7 +44,10 @@ const RULES: DiagnosticRule[] = [
       'A generated import does not resolve — a dependency failed to install or a generated path is wrong; the log names the module.',
   },
   {
-    pattern: /@prisma\/client did not initialize|prisma generate/i,
+    // Only the client's own failure text — the configure stage logs the
+    // words "npx prisma generate" on every healthy run, so matching that
+    // blamed Prisma for unrelated crashes.
+    pattern: /@prisma\/client did not initialize|did not initialize yet|run ["'`]?prisma generate/i,
     explain:
       'The Prisma client was not generated before start — the configure stage runs `prisma generate`; see its log output above.',
   },

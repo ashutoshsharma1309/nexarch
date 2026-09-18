@@ -15,9 +15,8 @@ import {
   restartRunSession,
   stopRunSession,
 } from '@/shared/services/runner.service';
-import type { CreateRunSessionRequest, RunLogLine, RunPhase } from '@/shared/types/api';
-
-const ACTIVE_PHASES: RunPhase[] = ['preparing', 'installing', 'starting', 'restarting'];
+import type { CreateRunSessionRequest, RunLogLine } from '@/shared/types/api';
+import { isTransientRunPhase } from '@/shared/types/api';
 
 export function useRunSessions() {
   return useQuery({ queryKey: ['runner', 'sessions'], queryFn: listRunSessions });
@@ -33,8 +32,8 @@ export function useRunSession(id: string | null) {
     enabled: Boolean(id),
     refetchInterval: (query) => {
       const phase = query.state.data?.phase;
-      if (!phase) return 1_000;
-      if (ACTIVE_PHASES.includes(phase)) return 1_000; // startup moves fast
+      if (!phase) return 2_000;
+      if (isTransientRunPhase(phase)) return 2_000; // still moving
       if (phase === 'running') return 5_000; // just watching for crashes
       return false; // stopped/failed — nothing will change
     },
@@ -66,7 +65,7 @@ export function useRunLogs(id: string | null, active: boolean) {
       return linesRef.current;
     },
     enabled: Boolean(id),
-    refetchInterval: active ? 1_000 : false,
+    refetchInterval: active ? 2_000 : false,
   });
 
   return { ...query, lines: query.data ?? linesRef.current };

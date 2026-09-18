@@ -17,11 +17,12 @@ const envSchema = z.object({
 
   // Optional on purpose. With no DATABASE_URL the server runs in a
   // zero-setup, in-memory mode (projects, graph and run history live in
-  // process memory and reset on restart). Set it — a `mysql://` string — to
-  // switch on real persistence.
+  // process memory and reset on restart). Set it — a `postgresql://` string
+  // (Supabase or any Postgres) — to switch on real persistence. The schema's
+  // datasource provider must match whatever is set here.
   DATABASE_URL: z
     .string()
-    .startsWith('mysql://', 'DATABASE_URL must be a mysql:// connection string')
+    .regex(/^(postgresql|postgres):\/\//, 'DATABASE_URL must be a postgresql:// connection string')
     .optional()
     .or(z.literal('').transform(() => undefined)),
 
@@ -31,6 +32,15 @@ const envSchema = z.object({
   AUTH_DISABLED: z
     .enum(['true', 'false'])
     .default('true')
+    .transform((value) => value === 'true'),
+
+  // Whether the applications NexArch *generates* get sign-in. Off by default:
+  // a generated project is a public MVP — its pages and API open with no
+  // login. Set `true` to plan an Authentication module, login/register
+  // pages and guarded routes into every generated app.
+  GENERATED_APP_AUTH: z
+    .enum(['true', 'false'])
+    .default('false')
     .transform((value) => value === 'true'),
 
   /** Comma-separated allow-list of browser origins. */
@@ -51,7 +61,13 @@ const envSchema = z.object({
   // now: with AUTH_DISABLED (the default) no tokens are issued or verified, so
   // a secret is not needed to run. Turning auth back on requires setting one
   // (min 32 chars) — enforced at boot in `config/index.ts`.
-  JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters').optional(),
+  // Empty counts as unset — compose passes `${JWT_SECRET:-}` through even
+  // when login is off, and an empty string must not fail the 32-char rule.
+  JWT_SECRET: z
+    .string()
+    .min(32, 'JWT_SECRET must be at least 32 characters')
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
   JWT_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
 });

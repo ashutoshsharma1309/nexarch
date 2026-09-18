@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 
 import { childEnv } from './child-env.js';
+import { forgetChild, noteChild } from './orphan-reaper.js';
 import { isPortAnswering } from './port-scanner.js';
 import type { LogBuffer } from './log-buffer.js';
 
@@ -20,13 +21,36 @@ const INSTALL_TIMEOUT_MS = 5 * 60_000;
 /** Every live child, so one exit hook can sweep them all. */
 const liveChildren = new Set<ChildProcess>();
 
-function sweep(): void {
-  for (const child of liveChildren) {
+/**
+ * Kill a child *and everything it started*.
+ *
+ * The command we spawn is `npm run dev`; the thing that actually holds the
+ * port is the `tsx` or `vite` process npm forks. Signalling only the pid we
+ * own kills the wrapper and leaves the grandchild alive, reparented to init,
+ * still bound to its port with nothing left that knows how to stop it — the
+ * exact orphans found holding ports 5175-5179. Spawning `detached` puts each
+ * child at the head of its own process group, so negating the pid signals the
+ * whole group and the generated app dies with its supervisor.
+ */
+function killGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  const pid = child.pid;
+  if (pid === undefined) return;
+  try {
+    // Negative pid = the process group. Falls back to the single process if
+    // the group is already gone (ESRCH) or groups are unavailable (Windows).
+    process.kill(-pid, signal);
+  } catch {
     try {
-      child.kill('SIGKILL');
+      child.kill(signal);
     } catch {
       // already gone
     }
+  }
+}
+
+function sweep(): void {
+  for (const child of liveChildren) {
+    killGroup(child, 'SIGKILL');
   }
   liveChildren.clear();
 }
@@ -64,8 +88,45 @@ function wire(
   });
 }
 
+/**
+ * `npm install` is the heaviest thing NexArch spawns — hundreds of MB of
+ * resident memory and a lock on the shared npm cache. A preview and an agent
+ * run's validation install the *same* generated project at the same moment,
+ * and on a small machine two at once is what tips it into swap: timers fire
+ * minutes late, installs crawl, and both sessions time out. Installs
+ * therefore take turns; the second one also finds a warm cache
+ * (`--prefer-offline`) and finishes in seconds rather than minutes.
+ */
+function maxConcurrentInstalls(): number {
+  const parsed = Number.parseInt(process.env.NEXARCH_RUNNER_MAX_INSTALLS ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+let activeInstalls = 0;
+const waitingInstalls: (() => void)[] = [];
+
+async function acquireInstallSlot(): Promise<() => void> {
+  if (activeInstalls >= maxConcurrentInstalls()) {
+    await new Promise<void>((resolve) => {
+      waitingInstalls.push(resolve);
+    });
+  }
+  activeInstalls += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    activeInstalls -= 1;
+    waitingInstalls.shift()?.();
+  };
+}
+
+function isInstall(command: string, args: readonly string[]): boolean {
+  return command === 'npm' && (args[0] === 'install' || args[0] === 'ci');
+}
+
 /** Run an install/configure-style command to completion. Resolves with the exit code. */
-export function runToCompletion(
+export async function runToCompletion(
   command: string,
   args: string[],
   cwd: string,
@@ -73,10 +134,32 @@ export function runToCompletion(
   logs: LogBuffer,
   env: Record<string, string> = {},
 ): Promise<number> {
+  if (!isInstall(command, args)) return spawnToCompletion(command, args, cwd, stream, logs, env);
+
+  if (activeInstalls >= maxConcurrentInstalls()) {
+    logs.append('system', `${stream}: waiting for another install to finish`);
+  }
+  const release = await acquireInstallSlot();
+  try {
+    const installArgs = args.includes('--prefer-offline') ? args : [...args, '--prefer-offline'];
+    return await spawnToCompletion(command, installArgs, cwd, stream, logs, env);
+  } finally {
+    release();
+  }
+}
+
+function spawnToCompletion(
+  command: string,
+  args: string[],
+  cwd: string,
+  stream: 'backend' | 'frontend',
+  logs: LogBuffer,
+  env: Record<string, string>,
+): Promise<number> {
   return new Promise((resolve) => {
     // Whitelisted environment: children never see NexArch's own secrets
     // (see child-env.ts for why inheriting DATABASE_URL is catastrophic).
-    const child = spawn(command, args, { cwd, shell: false, env: childEnv(env) });
+    const child = spawn(command, args, { cwd, shell: false, env: childEnv(env), detached: true });
     track(child);
     wire(child, stream, logs);
 
@@ -85,7 +168,7 @@ export function runToCompletion(
         'system',
         `${stream} install exceeded ${String(INSTALL_TIMEOUT_MS / 60000)} minutes — terminating`,
       );
-      child.kill('SIGTERM');
+      killGroup(child, 'SIGTERM');
     }, INSTALL_TIMEOUT_MS);
     timer.unref();
 
@@ -120,15 +203,23 @@ export function startProcess(
     cwd,
     shell: false,
     env: childEnv(env),
+    detached: true,
   });
   track(child);
   wire(child, stream, logs);
 
+  // Written down before anything else can go wrong: if NexArch is SIGKILLed
+  // the note is the only remaining trace of this dev server, and the next
+  // boot uses it to stop the process instead of leaving the port bound.
+  if (child.pid !== undefined) noteChild(child.pid, cwd, `${command} ${args.join(' ')}`);
+
   child.once('error', (error) => {
+    if (child.pid !== undefined) forgetChild(child.pid);
     logs.append('system', `${stream}: failed to spawn ${command}: ${error.message}`);
     onExit(127);
   });
   child.once('exit', (code) => {
+    if (child.pid !== undefined) forgetChild(child.pid);
     onExit(code);
   });
 
@@ -180,18 +271,10 @@ export async function waitUntilHealthy(
 }
 
 export function stopChild(child: ChildProcess): void {
-  try {
-    child.kill('SIGTERM');
-    // Escalate if SIGTERM is ignored — dev servers occasionally trap it.
-    const timer = setTimeout(() => {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        // already gone
-      }
-    }, 5_000);
-    timer.unref();
-  } catch {
-    // already gone
-  }
+  killGroup(child, 'SIGTERM');
+  // Escalate if SIGTERM is ignored — dev servers occasionally trap it.
+  const timer = setTimeout(() => {
+    killGroup(child, 'SIGKILL');
+  }, 5_000);
+  timer.unref();
 }

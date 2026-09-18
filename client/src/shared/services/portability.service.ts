@@ -14,9 +14,7 @@ export async function exportProjectPackage(projectId: string): Promise<unknown> 
   return unwrap(data);
 }
 
-export async function importProjectPackage(
-  pkg: unknown,
-): Promise<{
+export async function importProjectPackage(pkg: unknown): Promise<{
   project: Project;
   imported: { artifacts: number; findings: number; graph: boolean };
 }> {
@@ -33,12 +31,11 @@ export async function runDemo(): Promise<{
   project: Project;
   seeded: { findings: number; repaired: number; artifacts: number };
 }> {
-  const { data } =
-    await apiClient.post<
-      ApiSuccess<{
-        project: Project;
-        seeded: { findings: number; repaired: number; artifacts: number };
-      }>
-    >('/demo');
+  const { data } = await apiClient.post<
+    ApiSuccess<{
+      project: Project;
+      seeded: { findings: number; repaired: number; artifacts: number };
+    }>
+  >('/demo');
   return unwrap(data);
 }

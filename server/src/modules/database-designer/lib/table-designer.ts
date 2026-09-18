@@ -143,9 +143,19 @@ export function designTable(entity: EntityPlan, context: InferenceContext = {}):
   const fkNames = new Set(foreignKeys.map((fk) => fk.foreignKey));
 
   // Business columns from architecture hints (skip reserved + FK columns).
+  //
+  // A column name may only appear once. keyFields arrives from several
+  // places — a built-in rule table, a model's suggestions, an earlier
+  // merge — and one duplicate makes the whole Prisma schema invalid, so
+  // the run dies at `prisma generate` with every other table fine. Names
+  // are claimed here, at the one point every column passes through.
+  const claimed = new Set<string>(RESERVED_FIELDS);
+  for (const name of fkNames) claimed.add(name);
+
   for (const raw of entity.keyFields) {
     const parsed = parseKeyField(raw);
-    if (RESERVED_FIELDS.has(parsed.name) || fkNames.has(parsed.name)) continue;
+    if (claimed.has(parsed.name)) continue;
+    claimed.add(parsed.name);
     const column = inferColumn(entity.name, parsed, context);
     columns.push(column);
     if (column.enumValues) {

@@ -21,11 +21,11 @@ in it is implemented, and it does not change anything described below).
 
 ## Stack
 
-| Layer   | Technology                                                                                                                             |
-| ------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Client  | React 19 · Vite · TypeScript · TailwindCSS 4 · React Router · TanStack Query · Zustand · React Hook Form · Zod · Axios · Framer Motion |
-| Server  | Node.js 22 · Express 5 · TypeScript · Prisma · MySQL · Helmet · CORS · express-rate-limit · express-validator · Morgan · Winston · Zod |
-| Tooling | npm workspaces · ESLint (typed, flat config) · Prettier · Husky + lint-staged · GitHub Actions · Docker + Compose                      |
+| Layer   | Technology                                                                                                                                             |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Client  | React 19 · Vite · TypeScript · TailwindCSS 4 · React Router · TanStack Query · Zustand · React Hook Form · Zod · Axios · Framer Motion                 |
+| Server  | Node.js 22 · Express 5 · TypeScript · Prisma · PostgreSQL (Supabase) · Helmet · CORS · express-rate-limit · express-validator · Morgan · Winston · Zod |
+| Tooling | npm workspaces · ESLint (typed, flat config) · Prettier · Husky + lint-staged · GitHub Actions · Docker + Compose                                      |
 
 ## Getting started
 
@@ -46,9 +46,10 @@ live API health.
 > graph and run history live in process memory and reset when the server restarts. This
 > is the intended local/demo mode.
 >
-> **Add a database later** (optional, for persistence): start MySQL
-> (`npm run docker:dev`), set `DATABASE_URL` in `server/.env`, run `npm run db:push`, and
-> restart. **Turn real accounts back on**: set `AUTH_DISABLED=false` and a real
+> **Add a database later** (optional, for persistence): point `DATABASE_URL` in
+> `server/.env` at a PostgreSQL database — a Supabase project (Project Settings →
+> Database → Connection string → URI, direct connection on port 5432) or any local
+> Postgres — run `npm run db:deploy`, and restart. **Turn real accounts back on**: set `AUTH_DISABLED=false` and a real
 > `JWT_SECRET` (min 32 chars). The login/onboarding UI returns automatically.
 
 ### First run: onboarding & demo
@@ -106,13 +107,14 @@ failing.
 
 Everything that listens on localhost, and why they never collide:
 
-| Port    | What                                                           |
-| ------- | -------------------------------------------------------------- |
-| `5173`  | NexArch console (Vite dev server)                              |
-| `4000`  | NexArch API                                                    |
-| `3306`  | MySQL (the platform's own database)                            |
-| `4001+` | A previewed project's **generated backend** (first free port)  |
-| `5174+` | A previewed project's **generated frontend** (first free port) |
+| Port    | What                                                                 |
+| ------- | -------------------------------------------------------------------- |
+| `5173`  | NexArch console (Vite dev server)                                    |
+| `4000`  | NexArch API                                                          |
+| `5432`  | PostgreSQL — the platform's own database (Supabase is remote)        |
+| `3307`  | MySQL sandbox for **generated** apps (`NEXARCH_RUNNER_DATABASE_URL`) |
+| `4001+` | A previewed project's **generated backend** (first free port)        |
+| `5174+` | A previewed project's **generated frontend** (first free port)       |
 
 Preview processes get free ports scanned at start time, so running a preview never
 takes NexArch down — the console stays fully usable beside it, and every preview is
@@ -120,17 +122,17 @@ stopped when the API process exits.
 
 ### Everyday commands
 
-| Command              | What it does                                       |
-| -------------------- | -------------------------------------------------- |
-| `npm run dev`        | Run server + client concurrently                   |
-| `npm run build`      | Production builds of both workspaces               |
-| `npm test`           | Server suites (node:test) + client suites (Vitest) |
-| `npm run lint`       | Typed ESLint across both workspaces                |
-| `npm run typecheck`  | Strict TypeScript checks                           |
-| `npm run format`     | Prettier over the whole repo                       |
-| `npm run db:migrate` | Create/apply a Prisma migration                    |
-| `npm run db:studio`  | Prisma Studio against the dev database             |
-| `npm run docker:up`  | Full production-shaped stack (MySQL + API + nginx) |
+| Command              | What it does                                          |
+| -------------------- | ----------------------------------------------------- |
+| `npm run dev`        | Run server + client concurrently                      |
+| `npm run build`      | Production builds of both workspaces                  |
+| `npm test`           | Server suites (node:test) + client suites (Vitest)    |
+| `npm run lint`       | Typed ESLint across both workspaces                   |
+| `npm run typecheck`  | Strict TypeScript checks                              |
+| `npm run format`     | Prettier over the whole repo                          |
+| `npm run db:migrate` | Create/apply a Prisma migration                       |
+| `npm run db:studio`  | Prisma Studio against the dev database                |
+| `npm run docker:up`  | Full production-shaped stack (Postgres + API + nginx) |
 
 Generation runs and preview sessions live in the API process's memory, so restarting
 the server clears them — generate again to get a fresh run.
@@ -216,7 +218,7 @@ shapes are defined in `server/src/shared/types/api.ts` and mirrored on the clien
 
 ### Database
 
-Prisma + MySQL. Durable models: `Role`, `User`, `Project`, `Generation` (the run audit
+Prisma + PostgreSQL (Supabase, or any Postgres). Durable models: `Role`, `User`, `Project`, `Generation` (the run audit
 trail), and the engineering graph — `GraphNode` / `GraphEdge`. Every child row cascades
 from its `Project`, which cascades from its `User`; per-owner uniqueness (`ownerId+slug`)
 and graph uniqueness (`projectId+type+canonicalName`, `source+target+relationship`)
@@ -246,6 +248,42 @@ Each agent declares its inputs and outputs; the scheduler blocks an agent until 
 inputs exist, marks failures without hanging the run, and records per-agent status,
 duration, tokens and result. Deterministic generators back the planning/generation
 agents so the pipeline runs (in degraded, rule-based form) even with no model key.
+
+### The Builder Agent
+
+**Agent** in the sidebar (`/agent`) is the platform's orchestrator you can talk to. Give it
+a task — _"a landing page for a company called NovaStack with pricing, testimonials and an
+FAQ"_ — and it carries the task to a running website by calling the platform's own
+systems as tools, never by writing code itself:
+
+| Tool                       | Delegates to                                                            |
+| -------------------------- | ----------------------------------------------------------------------- |
+| `create_project`           | the workspace                                                           |
+| `build_app`                | the generation pipeline (analysis → … → frontend with its landing page) |
+| `review_app`               | the 14-agent mesh above (review, build, start, integration, tests)      |
+| `repair_app`               | the self-repair engine                                                  |
+| `preview_app`              | the local runner (install, database, start, health)                     |
+| `inspect_website`          | HTTP checks against the running site, as a visitor would                |
+| `list_files` / `read_file` | the generated artifacts, read-only                                      |
+
+Each turn the model returns one validated JSON decision of one to three actions; actions
+that do not depend on each other run in parallel, dependent ones are ordered by the loop
+whatever the decision said. When no key is configured, or the model's answer is unusable,
+a deterministic policy takes the step — and the page labels every decision **AI** or
+**Policy**. The agent cannot declare success without evidence: a session is _succeeded_
+only when the site is built, running and inspected. Tool arguments are schema-validated,
+project/run/preview ids come from the session's own state, and `inspect_website` only
+fetches the URLs the runner reported (no SSRF).
+
+### Generated websites
+
+Every generated project is a website first: `/` is a public **landing page** — navigation,
+hero, features, and pricing, testimonials and an FAQ when the request asks for them —
+written by the model for the user's request (`site-content` prompt, validated field by
+field; without a model the copy is derived from the spec and invents no prices or
+customers). The working application sits behind it at `/dashboard`. Generated apps are
+**public MVPs** by default — no login pages, no guarded routes (`GENERATED_APP_AUTH=true`
+plans sign-in back in).
 
 ### Engineering graph
 
@@ -304,21 +342,24 @@ Configuration is read once, at boot, through a Zod schema (`server/src/shared/co
 a misconfigured server refuses to start. Copy `server/.env.example` and fill it in —
 it contains placeholders only, never real values.
 
-| Variable                                  | Required  | Purpose                                                                                     | Example                                       |
-| ----------------------------------------- | --------- | ------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `NODE_ENV`                                | optional  | `development` / `production` / `test`                                                       | `development`                                 |
-| `PORT`                                    | optional  | API port                                                                                    | `4000`                                        |
-| `DATABASE_URL`                            | optional  | MySQL connection string. **Unset → in-memory mode** (no DB). Set it for persistence.        | `mysql://nexarch:pass@localhost:3307/nexarch` |
-| `AUTH_DISABLED`                           | optional  | `true` (default) runs as one built-in local user, no login. `false` turns on real accounts. | `true`                                        |
-| `JWT_SECRET`                              | optional* | Signs session tokens (min 32 chars). *Required only when `AUTH_DISABLED=false`.             | `a-long-random-string…`                       |
-| `JWT_EXPIRES_IN`                          | optional  | Access-token lifetime                                                                       | `15m`                                         |
-| `JWT_REFRESH_EXPIRES_IN`                  | optional  | Refresh-token lifetime                                                                      | `7d`                                          |
-| `AI_PROVIDER`                             | optional  | `groq` · `openai` · `claude` · `gemini` · `openrouter` · `mock`                             | `groq`                                        |
-| `AI_API_KEY`                              | optional* | Model key — server-side only (*required for real AI; absent → deterministic fallback)       | _(empty)_                                     |
-| `AI_MODEL_FAST` / `AI_MODEL_DEEP`         | optional  | Per-tier model overrides                                                                    | provider default                              |
-| `CORS_ORIGINS`                            | optional  | Allowed browser origins (dev)                                                               | `http://localhost:5173`                       |
-| `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | optional  | Global rate limit                                                                           | `900000` / `100`                              |
-| `NEXARCH_RUNNER_MAX_SESSIONS`             | optional  | Concurrent local-run cap                                                                    | `30`                                          |
+| Variable                                  | Required  | Purpose                                                                                     | Example                                                                             |
+| ----------------------------------------- | --------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `NODE_ENV`                                | optional  | `development` / `production` / `test`                                                       | `development`                                                                       |
+| `PORT`                                    | optional  | API port                                                                                    | `4000`                                                                              |
+| `DATABASE_URL`                            | optional  | PostgreSQL connection string (Supabase or local). **Unset → in-memory mode** (no DB).       | `postgresql://postgres.<ref>:pass@aws-0-<region>.pooler.supabase.com:5432/postgres` |
+| `AUTH_DISABLED`                           | optional  | `true` (default) runs as one built-in local user, no login. `false` turns on real accounts. | `true`                                                                              |
+| `JWT_SECRET`                              | optional* | Signs session tokens (min 32 chars). *Required only when `AUTH_DISABLED=false`.             | `a-long-random-string…`                                                             |
+| `JWT_EXPIRES_IN`                          | optional  | Access-token lifetime                                                                       | `15m`                                                                               |
+| `JWT_REFRESH_EXPIRES_IN`                  | optional  | Refresh-token lifetime                                                                      | `7d`                                                                                |
+| `AI_PROVIDER`                             | optional  | `groq` · `openai` · `claude` · `gemini` · `openrouter` · `mock`                             | `groq`                                                                              |
+| `AI_API_KEY`                              | optional* | Model key — server-side only (*required for real AI; absent → deterministic fallback)       | _(empty)_                                                                           |
+| `AI_MODEL_FAST` / `AI_MODEL_DEEP`         | optional  | Per-tier model overrides                                                                    | provider default                                                                    |
+| `CORS_ORIGINS`                            | optional  | Allowed browser origins (dev)                                                               | `http://localhost:5173`                                                             |
+| `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | optional  | Global rate limit                                                                           | `900000` / `100`                                                                    |
+| `NEXARCH_RUNNER_MAX_SESSIONS`             | optional  | Concurrent local-run cap                                                                    | `30`                                                                                |
+| `GENERATED_APP_AUTH`                      | optional  | `false` (default): generated apps are public MVPs. `true`: plan sign-in into them.          | `false`                                                                             |
+| `NEXARCH_RUNNER_MAX_INSTALLS`             | optional  | How many `npm install`s run at once (small machines: keep 1)                                | `1`                                                                                 |
+| `AI_MAX_REQUEST_TOKENS`                   | optional  | Per-request context + output ceiling (Groq free tier: `8000`)                               | `8000`                                                                              |
 
 ## Testing
 
@@ -331,12 +372,12 @@ npm run build                            # production build, both workspaces
 ```
 
 The server suite is Node's built-in test runner (`node --test` via `tsx`); the client
-suite is Vitest. Integration tests run against the live MySQL from Docker Compose.
+suite is Vitest. Integration tests run against whatever `DATABASE_URL` points at.
 
 ## Troubleshooting
 
-- **API says the database is down** — start MySQL (`npm run docker:dev`) and check
-  `DATABASE_URL`; `GET /api/v1/health` reports each dependency's state.
+- **API says the database is down** — check `DATABASE_URL` (for Supabase, use the
+  direct connection on port 5432, not the 6543 pooler); `GET /api/v1/health` reports each dependency's state.
 - **AI stages report "degraded"** — no `AI_API_KEY` is set, so the deterministic
   generators are running; set a key to enable the model path.
 - **`JWT_SECRET` error at boot** — it must be at least 32 characters.
@@ -347,13 +388,13 @@ suite is Vitest. Integration tests run against the live MySQL from Docker Compos
 
 ## Deployment
 
-`docker compose up --build` produces the production shape: MySQL 8.4, the API
+`docker compose up --build` produces the production shape: PostgreSQL 16, the API
 (multi-stage Node image, non-root, healthchecked), and the console (static build behind
 nginx, which proxies `/api` so the browser stays on one origin and CORS never applies in
 production).
 
 ```bash
-cp .env.example .env    # set MYSQL_ROOT_PASSWORD, MYSQL_PASSWORD, JWT_SECRET
+cp .env.example .env    # set POSTGRES_PASSWORD, JWT_SECRET (or point DATABASE_URL at Supabase)
 docker compose up --build
 ```
 

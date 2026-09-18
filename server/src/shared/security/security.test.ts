@@ -14,6 +14,7 @@ import { isAbsolute, join, normalize, resolve, sep } from 'node:path';
 
 import { redactString, redactValue } from './redact.js';
 import { getSecurityStatus } from '../../modules/health/security-status.js';
+import { isPolledRead } from '../middleware/rate-limiter.js';
 
 /* ── Redaction (Steps 9, 24) ──────────────────────────────────────────── */
 
@@ -119,5 +120,50 @@ describe('security status report', () => {
     const serialized = JSON.stringify(getSecurityStatus());
     // The JWT secret and any key must never appear, only posture.
     assert.ok(!/gsk_|sk_live|Bearer |eyJ/.test(serialized));
+  });
+});
+
+/* ── Rate-limit exemptions ─────────────────────────────────────────────── */
+
+describe('polling reads are metered separately', () => {
+  const asRequest = (method: string, path: string) =>
+    ({ method, path }) as unknown as Parameters<typeof isPolledRead>[0];
+
+  it('exempts the reads a live run polls', () => {
+    for (const path of [
+      '/runner/sessions',
+      '/runner/sessions/abc-123',
+      '/runner/sessions/abc-123/logs',
+      '/projects/p1/agent-runs',
+      '/projects/p1/agent-runs/r1/tasks',
+      '/projects/p1/findings',
+      '/projects/p1/validation',
+      '/projects/p1/repairs',
+      '/projects/p1/engineering-review',
+      '/projects/p1/intelligence/summary',
+      '/pipeline/runs/run-1',
+    ]) {
+      assert.equal(isPolledRead(asRequest('GET', path)), true, `${path} should be exempt`);
+    }
+  });
+
+  it('never exempts a write, or the session endpoints a flood must not starve', () => {
+    for (const [method, path] of [
+      ['POST', '/runner/sessions'],
+      ['POST', '/projects/p1/agent-runs'],
+      ['POST', '/projects/p1/repairs'],
+      ['POST', '/runner/sessions/abc-123/stop'],
+      ['GET', '/auth/me'],
+      ['POST', '/auth/refresh'],
+      ['POST', '/auth/login'],
+      ['GET', '/projects'],
+      ['POST', '/pipeline/runs'],
+    ] as const) {
+      assert.equal(
+        isPolledRead(asRequest(method, path)),
+        false,
+        `${method} ${path} must stay limited`,
+      );
+    }
   });
 });

@@ -7,6 +7,8 @@
  * `ensureRole` lazily creates the two the platform ships with rather than
  * requiring a seed step before the first signup can succeed.
  */
+import { Prisma } from '@prisma/client';
+
 import { config } from '../../shared/config/index.js';
 import { prisma } from '../../shared/database/prisma.js';
 import { logger } from '../../shared/logger/index.js';
@@ -59,18 +61,54 @@ export async function completeOnboarding(userId: string): Promise<AuthUser> {
   return toAuthUser(updated);
 }
 
+let localUserRecord: Promise<void> | null = null;
+
+/**
+ * No-auth mode with a database. Projects (and everything under them)
+ * reference `users.id`, so the built-in local user has to exist as a row
+ * before it can own anything — without one, the first project write fails
+ * on the foreign key. Created once per process; the row has no password
+ * hash, so it can never be signed into if accounts are turned back on.
+ */
+export function ensureLocalUserRecord(): Promise<void> {
+  if (!config.database.enabled) return Promise.resolve();
+  localUserRecord ??= (async () => {
+    const local = getLocalUser();
+    const roleId = await ensureRole(local.role);
+    await prisma.user.upsert({
+      where: { id: local.id },
+      update: {},
+      create: { id: local.id, email: local.email, name: local.name, roleId },
+    });
+  })().catch((error: unknown) => {
+    // Let the next request retry rather than caching the failure.
+    localUserRecord = null;
+    throw error;
+  });
+  return localUserRecord;
+}
+
 /** Roles are a table, not an enum — so the first signup has to be able to create the row it needs. */
 async function ensureRole(name: RoleName): Promise<string> {
   const existing = await prisma.role.findUnique({ where: { name } });
   if (existing) return existing.id;
 
-  const created = await prisma.role.create({
-    data: {
-      name,
-      description: name === 'ADMIN' ? 'Full platform access' : 'Standard platform access',
-    },
-  });
-  return created.id;
+  try {
+    const created = await prisma.role.create({
+      data: {
+        name,
+        description: name === 'ADMIN' ? 'Full platform access' : 'Standard platform access',
+      },
+    });
+    return created.id;
+  } catch (error) {
+    // Two first signups can race past the lookup; the loser reads the winner's row.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      const raced = await prisma.role.findUnique({ where: { name } });
+      if (raced) return raced.id;
+    }
+    throw error;
+  }
 }
 
 function issueTokens(user: AuthUser): IssuedTokens {

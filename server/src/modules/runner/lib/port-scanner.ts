@@ -12,6 +12,35 @@ import net from 'node:net';
 
 const MAX_PROBES = 200;
 
+/**
+ * Ports handed out but not yet bound.
+ *
+ * Detection alone is not allocation: two sessions starting together (an
+ * agent run's validation and a preview, say) both probe, both see the same
+ * port free, and the loser dies with "port already in use" after its
+ * install has already finished. A port is therefore reserved the moment it
+ * is handed out, and reservations carry a TTL so a session that never
+ * reaches its bind cannot strand a port for the life of the process — by
+ * then a real listener makes `isFree` say no anyway.
+ */
+const reservations = new Map<number, number>();
+const RESERVATION_TTL_MS = 180_000;
+
+function isReserved(port: number): boolean {
+  const expiresAt = reservations.get(port);
+  if (expiresAt === undefined) return false;
+  if (expiresAt <= Date.now()) {
+    reservations.delete(port);
+    return false;
+  }
+  return true;
+}
+
+/** Frees a reservation early — the port is bound now, or the session gave up. */
+export function releasePort(port: number | null): void {
+  if (port !== null) reservations.delete(port);
+}
+
 function canBind(port: number, host: string): Promise<boolean> {
   return new Promise((resolve) => {
     const server = net.createServer();
@@ -60,7 +89,11 @@ async function isFree(port: number): Promise<boolean> {
 
 export async function findFreePort(preferred: number): Promise<number> {
   for (let candidate = preferred; candidate < preferred + MAX_PROBES; candidate += 1) {
-    if (await isFree(candidate)) return candidate;
+    if (isReserved(candidate)) continue;
+    if (await isFree(candidate)) {
+      reservations.set(candidate, Date.now() + RESERVATION_TTL_MS);
+      return candidate;
+    }
   }
   throw new Error(
     `No free port found in ${String(preferred)}-${String(preferred + MAX_PROBES - 1)}`,

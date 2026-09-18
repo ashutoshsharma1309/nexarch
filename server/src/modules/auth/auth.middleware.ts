@@ -9,7 +9,7 @@ import type { RequestHandler } from 'express';
 
 import { config } from '../../shared/config/index.js';
 import { AppError } from '../../shared/utils/app-error.js';
-import { findUserById } from './auth.service.js';
+import { ensureLocalUserRecord, findUserById } from './auth.service.js';
 import { ACCESS_COOKIE } from './lib/cookies.js';
 import { getLocalUser } from './lib/local-user.js';
 import { verifyAccessToken } from './lib/tokens.js';
@@ -26,7 +26,10 @@ export const requireAuth: RequestHandler = (req, _res, next) => {
   // No-auth mode: every request runs as the single built-in local user.
   if (config.auth.disabled) {
     req.user = getLocalUser();
-    next();
+    // With a database, the local user must exist as a row to own projects.
+    ensureLocalUserRecord().then(() => {
+      next();
+    }, next);
     return;
   }
   void (async () => {

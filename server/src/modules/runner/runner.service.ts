@@ -17,7 +17,7 @@ import { planRun, portPreferenceFor } from './lib/command-planner.js';
 import { NO_DATABASE_HINT, planProvisioning } from './lib/database-provisioner.js';
 import { diagnose } from './lib/diagnostics.js';
 import { LogBuffer } from './lib/log-buffer.js';
-import { findFreePort } from './lib/port-scanner.js';
+import { findFreePort, releasePort } from './lib/port-scanner.js';
 import {
   runToCompletion,
   startProcess,
@@ -83,11 +83,62 @@ function isCancelled(runtime: SessionRuntime): boolean {
   return runtime.cancelled;
 }
 
+function readPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/** How many runs one owner may have in flight at once. */
 function maxActiveSessions(): number {
   // Optional per-deployment knob, same convention as the provider keys.
-  const raw = process.env.NEXARCH_RUNNER_MAX_SESSIONS;
-  const parsed = raw ? Number.parseInt(raw, 10) : NaN;
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
+  return readPositiveInt('NEXARCH_RUNNER_MAX_SESSIONS', 2);
+}
+
+/**
+ * How many runs the whole machine may have in flight, across every owner.
+ *
+ * This is a different fact from the per-owner limit and must stay separate.
+ * Counting every owner's sessions against one shared budget produced the
+ * worst possible failure: the platform's own validation mesh holds sessions
+ * under INTERNAL_RUNNER_OWNER, so a user who had just generated a project
+ * was refused a preview and told to "stop a session first" while their
+ * session list was empty — the sessions filling the budget were ones they
+ * could neither see nor stop. A limit may only be enforced over the set the
+ * caller can actually act on; anything wider needs its own message.
+ */
+function maxActiveSessionsTotal(): number {
+  return readPositiveInt('NEXARCH_RUNNER_MAX_ACTIVE_TOTAL', maxActiveSessions() * 4);
+}
+
+/**
+ * Whether another run may start, and if not, what to tell the caller.
+ *
+ * Pure, and exported, so the rule can be tested without spawning npm — the
+ * bug it encodes was only reachable through a live run, which is exactly the
+ * kind of rule that needs a test that does not need one.
+ */
+export function runAdmission(
+  active: readonly { ownerId: string }[],
+  ownerId: string,
+  perOwnerLimit: number = maxActiveSessions(),
+  totalLimit: number = maxActiveSessionsTotal(),
+): { allowed: true } | { allowed: false; message: string } {
+  const mine = active.filter((entry) => entry.ownerId === ownerId).length;
+  if (mine >= perOwnerLimit) {
+    return {
+      allowed: false,
+      message: `You already have ${String(mine)} run${mine === 1 ? '' : 's'} going — stop one from the preview page, or raise NEXARCH_RUNNER_MAX_SESSIONS`,
+    };
+  }
+  if (active.length >= totalLimit) {
+    // Machine-wide, so name it as such: the caller has nothing to stop.
+    return {
+      allowed: false,
+      message: `This NexArch instance is at its run capacity (${String(active.length)} running) — try again shortly, or raise NEXARCH_RUNNER_MAX_ACTIVE_TOTAL`,
+    };
+  }
+  return { allowed: true };
 }
 
 function transition(runtime: SessionRuntime, phase: RunPhase, detail: string): void {
@@ -97,10 +148,16 @@ function transition(runtime: SessionRuntime, phase: RunPhase, detail: string): v
   runtime.logs.append('system', detail);
 }
 
+/** Hands the session's ports back to the allocator: bound now, or never will be. */
+function releaseSessionPorts(runtime: SessionRuntime): void {
+  for (const record of runtime.session.processes) releasePort(record.port);
+}
+
 function fail(runtime: SessionRuntime, detail: string, exitCode: number | null): void {
   if (runtime.session.phase === 'failed' || runtime.session.phase === 'stopped') return;
   runtime.session.diagnostics = diagnose(exitCode, runtime.logs.tail(40));
   transition(runtime, 'failed', detail);
+  releaseSessionPorts(runtime);
   for (const child of runtime.children.values()) stopChild(child);
   runtime.children.clear();
 }
@@ -171,7 +228,7 @@ async function configureTargets(runtime: SessionRuntime): Promise<boolean> {
     // database itself when missing. Best-effort: failure means degraded
     // mode with an explanation, not a dead session.
     runtime.logs.append('system', `${target.kind}: npx prisma db push → ${provision.databaseName}`);
-    const pushCode = await runToCompletion(
+    let pushCode = await runToCompletion(
       'npx',
       ['prisma', 'db', 'push', '--accept-data-loss', '--skip-generate'],
       cwd,
@@ -179,11 +236,41 @@ async function configureTargets(runtime: SessionRuntime): Promise<boolean> {
       runtime.logs,
     );
     if (isCancelled(runtime)) return false;
+
     if (pushCode !== 0) {
+      /*
+       * A plain push refuses one change even with --accept-data-loss:
+       * adding a required column to a table that already has rows. The
+       * run database is per-project and long-lived, and the validation
+       * mesh's own tests insert rows into it — so the moment a rebuild
+       * adds a required field, every later run pushed nothing, started
+       * anyway, and the generated app answered writes with 500 while the
+       * session still read RUNNING. Resetting is correct here and only
+       * here: `${provision.databaseName}` holds one generated app's
+       * scratch data, created by NexArch for this project and owned by
+       * nothing else. Tried second, never first, so data survives
+       * whenever the schema can be migrated around it.
+       */
       runtime.logs.append(
         'system',
-        `warning: prisma db push failed (code ${String(pushCode)}) — check NEXARCH_RUNNER_DATABASE_URL credentials/privileges; the backend will run in degraded mode`,
+        `${target.kind}: schema could not be applied to the existing ${provision.databaseName} — resetting it and pushing again`,
       );
+      pushCode = await runToCompletion(
+        'npx',
+        ['prisma', 'db', 'push', '--force-reset', '--accept-data-loss', '--skip-generate'],
+        cwd,
+        target.kind,
+        runtime.logs,
+      );
+      if (isCancelled(runtime)) return false;
+    }
+
+    if (pushCode !== 0) {
+      // Degraded, and said out loud: a session that reports RUNNING while
+      // every write fails is worse than one that admits what is wrong.
+      const warning = `The database schema could not be applied (prisma db push exited ${String(pushCode)}). The app will start, but anything that reads or writes ${provision.databaseName} will fail. Check NEXARCH_RUNNER_DATABASE_URL credentials and privileges.`;
+      runtime.logs.append('system', `warning: ${warning}`);
+      session.diagnostics = [...(session.diagnostics ?? []), warning];
     }
   }
   return true;
@@ -280,6 +367,8 @@ async function startTargets(runtime: SessionRuntime): Promise<void> {
       .map((p) => `${p.kind}: ${p.url ?? ''}`)
       .join(' · ');
     transition(runtime, 'running', `All processes up — ${urls}`);
+    // The children hold the ports now; the reservations have done their job.
+    releaseSessionPorts(runtime);
   }
 }
 
@@ -339,11 +428,8 @@ export function createSession(request: CreateSessionRequest, ownerId: string): R
   }
 
   const active = [...sessions.values()].filter((r) => ACTIVE_PHASES.includes(r.session.phase));
-  if (active.length >= maxActiveSessions()) {
-    throw AppError.conflict(
-      `Run limit reached (${String(active.length)} active) — stop a session first or raise NEXARCH_RUNNER_MAX_SESSIONS`,
-    );
-  }
+  const admission = runAdmission(active, ownerId);
+  if (!admission.allowed) throw AppError.conflict(admission.message);
 
   const now = new Date().toISOString();
   const session: RunSession = {

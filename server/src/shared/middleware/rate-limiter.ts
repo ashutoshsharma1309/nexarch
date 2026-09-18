@@ -25,13 +25,60 @@ function limited(
   };
 }
 
+/**
+ * The reads the console polls while something is running: a run's status,
+ * its log tail, the validation and intelligence summaries behind it.
+ *
+ * These are cheap, owner-scoped GETs, and a live preview issues two of them
+ * a second for as long as `npm install` takes — more than the whole-API
+ * budget allows in a minute. The casualty was never the poll itself: it was
+ * `/auth/refresh` losing its slot to the flood and the console signing the
+ * user out mid-run. So polling reads are metered on their own budget
+ * (`pollingLimiter`) and skipped by the global one.
+ */
+const POLLED_READS: RegExp[] = [
+  /^\/runner\/sessions(\/|$)/,
+  /^\/projects\/[^/]+\/agent-runs(\/|$)/,
+  /^\/projects\/[^/]+\/(findings|validation|repairs|engineering-review|intelligence)(\/|$)/,
+  /^\/pipeline\/runs\/[^/]+$/,
+  /^\/builder\/sessions(\/|$)/,
+];
+
+export function isPolledRead(req: Parameters<RequestHandler>[0]): boolean {
+  return req.method === 'GET' && POLLED_READS.some((pattern) => pattern.test(req.path));
+}
+
+/**
+ * Rotating the session is what keeps a signed-in user signed in. Spending
+ * the shared budget elsewhere must never cost someone their session, so the
+ * refresh endpoint is skipped here and bounded by its own limiter in the
+ * auth router instead.
+ */
+export function isSessionRefresh(req: Parameters<RequestHandler>[0]): boolean {
+  return req.method === 'POST' && req.path === '/auth/refresh';
+}
+
 export const apiRateLimiter: RequestHandler = rateLimit({
   windowMs: config.rateLimit.windowMs,
   limit: config.rateLimit.max,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  skip: () => config.isTest,
+  skip: (req) => config.isTest || isPolledRead(req) || isSessionRefresh(req),
   handler: limited('Too many requests — please retry later'),
+});
+
+/**
+ * The polling budget. Generous enough for several live views at a poll every
+ * two seconds, low enough that a runaway client is still stopped — and kept
+ * separate so exhausting it can never cost a user their session.
+ */
+export const pollingLimiter: RequestHandler = rateLimit({
+  windowMs: 60_000,
+  limit: 600,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: () => config.isTest,
+  handler: limited('Too many polling requests — slow down and retry.'),
 });
 
 /**

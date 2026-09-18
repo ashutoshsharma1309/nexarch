@@ -50,6 +50,32 @@ function scanOpenEndpoints(model: SecurityModel, applied: boolean): SecurityFind
   const isPublicAuthAction = (module: string, path: string): boolean =>
     module === 'Authentication' && /register|login|refresh/i.test(path);
 
+  // A public MVP has no sign-in to require: its writes are open by design,
+  // not by omission. One honest note says so — a HIGH per endpoint would
+  // bury every real finding under the app's defining choice.
+  if (!model.authEnabled) {
+    const open = model.endpoints.filter((e) =>
+      ['POST', 'PUT', 'PATCH', 'DELETE'].includes(e.method),
+    );
+    if (open.length === 0) return findings;
+    findings.push(
+      finding(
+        applied,
+        'low',
+        'authentication',
+        'A01:2021 - Broken Access Control',
+        'Public MVP: all write endpoints are open',
+        `This app was generated without sign-in, so its ${String(open.length)} write endpoint(s) accept anonymous requests. Fine for a demo or prototype; anyone who can reach it can change its data.`,
+        open
+          .slice(0, 5)
+          .map((e) => `${e.method} ${e.path}`)
+          .join(' · '),
+        'Before real users, regenerate with sign-in (GENERATED_APP_AUTH=true) or put the app behind an authenticating proxy.',
+      ),
+    );
+    return findings;
+  }
+
   for (const endpoint of model.endpoints) {
     const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(endpoint.method);
     if (!isWrite || endpoint.authRequired) continue;

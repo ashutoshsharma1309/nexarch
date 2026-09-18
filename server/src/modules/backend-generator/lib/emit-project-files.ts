@@ -33,6 +33,11 @@ function packageJson(project: ProjectModel): GeneratedFile {
     },
     dependencies: {
       '@prisma/client': '^6.8.0',
+      // Authentication is generated, not stubbed: bcryptjs is pure
+      // JavaScript, so `npm install` needs no compiler toolchain on the
+      // machine that runs the generated project.
+      bcryptjs: '^2.4.3',
+      jsonwebtoken: '^9.0.2',
       compression: '^1.8.0',
       cors: '^2.8.5',
       dotenv: '^16.5.0',
@@ -46,10 +51,12 @@ function packageJson(project: ProjectModel): GeneratedFile {
     },
     devDependencies: {
       '@eslint/js': '^9.25.0',
+      '@types/bcryptjs': '^2.4.6',
       '@types/compression': '^1.7.5',
       '@types/cors': '^2.8.17',
       '@types/express': '^5.0.1',
       '@types/jest': '^29.5.14',
+      '@types/jsonwebtoken': '^9.0.7',
       '@types/morgan': '^1.9.9',
       '@types/node': '^22.15.0',
       '@types/supertest': '^6.0.2',

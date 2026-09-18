@@ -249,27 +249,41 @@ export function validate(schemas: Schemas): RequestHandler {
 `;
 
 const authGuard = `import type { RequestHandler } from 'express';
+import jwt from 'jsonwebtoken';
 
+import { config } from '../config/index.js';
 import { ForbiddenError, UnauthorizedError } from '../errors/app-error.js';
 
 /**
- * Authentication scaffold.
+ * Verifies the bearer token and attaches the principal it names.
  *
- * Phase 6 (the Security Engine) implements real JWT verification here. For
- * now this guard enforces the *shape* of protected routes: it requires a
- * bearer token to be present and attaches a placeholder principal, so the
- * request pipeline is complete and every protected route is wired — without
- * this phase generating any security logic.
+ * This guard used to accept *any* bearer token and attach a placeholder
+ * user, which meant every protected route in a generated project was
+ * protected in shape only — the string \`Bearer x\` was a valid session.
+ * The signature is now checked against the same secret the login endpoint
+ * signs with, so a token this application did not issue is rejected.
  */
 export const requireAuth: RequestHandler = (req, _res, next) => {
   const header = req.get('Authorization');
-  if (!header || !header.startsWith('Bearer ')) {
+  if (!header?.startsWith('Bearer ')) {
     next(new UnauthorizedError());
     return;
   }
-  // TODO(Phase 6 — Security Engine): verify the JWT and load the real user.
-  req.user = { id: 'stub-user', roles: [] };
-  next();
+
+  try {
+    const payload = jwt.verify(header.slice('Bearer '.length), config.auth.jwtSecret);
+    if (typeof payload === 'string' || typeof payload.sub !== 'string') {
+      next(new UnauthorizedError());
+      return;
+    }
+    const roles = Array.isArray(payload.roles) ? payload.roles.map(String) : [];
+    req.user = { id: payload.sub, roles };
+    next();
+  } catch {
+    // Expired, tampered with, or signed by something else — all the same
+    // answer, because telling them apart tells an attacker which it was.
+    next(new UnauthorizedError());
+  }
 };
 
 /** Restrict a route to specific roles. Enforced once Phase 6 populates roles. */

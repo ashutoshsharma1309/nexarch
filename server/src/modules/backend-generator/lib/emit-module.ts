@@ -7,6 +7,13 @@
  * in authentication.
  */
 import { camelCase } from '../../../shared/utils/strings.js';
+import {
+  emitAuthController,
+  emitAuthService,
+  emitAuthValidators,
+  isAuthModule,
+} from './emit-auth-module.js';
+import type { CredentialModel } from './emit-auth-module.js';
 import type { GeneratedFile } from '../backend-generator.types.js';
 import { file } from './file-tree.js';
 import { entitySingular } from './project-model.js';
@@ -393,9 +400,26 @@ ${methods}
 
 /* ── Routes ───────────────────────────────────────────────────────────── */
 
-function routeMiddleware(endpoint: EndpointModel, mod: ModuleModel): string {
+function routeMiddleware(
+  endpoint: EndpointModel,
+  mod: ModuleModel,
+  authenticating = false,
+): string {
   const parts: string[] = [];
   if (endpoint.auth) parts.push('requireAuth');
+
+  // The credential routes carry a body the generic rules know nothing
+  // about — they belong to no entity — so they are validated by name.
+  if (authenticating && endpoint.method === 'post') {
+    if (endpoint.routePath.toLowerCase() === '/register') {
+      parts.push('validate({ body: registerSchema })');
+      return parts.join(', ');
+    }
+    if (endpoint.routePath.toLowerCase() === '/login') {
+      parts.push('validate({ body: loginSchema })');
+      return parts.join(', ');
+    }
+  }
   // entity-metadata.json restricts delete to specific roles when its
   // permissions are narrower than every role in the system.
   if (endpoint.kind === 'remove' && mod.deleteRoles) {
@@ -415,14 +439,14 @@ function routeMiddleware(endpoint: EndpointModel, mod: ModuleModel): string {
   return parts.join(', ');
 }
 
-function emitRoutes(mod: ModuleModel): GeneratedFile {
+function emitRoutes(mod: ModuleModel, authenticating = false): GeneratedFile {
   const entity = mod.entity;
   const controllerVar = 'controller';
   const routerName = `${camelCase(mod.name)}Router`;
   const kinds = new Set(mod.endpoints.map((e) => e.kind));
   const routeLines = mod.endpoints
     .map((e) => {
-      const middleware = routeMiddleware(e, mod);
+      const middleware = routeMiddleware(e, mod, authenticating);
       const args = [middleware, `${controllerVar}.${e.handlerName}`].filter(Boolean).join(', ');
       return `${routerName}.${e.method}('${e.routePath}', ${args});`;
     })
@@ -430,20 +454,22 @@ function emitRoutes(mod: ModuleModel): GeneratedFile {
 
   // Only the schemas an endpoint actually validates against are imported —
   // a module with no update route must not import an unused updateSchema.
-  const schemaNames = entity
-    ? [
-        kinds.has('create') ? `create${entitySingular(entity.entity)}Schema` : null,
-        kinds.has('read') || kinds.has('update') || kinds.has('patch') || kinds.has('remove')
-          ? 'idParamSchema'
-          : null,
-        kinds.has('list') ? 'listQuerySchema' : null,
-        kinds.has('update') || kinds.has('patch')
-          ? `update${entitySingular(entity.entity)}Schema`
-          : null,
-      ].filter((name): name is string => name !== null)
-    : kinds.has('list')
-      ? ['listQuerySchema']
-      : [];
+  const schemaNames = authenticating
+    ? ['loginSchema', 'registerSchema']
+    : entity
+      ? [
+          kinds.has('create') ? `create${entitySingular(entity.entity)}Schema` : null,
+          kinds.has('read') || kinds.has('update') || kinds.has('patch') || kinds.has('remove')
+            ? 'idParamSchema'
+            : null,
+          kinds.has('list') ? 'listQuerySchema' : null,
+          kinds.has('update') || kinds.has('patch')
+            ? `update${entitySingular(entity.entity)}Schema`
+            : null,
+        ].filter((name): name is string => name !== null)
+      : kinds.has('list')
+        ? ['listQuerySchema']
+        : [];
   const validatorImport =
     schemaNames.length > 0
       ? `import { ${schemaNames.join(', ')} } from '../validators/${mod.name}.validators.js';\n`
@@ -483,13 +509,27 @@ ${controllerDecl}${routeLines}
 }
 
 /** Emit every file for one module. */
-export function emitModule(mod: ModuleModel): GeneratedFile[] {
+export function emitModule(
+  mod: ModuleModel,
+  credential: CredentialModel | null = null,
+): GeneratedFile[] {
+  /*
+   * The authentication module is the one module whose behaviour cannot be
+   * derived from a table of its own — it has no entity, so the generic
+   * emitter gave it NotImplemented stubs and every generated app answered
+   * its own login form with 501. Given a table with an email and a password
+   * hash, it can be implemented properly; without one, the stub remains,
+   * because inventing a credential store is worse than admitting there
+   * isn't one.
+   */
+  const authenticating = credential !== null && isAuthModule(mod);
+
   const files = [
     emitDto(mod),
-    emitValidators(mod),
-    emitService(mod),
-    emitController(mod),
-    emitRoutes(mod),
+    authenticating ? emitAuthValidators(mod, credential) : emitValidators(mod),
+    authenticating ? emitAuthService(mod, credential) : emitService(mod),
+    authenticating ? emitAuthController(mod) : emitController(mod),
+    emitRoutes(mod, authenticating),
   ];
   const repository = emitRepository(mod);
   if (repository) files.push(repository);

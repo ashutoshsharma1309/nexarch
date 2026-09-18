@@ -35,7 +35,7 @@ interface NavItem {
 }
 
 const navigation: NavItem[] = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, end: true },
 ${navEntries}
   { to: '/settings', label: 'Settings', icon: Settings },
 ];

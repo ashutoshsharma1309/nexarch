@@ -4,6 +4,7 @@
  * (timestamp aside): the same RequirementSpec always yields the same plan,
  * which is what makes downstream regeneration diffable.
  */
+import { config } from '../../shared/config/index.js';
 import { logger } from '../../shared/logger/index.js';
 import type { RequirementSpec } from '../../shared/types/requirement.js';
 import type { ArchitecturePlan, ArchitectureResponse } from './architecture.types.js';
@@ -14,6 +15,7 @@ import { planFolders } from './lib/folder-planner.js';
 import { planFrontend } from './lib/frontend-planner.js';
 import { exportMarkdown } from './lib/markdown-exporter.js';
 import { planBackendModules, planMiddleware } from './lib/module-planner.js';
+import { withoutAuthentication } from './lib/public-mvp.js';
 import { planScalability, scoreNonFunctionals } from './lib/scalability-planner.js';
 import { planSecurity } from './lib/security-planner.js';
 import { decideTechnology } from './lib/technology-engine.js';
@@ -21,7 +23,7 @@ import { decideTechnology } from './lib/technology-engine.js';
 export function planArchitecture(spec: RequirementSpec): ArchitectureResponse {
   const startedAt = performance.now();
 
-  const plan: ArchitecturePlan = {
+  const planned: ArchitecturePlan = {
     meta: {
       projectName: spec.projectName,
       projectType: spec.projectType,
@@ -40,6 +42,8 @@ export function planArchitecture(spec: RequirementSpec): ArchitectureResponse {
     futureScalability: planScalability(spec),
     nonFunctional: scoreNonFunctionals(spec),
   };
+  // Generated apps are public MVPs unless sign-in is switched on.
+  const plan = config.generation.appAuth ? planned : withoutAuthentication(planned);
 
   const markdown = exportMarkdown(plan);
 

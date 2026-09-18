@@ -15,7 +15,7 @@
  */
 import { getAgentDefinition } from '../../../shared/contracts/index.js';
 import { artifactHistory, latestArtifact } from './artifact-store.js';
-import { listFindings } from './finding-store.js';
+import { currentFindings } from './finding-store.js';
 import { latestSession as latestRepairSession } from './repair-store.js';
 import { listRuns } from './run-store.js';
 import type { FindingRecord } from './finding-store.js';
@@ -408,7 +408,7 @@ export function assembleIntelligence(
   ownerId: string,
   graph: GraphStatsInput | null,
 ): ProjectIntelligence {
-  const findings = listFindings(projectId);
+  const findings = currentFindings(projectId);
   const validation =
     (latestArtifact(projectId, 'validation-summary')?.content as ValidationSummary | undefined) ??
     null;

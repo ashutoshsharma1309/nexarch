@@ -15,7 +15,11 @@ import { analyzeRequirements } from '../analysis/analysis.service.js';
 import { planArchitecture } from '../architecture/architecture.service.js';
 import { generateBackend } from '../backend-generator/backend-generator.service.js';
 import { designDatabase } from '../database-designer/database-designer.service.js';
-import { generateFrontend } from './frontend-generator.service.js';
+import {
+  deriveSiteContent,
+  generateFrontend,
+  normalizeSiteContent,
+} from './frontend-generator.service.js';
 import type { BackendManifest, GeneratedFrontend } from './frontend-generator.types.js';
 
 const DOMAIN_PROMPTS: readonly [string, string][] = [
@@ -254,5 +258,140 @@ describe('generation correctness', () => {
     const paths = project.files.map((f) => f.path);
     const hasAuthModule = project.routes.some((r) => r.path === '/login');
     assert.equal(paths.includes('src/features/auth/LoginPage.tsx'), hasAuthModule);
+  });
+});
+
+/* ── Landing page ──────────────────────────────────────────────────────── */
+
+describe('landing page', () => {
+  const analysis = analyzeRequirements(
+    'Build an ERP with inventory, procurement, finance, hr and role based access',
+  );
+  if (analysis.status !== 'COMPLETE') assert.fail('expected COMPLETE analysis');
+  const spec = analysis.spec;
+  const derived = deriveSiteContent(spec);
+  const NUL = String.fromCharCode(0);
+
+  it('derives copy from the spec and never invents prices or customers', () => {
+    assert.equal(derived.source, 'derived');
+    assert.ok(derived.features.length > 0);
+    assert.ok(derived.faq.length > 0);
+    assert.deepEqual(derived.pricing, []);
+    assert.deepEqual(derived.testimonials, []);
+  });
+
+  it('validates model output field by field and falls back per field', () => {
+    const content = normalizeSiteContent(
+      {
+        brand: 'NovaStack',
+        headline: `  Ship   faster${NUL} with\nNovaStack  `,
+        features: [
+          { title: 'Fast' },
+          { title: 'Secure', description: 'Encrypted everywhere.' },
+          42,
+        ],
+        pricing: [
+          {
+            name: 'Starter',
+            price: '$0',
+            period: 'month',
+            features: ['1 seat', 7],
+            highlighted: false,
+          },
+          { name: 'Pro', price: '$29', period: 'month', features: ['10 seats'], highlighted: true },
+          { name: '', price: '$99' },
+        ],
+        testimonials: [{ quote: 'Great.', name: 'Ada Park', role: 'CTO' }, { quote: 'No name' }],
+        faq: 'not-a-list',
+        closing: null,
+      },
+      derived,
+    );
+    assert.equal(content.source, 'ai');
+    assert.equal(content.brand, 'NovaStack');
+    assert.equal(content.headline, 'Ship faster with NovaStack');
+    assert.deepEqual(content.features, [{ title: 'Secure', description: 'Encrypted everywhere.' }]);
+    assert.deepEqual(
+      content.pricing.map((plan) => [plan.name, plan.price, plan.features]),
+      [
+        ['Starter', '$0', ['1 seat']],
+        ['Pro', '$29', ['10 seats']],
+      ],
+    );
+    assert.equal(content.testimonials.length, 1);
+    assert.deepEqual(content.faq, derived.faq);
+    assert.deepEqual(content.closing, derived.closing);
+    assert.ok(normalizeSiteContent({ headline: 'x'.repeat(500) }, derived).headline.length <= 100);
+  });
+
+  it('escapes the project name in index.html and ships an inline favicon', () => {
+    const hostileSpec = { ...spec, projectName: 'Evil</title><script>alert(1)</script>' };
+    const { plan } = planArchitecture(hostileSpec);
+    const bundle = designDatabase(plan, hostileSpec);
+    const backend = generateBackend(
+      plan,
+      hostileSpec,
+      bundle.databaseDesign,
+      bundle.prismaSchema,
+      bundle.openapi,
+      bundle.validationRules.entities,
+      bundle.entityMetadata,
+    );
+    const project = generateFrontend(
+      plan,
+      hostileSpec,
+      bundle.databaseDesign,
+      bundle.openapi,
+      { modules: backend.modules, routes: backend.routes },
+      bundle.entityMetadata,
+    );
+    const html = project.files.find((f) => f.path === 'index.html')?.content ?? '';
+    assert.ok(html.includes('&lt;/title&gt;&lt;script&gt;'), 'the name is escaped');
+    assert.equal(html.includes('<script>alert'), false);
+    assert.match(html, /<link rel="icon" href="data:image\/svg\+xml,/);
+  });
+
+  it('emits a public landing page at / and moves the dashboard to /dashboard', () => {
+    const { plan } = planArchitecture(spec);
+    const bundle = designDatabase(plan, spec);
+    const backend = generateBackend(
+      plan,
+      spec,
+      bundle.databaseDesign,
+      bundle.prismaSchema,
+      bundle.openapi,
+      bundle.validationRules.entities,
+      bundle.entityMetadata,
+    );
+    const hostile = normalizeSiteContent(
+      { brand: 'Nova`${process.env.SECRET}`', headline: '"; alert(1); //</script>' },
+      derived,
+    );
+    const project = generateFrontend(
+      plan,
+      spec,
+      bundle.databaseDesign,
+      bundle.openapi,
+      { modules: backend.modules, routes: backend.routes },
+      bundle.entityMetadata,
+      hostile,
+    );
+    const byPath = new Map(project.files.map((f) => [f.path, f.content]));
+
+    const router = byPath.get('src/app/router.tsx') ?? '';
+    assert.match(router, /path: '\/',[\s\S]*LandingPage/);
+    assert.match(router, /path: 'dashboard'/);
+    assert.match(byPath.get('src/shared/layouts/sidebar.tsx') ?? '', /to: '\/dashboard'/);
+    assert.ok(byPath.has('src/features/landing/LandingPage.tsx'));
+    assert.equal(project.routes.find((route) => route.path === '/')?.page, 'Landing');
+    assert.equal(project.pages.find((page) => page.route === '/')?.kind, 'landing');
+
+    // Model text is data: JSON-encoded into the content module, never source.
+    const siteModule = byPath.get('src/content/site.ts') ?? '';
+    const literal = /export const site: SiteContent = ([\s\S]*);\s*$/.exec(siteModule)?.[1] ?? '';
+    const parsed = JSON.parse(literal) as { brand: string; headline: string };
+    assert.equal(parsed.brand, hostile.brand);
+    assert.equal(parsed.headline, hostile.headline);
+    assert.equal(siteModule.includes('"source"'), false);
   });
 });

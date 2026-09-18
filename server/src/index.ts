@@ -12,10 +12,33 @@ import { createApp } from './app.js';
 import { config } from './shared/config/index.js';
 import { connectDatabase, disconnectDatabase } from './shared/database/prisma.js';
 import { logger } from './shared/logger/index.js';
+import {
+  pruneRunWorkspaces,
+  reapOrphanedRunnerProcesses,
+} from './modules/runner/lib/orphan-reaper.js';
 
 const SHUTDOWN_GRACE_MS = 10_000;
 
 async function bootstrap(): Promise<void> {
+  // Before anything can allocate a port: stop dev servers left behind by a
+  // NexArch that was killed rather than shut down. Said out loud, because a
+  // silent cleanup hides the fact that the last shutdown was not clean.
+  const reaped = reapOrphanedRunnerProcesses();
+  if (reaped > 0) {
+    logger.warn('reaped generated-app processes left over from a previous run', { count: reaped });
+  }
+
+  // Then the disk they were using. Each run workspace carries its own
+  // installed node_modules, so leaving every one of them behind fills the
+  // disk and the next run's install is what pays for it.
+  const pruned = pruneRunWorkspaces();
+  if (pruned.removed > 0) {
+    logger.info('removed old run workspaces', {
+      count: pruned.removed,
+      freedMb: Math.round(pruned.bytes / 1_000_000),
+    });
+  }
+
   try {
     await connectDatabase();
   } catch (error) {

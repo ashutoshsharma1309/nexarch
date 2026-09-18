@@ -65,7 +65,7 @@ export type FieldInputType =
 export interface GeneratedPageSummary {
   name: string;
   route: string;
-  kind: 'entity-list' | 'dashboard' | 'auth' | 'settings' | 'profile' | 'not-found';
+  kind: 'landing' | 'entity-list' | 'dashboard' | 'auth' | 'settings' | 'profile' | 'not-found';
   entity: string | null;
   implemented: boolean;
   files: string[];

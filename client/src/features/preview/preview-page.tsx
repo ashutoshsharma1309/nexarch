@@ -28,6 +28,7 @@ import { slugify } from '@/shared/lib/slugify';
 import { downloadZip } from '@/shared/lib/zip';
 import { toast } from '@/shared/store/toast.store';
 import type { PipelineArtifacts, RunPhase, RunSession } from '@/shared/types/api';
+import { TRANSIENT_RUN_PHASES } from '@/shared/types/api';
 import { FileExplorer } from './file-explorer';
 
 const PHASE_LABEL: Record<RunPhase, string> = {
@@ -54,14 +55,8 @@ const PHASE_VARIANT: Record<RunPhase, 'success' | 'accent' | 'warning' | 'danger
   failed: 'danger',
 };
 
-const BUSY_PHASES: RunPhase[] = [
-  'preparing',
-  'installing',
-  'configuring',
-  'starting',
-  'restarting',
-  'stopping',
-];
+/** The same list the poller uses — see TRANSIENT_RUN_PHASES for why it is shared. */
+const BUSY_PHASES: RunPhase[] = TRANSIENT_RUN_PHASES;
 
 type Tab = 'app' | 'structure' | 'logs';
 

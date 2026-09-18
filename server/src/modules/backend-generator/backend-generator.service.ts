@@ -29,6 +29,7 @@ import type {
 } from './backend-generator.types.js';
 import { emitAppWiring } from './lib/emit-app.js';
 import { emitModule } from './lib/emit-module.js';
+import { credentialTableOf } from './lib/emit-auth-module.js';
 import { emitProjectFiles } from './lib/emit-project-files.js';
 import { emitShared } from './lib/emit-shared.js';
 import { emitTests } from './lib/emit-tests.js';
@@ -93,8 +94,12 @@ export function generateBackend(
     ...emitAppWiring(project, JSON.stringify(openapi, null, 2)),
     ...emitTests(project),
   ];
+  // Resolved once: which table, if any, this application authenticates
+  // against. Null means the design has no credential store and the auth
+  // module stays a stub rather than authenticating against nothing.
+  const credential = credentialTableOf(project.tables);
   for (const mod of project.modules) {
-    files.push(...emitModule(mod));
+    files.push(...emitModule(mod, credential));
   }
 
   const modules = project.modules.map((mod) => summarize(mod, files));

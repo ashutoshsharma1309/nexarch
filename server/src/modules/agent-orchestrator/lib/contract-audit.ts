@@ -40,6 +40,20 @@ export function normalizeApiPath(path: string): string {
     .replace(/^\/api\/v\d+/, '');
 }
 
+/**
+ * Does the generated application have sign-in at all? The contract is the
+ * answer the generators themselves act on — not the words of the prompt,
+ * which can ask for "authentication" of a project generated as a public MVP.
+ */
+export function contractDeclaresAuth(api: OpenApiDocument): boolean {
+  if (api.tags.some((tag) => tag.name === 'Authentication')) return true;
+  return Object.values(api.paths).some((item) =>
+    Object.values(item).some(
+      (operation) => Array.isArray(operation.security) && operation.security.length > 0,
+    ),
+  );
+}
+
 export function declaredOperations(api: OpenApiDocument): Set<string> {
   const declared = new Set<string>();
   for (const [path, item] of Object.entries(api.paths)) {
