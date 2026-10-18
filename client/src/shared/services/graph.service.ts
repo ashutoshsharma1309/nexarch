@@ -50,3 +50,19 @@ export async function fetchGraphValidation(projectId: string): Promise<EngGraphV
   );
   return unwrap(data);
 }
+
+/**
+ * Recompute the graph from the project's latest completed build.
+ *
+ * Every build already syncs the graph, so this is the manual path: it exists
+ * for a graph read after a server restart, and for a reader who wants to be
+ * sure what they are looking at is current.
+ */
+export async function refreshGraph(projectId: string): Promise<EngineeringGraph> {
+  const { data } = await apiClient.post<ApiSuccess<EngineeringGraph>>(
+    `/projects/${projectId}/graph/refresh`,
+    undefined,
+    { timeout: 60_000 },
+  );
+  return unwrap(data);
+}

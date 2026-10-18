@@ -7,7 +7,7 @@
  * label never changes forces the user to work out which of its meanings
  * applies; this one just says.
  */
-import { Hammer, MonitorPlay, RefreshCw, Settings2 } from 'lucide-react';
+import { Hammer, MonitorPlay, RefreshCw, Settings2, Share2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import { Badge } from '@/shared/components/ui/badge';
@@ -79,6 +79,17 @@ export function ProjectHeader({ workspace }: { workspace: ProjectWorkspace }) {
           }}
         >
           <span className="hidden sm:inline">Settings</span>
+        </Button>
+        <Button
+          size="sm"
+          icon={<Share2 className="size-3.5" />}
+          disabled={!hasBuild}
+          title={hasBuild ? undefined : 'Build the project first'}
+          onClick={() => {
+            void navigate(`${base}/graph`);
+          }}
+        >
+          <span className="hidden sm:inline">Knowledge </span>Graph
         </Button>
         <Button
           size="sm"

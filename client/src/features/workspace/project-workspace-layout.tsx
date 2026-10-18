@@ -20,6 +20,7 @@ import {
   LayoutGrid,
   ListChecks,
   MonitorPlay,
+  Share2,
   Sparkles,
 } from 'lucide-react';
 import { Navigate, Outlet, useLocation, useParams } from 'react-router-dom';
@@ -44,6 +45,7 @@ const TABS = [
   { slug: 'database', label: 'Database', icon: Database },
   { slug: 'code', label: 'Code', icon: FileCode2 },
   { slug: 'intelligence', label: 'Intelligence', icon: Sparkles },
+  { slug: 'graph', label: 'Knowledge Graph', icon: Share2 },
   { slug: 'preview', label: 'Preview', icon: MonitorPlay },
 ] as const;
 
@@ -53,7 +55,7 @@ const SUBSECTIONS: Record<string, string> = {
   'intelligence/repairs': 'Self-Repair',
   'intelligence/security': 'Security',
   'intelligence/dependencies': 'Dependencies',
-  'intelligence/graph': 'Engineering Graph',
+  'intelligence/graph': 'Knowledge Graph',
 };
 
 function tabsFor(id: string) {

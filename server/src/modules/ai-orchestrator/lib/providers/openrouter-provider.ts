@@ -20,6 +20,8 @@ export class OpenRouterProvider implements ModelProvider {
   readonly defaultModel = 'openrouter/auto';
   readonly costPerMillionInputTokens = 2;
   readonly costPerMillionOutputTokens = 8;
+  // Proxies the OpenAI schema, parts included.
+  readonly supportsImages = true;
 
   isConfigured(): boolean {
     return Boolean(process.env.OPENROUTER_API_KEY);

@@ -13,6 +13,7 @@
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { deriveSiteDesign } from '../frontend-generator/frontend-generator.service.js';
 
 import { analyzeRequirements } from '../analysis/analysis.service.js';
 import { planArchitecture } from '../architecture/architecture.service.js';
@@ -113,6 +114,7 @@ function buildArtifacts(prompt: string): PipelineArtifacts {
     frontend,
     security,
     dependencies,
+    siteDesign: deriveSiteDesign(requirements),
     files: [
       ...backend.files.map((f) => ({ path: `backend/${f.path}`, content: f.content })),
       ...frontend.files.map((f) => ({ path: `frontend/${f.path}`, content: f.content })),

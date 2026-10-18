@@ -28,6 +28,9 @@ export class ClaudeProvider implements ModelProvider {
   readonly defaultModel = 'claude-sonnet-5';
   readonly costPerMillionInputTokens = 3;
   readonly costPerMillionOutputTokens = 15;
+  // Anthropic takes images as `source` blocks, which this adapter does not
+  // build. Claiming support would mean dropping the image silently.
+  readonly supportsImages = false;
 
   isConfigured(): boolean {
     return Boolean(process.env.ANTHROPIC_API_KEY);

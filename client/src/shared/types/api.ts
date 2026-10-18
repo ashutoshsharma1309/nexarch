@@ -1762,6 +1762,13 @@ export interface PipelineArtifacts {
   frontend: GeneratedFrontend;
   security: SecurityBundle;
   dependencies: DependencyGraphBundle;
+  /**
+   * The website's design — theme and ordered sections — as the model wrote
+   * it. This is the project's *current* design, and the only thing an edit's
+   * before/after comparison can honestly be measured against: recovering it
+   * from the emitted CSS and TSX afterwards would be a guess.
+   */
+  siteDesign: SiteDesignView;
   files: { path: string; content: string }[];
 }
 
@@ -1777,6 +1784,7 @@ export type EngNodeType =
   | 'ENTITY'
   | 'FIELD'
   | 'FILE'
+  | 'FOLDER'
   | 'MODULE'
   | 'SECURITY_RULE'
   | 'DEPENDENCY'
@@ -1794,7 +1802,8 @@ export type EngRelationship =
   | 'GENERATES'
   | 'VALIDATES'
   | 'TESTS'
-  | 'SECURED_BY';
+  | 'SECURED_BY'
+  | 'TARGETS';
 
 export interface EngGraphNode {
   id: string;
@@ -2369,4 +2378,168 @@ export interface BuilderSession {
   };
   createdAt: string;
   updatedAt: string;
+}
+
+/* ── Project edits (live endpoints: POST /projects/:id/edits/plan,
+      GET /projects/:id/edits/:planId, POST .../apply) ─────────────────── */
+
+export type ImageKind = 'reference' | 'mockup' | 'asset';
+
+/**
+ * The generated website's design: theme and ordered sections.
+ *
+ * Mirrored only as far as the console reads it. On the server a section is a
+ * union with per-kind content, and the palette carries a full derived ramp;
+ * both stay open here rather than half-copied, because a half-copied union
+ * goes stale without anyone noticing that it has.
+ */
+export interface SitePaletteView {
+  canvas: string;
+  surface: string;
+  fg: string;
+  accent: string;
+  /** Text drawn on the accent — black or white, whichever stays readable. */
+  accentFg: string;
+  /** The rest of the ramp the generator derived from the accent. */
+  [token: string]: string;
+}
+
+export interface SiteThemeView {
+  mode: 'light' | 'dark';
+  temperature: string;
+  corners: string;
+  fontId: string;
+  palette: SitePaletteView;
+}
+
+export interface SiteSectionView {
+  kind: string;
+  id: string;
+  navLabel: string;
+  /** Most kinds carry one; the union decides, so it is optional here. */
+  title?: string;
+  /** Per-kind content — items, plans, rows. Not read by the console. */
+  [field: string]: unknown;
+}
+
+export interface SiteDesignView {
+  brand: string;
+  tagline: string;
+  theme: SiteThemeView;
+  /** Rendered top to bottom, in this order. */
+  sections: SiteSectionView[];
+  footerNote: string;
+}
+
+/** What a model actually saw in an attached image — or why there is nothing. */
+export interface VisualReading {
+  /** False when no image was sent, or the provider could not read one. */
+  available: boolean;
+  /** Why it is unavailable, in words a user can act on. Null when available. */
+  unavailableReason: string | null;
+  layout: string;
+  palette: string[];
+  typography: string;
+  spacing: string;
+  components: string[];
+  mood: string;
+  notes: string;
+  /** The model that did the reading, so the claim is checkable. */
+  model: string | null;
+}
+
+export interface PlannedChange {
+  path: string;
+  reason: string;
+}
+
+/** An area this edit is expected to leave exactly as it is. */
+export interface PreservedArea {
+  label: string;
+  fileCount: number;
+}
+
+export interface ImpactedByEdit {
+  nodeId: string;
+  name: string;
+  type: EngNodeType;
+  depth: number;
+  via: EngRelationship;
+  reason: string;
+}
+
+export interface EditImpact {
+  /** Files the edit itself rewrites. Direct, not inferred. */
+  direct: string[];
+  dependents: ImpactedByEdit[];
+  tests: ImpactedByEdit[];
+  /** True when the graph had nothing to say — reported, never papered over. */
+  graphUnavailable: boolean;
+  graphUnavailableReason: string | null;
+}
+
+export type EditStatus = 'planned' | 'applied' | 'rejected' | 'failed';
+
+export interface EditPlan {
+  id: string;
+  projectId: string;
+  /** The run this edit starts from — the baseline it is compared against. */
+  basedOnRunId: string;
+  instruction: string;
+  image: { kind: ImageKind; name: string; bytes: number; width: number; height: number } | null;
+  reading: VisualReading;
+  summary: string;
+  changes: PlannedChange[];
+  preserved: PreservedArea[];
+  impact: EditImpact;
+  /** Anything a reviewer should decide about before applying. */
+  risks: string[];
+  /** What `apply` will actually run, named in advance. */
+  validationPlan: string[];
+  design: SiteDesignView;
+  status: EditStatus;
+  createdAt: string;
+}
+
+/** Same hunk shape the repair changeset uses. */
+export interface EditDiffHunk {
+  line: number;
+  removed: string[];
+  added: string[];
+}
+
+/** `ChangedFile` on the server; named for the edit here, as repairs are. */
+export interface EditChangedFile {
+  path: string;
+  addedLines: number;
+  removedLines: number;
+  hunks: EditDiffHunk[];
+}
+
+export interface EditValidation {
+  /**
+   * Every check that ran, in the runtime validator's own vocabulary.
+   * `SKIPPED` stays distinct from `PASS`: a project with no lint script did
+   * not pass lint, it never ran it.
+   */
+  checks: { name: string; status: CheckStatus; detail: string }[];
+  startedUp: boolean;
+  frontendUrl: string | null;
+  backendUrl: string | null;
+}
+
+export interface EditResult {
+  planId: string;
+  projectId: string;
+  status: EditStatus;
+  /** The run the edit produced, when it was accepted. Null when it was not. */
+  runId: string | null;
+  changedFiles: EditChangedFile[];
+  unchangedFileCount: number;
+  validation: EditValidation;
+  /** Why the edit was accepted or discarded, in one readable line. */
+  outcome: string;
+  /** True when the edit was discarded and the project still has its old files. */
+  rolledBack: boolean;
+  completedAt: string;
 }

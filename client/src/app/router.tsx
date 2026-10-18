@@ -179,12 +179,10 @@ export const router = createBrowserRouter([
                     },
                   },
                   {
+                    // The graph is now a destination of its own, beside
+                    // Preview and Rebuild; this keeps old links working.
                     path: 'graph',
-                    lazy: async () => {
-                      const { GraphSection } =
-                        await import('@/features/workspace/tabs/intelligence/graph-section');
-                      return { Component: GraphSection };
-                    },
+                    element: <Navigate to="../../graph" replace />,
                   },
                   {
                     // The old Roadmap section promised capabilities that now
@@ -193,6 +191,13 @@ export const router = createBrowserRouter([
                     element: <Navigate to=".." replace />,
                   },
                 ],
+              },
+              {
+                path: 'graph',
+                lazy: async () => {
+                  const { GraphTab } = await import('@/features/workspace/tabs/graph-tab');
+                  return { Component: GraphTab };
+                },
               },
               {
                 path: 'preview',

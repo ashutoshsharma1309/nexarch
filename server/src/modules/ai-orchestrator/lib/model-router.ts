@@ -40,13 +40,22 @@ export function defaultRoutes(): ModelRouteRule[] {
   // provider, whatever the environment says.
   if (process.env.NODE_ENV === 'test') {
     return (
-      ['simple-extraction', 'large-planning', 'small-file-regen', 'complex-refactor'] as const
+      [
+        'simple-extraction',
+        'large-planning',
+        'small-file-regen',
+        'complex-refactor',
+        'vision-analysis',
+      ] as const
     ).map((complexity) => ({ complexity, provider: 'mock' as const, model: 'mock-1' }));
   }
 
   const provider = envProvider('AI_PROVIDER', 'groq');
   const fast = envModel('AI_MODEL_FAST', 'openai/gpt-oss-20b');
   const deep = envModel('AI_MODEL_DEEP', 'openai/gpt-oss-120b');
+  // A separate model id, because the text models cannot see: routing an image
+  // to them would send the instruction and silently drop the picture.
+  const vision = envModel('AI_MODEL_VISION', 'qwen/qwen3.8-27b');
   const fallbackProvider = envProvider('AI_FALLBACK_PROVIDER', 'claude');
 
   return [
@@ -54,6 +63,7 @@ export function defaultRoutes(): ModelRouteRule[] {
     { complexity: 'large-planning', provider, model: deep, fallbackProvider },
     { complexity: 'small-file-regen', provider, model: fast, fallbackProvider },
     { complexity: 'complex-refactor', provider, model: deep, fallbackProvider },
+    { complexity: 'vision-analysis', provider, model: vision, fallbackProvider },
   ];
 }
 

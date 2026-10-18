@@ -38,6 +38,8 @@ export class GroqProvider implements ModelProvider {
   // Public list pricing for gpt-oss-120b, in USD per million tokens.
   readonly costPerMillionInputTokens = 0.15;
   readonly costPerMillionOutputTokens = 0.6;
+  // OpenAI-compatible content parts; the vision model is reached by model id.
+  readonly supportsImages = true;
 
   isConfigured(): boolean {
     return Boolean(apiKey());

@@ -16,6 +16,7 @@
  * see: it compiles, it renders, and it fails at runtime.
  */
 import { generateFrontend } from '../../frontend-generator/frontend-generator.service.js';
+import { writeSiteDesign } from '../../pipeline/lib/ai-stages.js';
 import { auditFrontendContract } from '../lib/contract-audit.js';
 import { generateEntityMetadata } from '../../database-designer/lib/entity-metadata-generator.js';
 import { getAgentDefinition } from '../../../shared/contracts/index.js';
@@ -106,7 +107,6 @@ export const frontendEngineerAgent: Agent<GeneratedFrontend> = {
 
   async execute(input: AgentExecutionInput): Promise<AgentResult<GeneratedFrontend>> {
     const startedAt = Date.now();
-    await Promise.resolve();
 
     const requirements = input.inputArtifacts['requirement-spec'] as RequirementSpec | undefined;
     const architecture = input.inputArtifacts['architecture-plan'] as ArchitecturePlan | undefined;
@@ -123,6 +123,12 @@ export const frontendEngineerAgent: Agent<GeneratedFrontend> = {
 
     const entityMetadata = generateEntityMetadata(database, requirements);
 
+    // The website is designed from the user's own words. This agent has had
+    // `input.prompt` all along and did not pass it on, so every app built
+    // through the mesh — unlike the same app built through the pipeline —
+    // got the spec-derived fallback page: no theme, no domain sections.
+    const siteDesign = await writeSiteDesign(input.prompt, requirements);
+
     const frontend = generateFrontend(
       architecture,
       requirements,
@@ -132,6 +138,7 @@ export const frontendEngineerAgent: Agent<GeneratedFrontend> = {
       // for a module the backend stubbed must know it is a stub.
       { modules: backendMeta.modules, routes: backendMeta.routes },
       entityMetadata,
+      siteDesign.value,
     );
 
     if (frontend.files.length === 0) {

@@ -26,6 +26,7 @@ import type {
   AgentResult,
 } from '../../../shared/contracts/index.js';
 import { getAgentDefinition } from '../../../shared/contracts/index.js';
+import { requirementId } from '../../../shared/identity/requirement-id.js';
 import type { RequirementSpec } from '../../../shared/types/requirement.js';
 
 const definition = getAgentDefinition('requirement-analyst');
@@ -55,11 +56,41 @@ export const requirementAnalystAgent: Agent<RequirementSpec> = {
 
     // Gaps the analyzer itself flagged become findings rather than being
     // buried in the spec — this is what the future review system reads.
-    const findings: AgentFinding[] = spec.missingRequirements.map((item) => ({
+    //
+    // Two things here are about identity, and both fix a way a gap used to
+    // lose track of which requirement it was.
+    //
+    // One: the requirement is keyed by `requirementId`, so a model that
+    // names the same gap twice in one answer — "Email Notifications" and
+    // "Email notification" — produces one finding rather than two records
+    // for one missing feature. First spelling wins; it is the one a reader
+    // sees.
+    //
+    // Two: the title names the requirement. `findingKey` identifies a
+    // finding by `(project, type, category, target)`, and `target` falls
+    // back to the title when the finding has no file and no node — so the
+    // old shared title of 'Unspecified requirement' made every gap collapse
+    // onto one record, and a reader saw a single finding for a spec that
+    // was missing ten things.
+    //
+    // `targetNodeId` stays null, and deliberately. It is a `GraphNode`
+    // database id — the review UI turns it straight into a
+    // `?node=<id>` graph link — while a *missing* requirement has no node
+    // by construction, and this agent runs before any graph exists at all.
+    // Putting the requirement's canonical id there would render a "View in
+    // graph" link that resolves to nothing, and a guessed link is worse
+    // than none.
+    const byRequirement = new Map<string, string>();
+    for (const item of spec.missingRequirements) {
+      const id = requirementId(item);
+      if (!byRequirement.has(id)) byRequirement.set(id, item);
+    }
+
+    const findings: AgentFinding[] = [...byRequirement.values()].map((item) => ({
       severity: 'LOW' as const,
       category: 'REQUIREMENTS',
-      title: 'Unspecified requirement',
-      description: item,
+      title: `Unspecified requirement: ${item}`,
+      description: `The prompt never specified ${item}, which a ${spec.projectType} project usually needs.`,
       targetNodeId: null,
       status: 'OPEN' as const,
     }));

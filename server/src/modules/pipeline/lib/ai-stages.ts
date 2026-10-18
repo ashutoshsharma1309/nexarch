@@ -14,10 +14,10 @@
 import { analyzeRequirements } from '../../analysis/analysis.service.js';
 import { generate } from '../../ai-orchestrator/ai-orchestrator.service.js';
 import {
-  deriveSiteContent,
-  normalizeSiteContent,
+  deriveSiteDesign,
+  normalizeSiteDesign,
 } from '../../frontend-generator/frontend-generator.service.js';
-import type { SiteContent } from '../../frontend-generator/frontend-generator.service.js';
+import type { SiteDesign } from '../../frontend-generator/frontend-generator.service.js';
 import { resolveProvider } from '../../ai-orchestrator/lib/providers/provider-registry.js';
 import { logger } from '../../../shared/logger/index.js';
 import type { EntityPlan } from '../../../shared/types/architecture.js';
@@ -327,20 +327,23 @@ export function aiUnavailableNote(error: unknown): string {
 }
 
 /**
- * The generated site's landing-page copy, written for the user's own request.
+ * The generated site itself — theme, sections and copy — designed for the
+ * user's own request.
  *
- * Only what the copy needs goes over the wire — the request, the product's
+ * Only what the design needs goes over the wire — the request, the product's
  * name and kind, and its capability names — never the plan or the schema.
- * The answer is validated field by field (`normalizeSiteContent`) before it
+ * The answer is validated field by field (`normalizeSiteDesign`) before it
  * reaches generated source. Without a model, or when the call fails, the
  * copy is derived from the spec, which adds no pricing and no testimonials:
  * a fallback must not invent prices or customers.
  */
-export async function writeSiteContent(
+export async function writeSiteDesign(
   prompt: string,
   spec: RequirementSpec,
-): Promise<StageOutcome<SiteContent>> {
-  const derived = deriveSiteContent(spec);
+  /** What a first attempt left out, fed back verbatim for a second try. */
+  gaps: string[] = [],
+): Promise<StageOutcome<SiteDesign>> {
+  const derived = deriveSiteDesign(spec);
   if (!aiConfigured()) {
     return { value: derived, degraded: true, note: null, usage: null };
   }
@@ -348,22 +351,34 @@ export async function writeSiteContent(
   try {
     const response = await generate(
       {
-        promptId: 'site-content',
+        promptId: 'site-design',
         variables: {
           USER_REQUEST: prompt,
           PROJECT_NAME: spec.projectName,
           PROJECT_TYPE: spec.projectType,
           CAPABILITIES: spec.modules.join(', ') || 'none stated',
+          GAPS:
+            gaps.length === 0
+              ? ''
+              : [
+                  '',
+                  '## Fix these before answering',
+                  '',
+                  'A previous attempt at this page left the following out. The request',
+                  'asked for each one:',
+                  '',
+                  ...gaps.map((gap) => `- ${gap}`),
+                ].join('\n'),
         },
         complexity: 'simple-extraction',
         schema: 'generic-json',
       },
-      // Features, plans, testimonials and an FAQ in one object: the 2,048
-      // default truncates it mid-object and JSON mode rejects the whole call.
-      { maxOutputTokens: 4_096 },
+      // A theme plus up to seven sections in one object: the 2,048 default
+      // truncates it mid-object and JSON mode rejects the whole call.
+      { maxOutputTokens: 5_120 },
     );
     return {
-      value: normalizeSiteContent(parseJson(response.content), derived),
+      value: normalizeSiteDesign(parseJson(response.content), derived),
       degraded: false,
       note: null,
       usage: {
@@ -375,7 +390,7 @@ export async function writeSiteContent(
       },
     };
   } catch (error) {
-    logger.warn('site content fell back to the spec-derived copy', {
+    logger.warn('site design fell back to the spec-derived page', {
       reason: error instanceof Error ? error.message : String(error),
     });
     return { value: derived, degraded: true, note: aiUnavailableNote(error), usage: null };

@@ -8,12 +8,13 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { z } from 'zod';
 
+import type { RepairSessionState } from '../../shared/types/repair.js';
 import type { BuilderSession, BuilderToolName } from './builder-agent.types.js';
 import type { DecideOutcome } from './lib/decider.js';
 import { runLoop } from './lib/loop.js';
 import { projectNameFor } from './lib/policy.js';
 import type { PlannedAction } from './lib/policy.js';
-import { landingSectionsOf, markBuilt, runTool } from './lib/tools.js';
+import { landingSectionsOf, markBuilt, repairOutcome, runTool } from './lib/tools.js';
 import type { BuilderTool, ToolResult } from './lib/tools.js';
 
 function newSession(task = 'Build a landing page for a company called NovaStack.'): BuilderSession {
@@ -56,6 +57,8 @@ function newSession(task = 'Build a landing page for a company called NovaStack.
 interface Fakes {
   calls: { tool: BuilderToolName; start: number; end: number }[];
   previewFails?: boolean;
+  /** What the review's validation gate comes back as. */
+  gate?: string;
 }
 
 function fakeTools(fakes: Fakes): (name: string) => BuilderTool | undefined {
@@ -102,7 +105,7 @@ function fakeTools(fakes: Fakes): (name: string) => BuilderTool | undefined {
       'review_app',
       (s) => {
         s.state.agentRunId = 'agents-1';
-        s.state.validationGate = 'PASSED_WITH_WARNINGS';
+        s.state.validationGate = fakes.gate ?? 'PASSED_WITH_WARNINGS';
         return { ok: true, summary: 'reviewed' };
       },
       40,
@@ -230,6 +233,30 @@ describe('builder agent loop', () => {
     assert.match(session.result.summary, /not completed/);
   });
 
+  it('does not succeed when the validation gate failed', async () => {
+    const fakes: Fakes = { calls: [], gate: 'FAILED' };
+    const session = newSession();
+    await runLoop(session, deps(fakes));
+
+    // Everything the old completion check asked for is here — a build, a
+    // running preview, a passing inspection — and the gate still says no.
+    assert.equal(session.state.inspected, true);
+    assert.equal(session.state.frontendUrl, 'http://localhost:5174');
+    assert.equal(session.status, 'failed');
+    assert.equal(session.result?.complete, false);
+    assert.match(session.result.summary, /validation gate came back FAILED/);
+  });
+
+  it('does not succeed when validation could not run at all', async () => {
+    const fakes: Fakes = { calls: [], gate: 'BLOCKED' };
+    const session = newSession();
+    await runLoop(session, deps(fakes));
+
+    assert.equal(session.status, 'failed');
+    assert.equal(session.result?.complete, false);
+    assert.equal(session.result.validationGate, 'BLOCKED');
+  });
+
   it('orders dependent actions a decision grouped together (seen in a real run)', async () => {
     const fakes: Fakes = { calls: [] };
     let turn = 0;
@@ -312,6 +339,57 @@ describe('builder agent build/preview consistency', () => {
   });
 });
 
+describe('builder agent repair reporting', () => {
+  function settled(
+    finalState: RepairSessionState['finalState'],
+    counts: Partial<RepairSessionState['counts']> = {},
+    status: RepairSessionState['status'] = 'COMPLETED',
+  ): RepairSessionState {
+    return {
+      id: 'repair-1',
+      projectId: 'p1',
+      status,
+      finalState,
+      stopReason: 'the engine said so',
+      counts: {
+        considered: 1,
+        autoRepairable: 1,
+        fixed: 0,
+        rejected: 0,
+        requiresReview: 0,
+        notRepairable: 0,
+        rolledBack: 0,
+        repairLoops: 0,
+        ...counts,
+      },
+      tokens: { input: 0, output: 0, context: 0 },
+      startedAt: '',
+      completedAt: '',
+      activeFindingId: null,
+    };
+  }
+
+  it('does not report a repair that fixed nothing as a fix', () => {
+    const result = repairOutcome(settled('REQUIRES_REVIEW', { requiresReview: 1 }));
+    assert.equal(result.ok, false);
+    assert.match(result.summary, /no fix applied/);
+    assert.doesNotMatch(result.summary, /\d+ fixed/);
+  });
+
+  it('reads the outcome from the final state, not from the session reaching the end', () => {
+    const result = repairOutcome(settled('FAILED', {}, 'COMPLETED'));
+    assert.equal(result.ok, false);
+    assert.match(result.summary, /Repair FAILED/);
+    assert.equal(result.detail?.status, 'COMPLETED');
+  });
+
+  it('reports a repair that left the project healthy', () => {
+    const result = repairOutcome(settled('PASSED_WITH_WARNINGS', { fixed: 2 }));
+    assert.equal(result.ok, true);
+    assert.match(result.summary, /2 fixed/);
+  });
+});
+
 describe('builder agent helpers', () => {
   it('takes the project name from the task when it names one', () => {
     assert.equal(
@@ -325,15 +403,19 @@ describe('builder agent helpers', () => {
 
   it('reads landing sections from the content module, JSON or dev-server JavaScript', () => {
     const json = `export const site: SiteContent = ${JSON.stringify({
-      features: [{ title: 'a' }],
-      pricing: [{ name: 'Pro' }],
-      testimonials: [],
-      faq: [{ question: 'q' }],
+      brand: 'Bean Lane',
+      sections: [
+        { kind: 'hero', id: 'top' },
+        { kind: 'catalog', id: 'menu' },
+        { kind: 'hours', id: 'hours' },
+      ],
     })};\n`;
-    assert.deepEqual(landingSectionsOf(json), ['hero', 'features', 'pricing', 'faq']);
+    assert.deepEqual(landingSectionsOf(json), ['hero', 'catalog', 'hours']);
 
+    // Through a dev server the module is transformed JavaScript, not JSON:
+    // the kinds still have to come back, in page order.
     const transformed =
-      'export const site = {\n  features: [{ title: `a` }],\n  pricing: [],\n  testimonials: [{ quote: "x" }],\n  faq: []\n};\n//# sourceMappingURL=data:x';
-    assert.deepEqual(landingSectionsOf(transformed), ['hero', 'features', 'testimonials']);
+      'export const site = {\n  brand: `Bean Lane`,\n  sections: [{ kind: "hero" }, { kind: "features" }, { kind: "faq" }]\n};\n//# sourceMappingURL=data:x';
+    assert.deepEqual(landingSectionsOf(transformed), ['hero', 'features', 'faq']);
   });
 });

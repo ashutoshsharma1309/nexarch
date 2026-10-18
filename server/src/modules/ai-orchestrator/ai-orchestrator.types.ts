@@ -15,11 +15,27 @@
 export type ProviderId = 'groq' | 'claude' | 'openai' | 'gemini' | 'openrouter' | 'mock';
 
 export type TaskComplexity =
-  'simple-extraction' | 'large-planning' | 'small-file-regen' | 'complex-refactor';
+  | 'simple-extraction'
+  | 'large-planning'
+  | 'small-file-regen'
+  | 'complex-refactor'
+  /** Reading a reference image. Routed to a model that can actually see one. */
+  | 'vision-analysis';
+
+/**
+ * A piece of a multimodal message.
+ *
+ * Text-only calls keep passing a plain string — the shape every provider
+ * adapter here was written against. Parts exist for the one case that needs
+ * them: sending a reference image alongside the instruction, in the
+ * OpenAI-compatible `image_url` form Groq's vision model accepts.
+ */
+export type ModelContentPart =
+  { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
 
 export interface ModelMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | ModelContentPart[];
 }
 
 export interface ModelCallOptions {
@@ -53,6 +69,14 @@ export interface ModelProvider {
   readonly costPerMillionOutputTokens: number;
   /** True when this provider has everything it needs (e.g. an API key) to actually make a call. */
   isConfigured(): boolean;
+  /**
+   * Whether this adapter can carry image parts to its API.
+   *
+   * An adapter that cannot must say so, because the alternative is sending
+   * the instruction without the image and reporting an analysis that never
+   * looked at it. The caller is expected to refuse rather than degrade.
+   */
+  readonly supportsImages: boolean;
   call(options: ModelCallOptions): Promise<ModelCallResult>;
 }
 
@@ -191,6 +215,13 @@ export interface GenerationRecord {
   error?: string | undefined;
 }
 
+/** An image sent with a prompt, already encoded as a `data:` URL. */
+export interface PromptImage {
+  dataUrl: string;
+  /** What the image is to the caller — shown to the model as context. */
+  label: string;
+}
+
 export interface GenerateRequest {
   promptId: string;
   variables: PromptVariables;
@@ -198,6 +229,12 @@ export interface GenerateRequest {
   context?: ContextInputs | undefined;
   schema?:
     'requirement-spec' | 'architecture-plan' | 'database-design' | 'generic-json' | undefined;
+  /**
+   * Reference images for the model to read. Only providers that declare
+   * `supportsImages` may receive these; the orchestrator refuses rather than
+   * dropping them, because a dropped image means a fabricated analysis.
+   */
+  images?: readonly PromptImage[] | undefined;
 }
 
 export interface GenerateResponse {

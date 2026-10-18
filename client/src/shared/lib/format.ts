@@ -31,3 +31,16 @@ export function formatRelativeTime(iso: string): string {
   }
   return relativeFormatter.format(Math.round(seconds / 60), 'minute');
 }
+
+/**
+ * Format a byte count for a person: "812 KB", "3.4 MB".
+ *
+ * Decimal units, because that is what an image exporter and a file manager
+ * both report — showing 3.2 MiB next to a tool that said 3.4 MB reads as a
+ * disagreement about the file rather than about the unit.
+ */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1000) return `${bytes} B`;
+  if (bytes < 1000 * 1000) return `${Math.round(bytes / 1000)} KB`;
+  return `${(bytes / 1000 / 1000).toFixed(1)} MB`;
+}

@@ -8,6 +8,7 @@
  * actually done.
  */
 import type { AgentId } from '../../shared/contracts/agent.js';
+import type { SiteDesign } from '../frontend-generator/frontend-generator.service.js';
 import type { ArchitecturePlan } from '../../shared/types/architecture.js';
 import type { DesignBundle } from '../../shared/types/design.js';
 import type { RequirementSpec } from '../../shared/types/requirement.js';
@@ -83,6 +84,13 @@ export interface PipelineArtifacts {
   frontend: GeneratedFrontend;
   security: SecurityBundle;
   dependencies: DependencyGraphBundle;
+  /**
+   * The website's design — theme and ordered sections — as the model wrote
+   * it. Kept beside the files it produced so an edit has something to modify:
+   * recovering it from the emitted CSS and TSX afterwards is guesswork, and a
+   * targeted edit cannot be built on a guess.
+   */
+  siteDesign: SiteDesign;
   /** The runnable file set: generator output overlaid with the hardened security files. */
   files: { path: string; content: string }[];
 }

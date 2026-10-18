@@ -45,6 +45,8 @@ export type GraphNodeType =
   | 'ENTITY'
   | 'FIELD'
   | 'FILE'
+  /** A directory of the generated project. CONTAINS its files and subfolders. */
+  | 'FOLDER'
   | 'MODULE'
   | 'SECURITY_RULE'
   | 'DEPENDENCY'
@@ -62,6 +64,7 @@ export const GRAPH_NODE_TYPES: readonly GraphNodeType[] = [
   'ENTITY',
   'FIELD',
   'FILE',
+  'FOLDER',
   'MODULE',
   'SECURITY_RULE',
   'DEPENDENCY',
@@ -144,11 +147,19 @@ export interface GraphEdge {
 
 export interface EngineeringGraph {
   projectId: string;
-  runId: string;
+  /**
+   * The run this graph describes, or null when its nodes came from several
+   * runs (the pipeline and the agent mesh both write here) or there are none.
+   * Naming one run in that case would present a partial map as the whole.
+   */
+  runId: string | null;
+  /** Every run represented, so the UI can say the graph spans more than one. */
+  runIds: string[];
   nodes: GraphNode[];
   edges: GraphEdge[];
   stats: GraphStats;
-  generatedAt: string;
+  /** When the graph was last written — not when it was read. Null if empty. */
+  generatedAt: string | null;
 }
 
 export interface GraphStats {

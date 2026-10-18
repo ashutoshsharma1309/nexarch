@@ -6,6 +6,7 @@
  */
 import type { FrontendProjectModel } from './project-model.js';
 import type { GeneratedFile } from '../frontend-generator.types.js';
+import { fontOf, type SiteTheme } from './site-content.js';
 import { file } from './file-tree.js';
 
 function routeEntry(
@@ -150,14 +151,45 @@ function escapeHtml(value: string): string {
 const FAVICON =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M10 22V10l12 12V10' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E";
 
-function indexHtml(projectName: string): string {
+/**
+ * Percent-encode the axis separators in a Google Fonts family.
+ *
+ * `Inter:wght@400` is the documented syntax, and it also reads exactly like
+ * `user:password@host` — enough that this platform's own secret scanner flags
+ * a generated `index.html` as leaking a credential. Encoding them is
+ * equivalent for the server and unambiguous for every reader, human or not.
+ */
+function fontQuery(family: string): string {
+  return family.replaceAll(':', '%3A').replaceAll('@', '%40');
+}
+
+/**
+ * The shell opens in the mode the design chose, and asks for its typeface.
+ *
+ * The font is a `<link>` to Google Fonts rather than a bundled file: it is
+ * one request, it is cached across the web, and if it never arrives the page
+ * falls back to the system stack in the same `--font-sans` declaration. A
+ * design that chose the system stack asks for nothing at all.
+ */
+function indexHtml(projectName: string, theme: SiteTheme): string {
+  const font = fontOf(theme);
+  const fontLinks =
+    font.googleFamily === null
+      ? ''
+      : `
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=${fontQuery(font.googleFamily)}&display=swap"
+    />`;
   return `<!doctype html>
-<html lang="en" class="dark">
+<html lang="en"${theme.mode === 'dark' ? ' class="dark"' : ''}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark light" />
-    <link rel="icon" href="${FAVICON}" />
+    <meta name="color-scheme" content="${theme.mode} ${theme.mode === 'dark' ? 'light' : 'dark'}" />
+    <link rel="icon" href="${FAVICON}" />${fontLinks}
     <title>${escapeHtml(projectName)}</title>
   </head>
   <body>
@@ -171,12 +203,12 @@ function indexHtml(projectName: string): string {
 const viteEnv = `/// <reference types="vite/client" />
 `;
 
-export function emitRouting(model: FrontendProjectModel): GeneratedFile[] {
+export function emitRouting(model: FrontendProjectModel, theme: SiteTheme): GeneratedFile[] {
   return [
     file('src/app/router.tsx', 'typescriptreact', router(model)),
     file('src/app/App.tsx', 'typescriptreact', app),
     file('src/main.tsx', 'typescriptreact', main),
-    file('index.html', 'html', indexHtml(model.projectName)),
+    file('index.html', 'html', indexHtml(model.projectName, theme)),
     file('src/vite-env.d.ts', 'typescript', viteEnv),
   ];
 }

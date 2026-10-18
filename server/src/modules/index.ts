@@ -27,6 +27,7 @@ import { databaseModule, openapiModule } from './database-designer/index.js';
 import { dependencyGraphModule } from './dependency-graph/index.js';
 import { deploymentModule } from './deployment/index.js';
 import { engineeringGraphModule } from './engineering-graph/index.js';
+import { projectEditorModule } from './project-editor/index.js';
 import { frontendGeneratorModule } from './frontend-generator/index.js';
 import { healthModule } from './health/index.js';
 import { insightsModule } from './insights/index.js';
@@ -51,6 +52,7 @@ export const modules: readonly AppModule[] = [
   securityEngineModule,
   dependencyGraphModule,
   engineeringGraphModule,
+  projectEditorModule,
   contextEngineModule,
   agentOrchestratorModule,
   aiOrchestratorModule,

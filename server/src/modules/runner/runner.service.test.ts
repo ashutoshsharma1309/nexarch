@@ -6,6 +6,9 @@
  * glue over these layers and is exercised by live runs.
  */
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import net from 'node:net';
 import { describe, it } from 'node:test';
 
@@ -21,6 +24,7 @@ import {
   runAdmission,
   INTERNAL_RUNNER_OWNER,
 } from './runner.service.js';
+import { missingNativeBinaries } from './lib/process-supervisor.js';
 import { childEnv } from './lib/child-env.js';
 import { planProvisioning, runDatabaseName } from './lib/database-provisioner.js';
 import { diagnose } from './lib/diagnostics.js';
@@ -136,6 +140,21 @@ describe('how many runs one person may start', () => {
     assert.ok(!refusal.allowed);
     assert.match(refusal.message, /You already have 2 runs going/);
 
+    // The slots are usually held by other projects, so the refusal has to
+    // name them: the reader is on one project's page and cannot otherwise
+    // tell which tab holds the run they are being told to stop.
+    const named = runAdmission(
+      [
+        { ownerId: alice, projectName: 'College' },
+        { ownerId: alice, projectName: 'NovaStack' },
+      ],
+      alice,
+      2,
+      100,
+    );
+    assert.ok(!named.allowed);
+    assert.match(named.message, /\(College, NovaStack\)/);
+
     const atCapacity = runAdmission([{ ownerId: bob }, { ownerId: bob }], alice, 2, 2);
     assert.ok(!atCapacity.allowed);
     // Different fact, different sentence — nothing here is the caller's to stop.
@@ -249,5 +268,39 @@ describe('failure diagnosis', () => {
     const findings = diagnose(137, ['[frontend] something exotic happened']);
     assert.ok(findings.length > 0);
     assert.match(findings[0] ?? '', /137/);
+  });
+});
+
+describe('npm-skipped native binaries', () => {
+  it('reports the platform binary an install left out, and nothing that is present', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'nexarch-native-'));
+    const token = 'darwin-arm64';
+    await mkdir(join(root, 'node_modules/rollup'), { recursive: true });
+    await writeFile(
+      join(root, 'node_modules/rollup/package.json'),
+      JSON.stringify({
+        optionalDependencies: {
+          [`@rollup/rollup-${token}`]: '4.9.0',
+          '@rollup/rollup-linux-x64-gnu': '4.9.0',
+        },
+      }),
+    );
+
+    // Nothing installed yet: this platform's binary is the one that matters.
+    assert.deepEqual(await missingNativeBinaries(root, token), [
+      { name: `@rollup/rollup-${token}`, version: '4.9.0' },
+    ]);
+
+    // Present — npm did its job, so there is nothing to repair.
+    await mkdir(join(root, `node_modules/@rollup/rollup-${token}`), { recursive: true });
+    assert.deepEqual(await missingNativeBinaries(root, token), []);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('says nothing about a workspace that never installed such a package', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'nexarch-native-'));
+    assert.deepEqual(await missingNativeBinaries(root, 'darwin-arm64'), []);
+    await rm(root, { recursive: true, force: true });
   });
 });

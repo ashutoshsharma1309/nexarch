@@ -34,6 +34,7 @@ import {
 } from '../../pipeline/pipeline.service.js';
 import { createSession, getSession, stopSession } from '../../runner/runner.service.js';
 import { createProject } from '../../workspace/workspace.service.js';
+import type { FinalQualityState, RepairSessionState } from '../../../shared/types/repair.js';
 import type { ValidationSummary } from '../../../shared/types/validation.js';
 import type { BuilderSession, BuilderToolName } from '../builder-agent.types.js';
 
@@ -118,17 +119,17 @@ export function landingSectionsOf(siteModule: string): string[] {
       siteModule,
     )?.[1];
   if (!literal) return [];
-  const keys = ['features', 'pricing', 'testimonials', 'faq'] as const;
   try {
-    const site = JSON.parse(literal) as Record<string, unknown>;
-    return ['hero', ...keys.filter((key) => Array.isArray(site[key]) && site[key].length > 0)];
+    const site = JSON.parse(literal) as { sections?: { kind?: unknown }[] };
+    return (site.sections ?? [])
+      .map((section) => section.kind)
+      .filter((kind): kind is string => typeof kind === 'string');
   } catch {
     // Served through a dev server the literal is transformed JavaScript, not
-    // strict JSON: fall back to "does this key hold a non-empty list".
-    return [
-      'hero',
-      ...keys.filter((key) => new RegExp(`["']?${key}["']?\\s*:\\s*\\[\\s*\\{`).test(literal)),
-    ];
+    // strict JSON: read the kinds in the order they appear instead.
+    return [...literal.matchAll(/["']?kind["']?\s*:\s*["']([a-z]+)["']/g)].map((match) =>
+      String(match[1]),
+    );
   }
 }
 
@@ -272,6 +273,33 @@ const reviewAppTool: BuilderTool = {
   },
 };
 
+/**
+ * The repair engine's final states that mean the project is in acceptable
+ * shape afterwards. Everything else it can settle on — `REQUIRES_REVIEW`,
+ * `FAILED`, an exhausted budget, a detected repair loop — means findings are
+ * still open, however cleanly the session itself exited.
+ */
+const REPAIR_HEALTHY_STATES: readonly FinalQualityState[] = ['PASSED', 'PASSED_WITH_WARNINGS'];
+
+/**
+ * What a settled repair session actually achieved. `status` only says the
+ * engine ran to the end; the quality it left behind is `finalState`. Reading
+ * success from `status` reported a session that fixed nothing, or that left
+ * critical findings open, as a repair.
+ */
+export function repairOutcome(repair: RepairSessionState): ToolResult {
+  const { counts, finalState } = repair;
+  const applied =
+    counts.fixed > 0
+      ? `${String(counts.fixed)} fixed`
+      : 'no fix applied (nothing was proved fixed)';
+  return {
+    ok: REPAIR_HEALTHY_STATES.includes(finalState),
+    summary: `Repair ${finalState}: ${applied}, ${String(counts.requiresReview)} for review, ${String(counts.rolledBack)} rolled back. ${repair.stopReason}`,
+    detail: { status: repair.status, finalState, stopReason: repair.stopReason, counts },
+  };
+}
+
 const repairAppTool: BuilderTool = {
   name: 'repair_app',
   description:
@@ -292,12 +320,11 @@ const repairAppTool: BuilderTool = {
       { timeoutMs: 12 * 60_000, intervalMs: 2_000, what: 'The repair session' },
     );
     ctx.session.state.repaired = true;
-    const counts = outcome.session?.counts;
-    return {
-      ok: outcome.session?.status === 'COMPLETED',
-      summary: `Repair ${outcome.session?.finalState ?? 'unknown'}: ${String(counts?.fixed ?? 0)} fixed, ${String(counts?.requiresReview ?? 0)} for review, ${String(counts?.rolledBack ?? 0)} rolled back.`,
-      detail: { finalState: outcome.session?.finalState ?? null, counts: counts ?? null },
-    };
+    const repair = outcome.session;
+    if (repair === null) {
+      return fail('The repair session reported no state.');
+    }
+    return repairOutcome(repair);
   },
 };
 

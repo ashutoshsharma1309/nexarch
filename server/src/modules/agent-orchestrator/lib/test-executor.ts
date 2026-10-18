@@ -223,7 +223,14 @@ export async function executeTestPlan(input: ExecutionInput): Promise<Execution>
     }
 
     if (testCase.target === 'authentication') {
-      const passed = ok(register.status) && ok(login.status);
+      /*
+       * The plan step asks for a round trip that ends in a usable
+       * credential. A 200 carrying no token completes no round trip, and
+       * passing it reported working authentication for an application that
+       * cannot in fact authenticate anyone.
+       */
+      const passed = ok(register.status) && ok(login.status) && realToken !== null;
+      const missingToken = ok(login.status) && realToken === null;
       record(
         results,
         testCase,
@@ -231,8 +238,10 @@ export async function executeTestPlan(input: ExecutionInput): Promise<Execution>
         Date.now() - startedAt,
         passed
           ? null
-          : `register → ${String(register.status ?? 'no answer')}, login → ${String(login.status ?? 'no answer')}`,
-        `POST ${prefix}/auth/register → ${String(register.status ?? '—')} · POST ${prefix}/auth/login → ${String(login.status ?? '—')}`,
+          : missingToken
+            ? `login → ${String(login.status)} but the response carried no access token`
+            : `register → ${String(register.status ?? 'no answer')}, login → ${String(login.status ?? 'no answer')}`,
+        `POST ${prefix}/auth/register → ${String(register.status ?? '—')} · POST ${prefix}/auth/login → ${String(login.status ?? '—')} (token ${realToken === null ? 'absent' : 'returned'})`,
       );
       continue;
     }
@@ -362,9 +371,25 @@ export async function executeTestPlan(input: ExecutionInput): Promise<Execution>
     const id = idOf(created.json);
     const listed = await call('GET', url, { token });
     evidence.push(`GET ${collection} → ${String(listed.status ?? 'no answer')}`);
-    const listedOk = ok(listed.status) && (id === null || listed.body.includes(id));
 
     if (testCase.type !== 'E2E') {
+      /*
+       * With no id there is nothing to look for in the list response, so a
+       * 200 from GET proves only that the endpoint answers. Folding that
+       * into PASSED claimed verified persistence that was never verified.
+       */
+      if (id === null) {
+        record(
+          results,
+          testCase,
+          'SKIPPED',
+          Date.now() - startedAt,
+          null,
+          `${evidence.join(' · ')} · create returned no id, so persistence was not verified`,
+        );
+        continue;
+      }
+      const listedOk = ok(listed.status) && listed.body.includes(id);
       record(
         results,
         testCase,

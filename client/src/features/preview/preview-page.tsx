@@ -209,6 +209,59 @@ function LiveApp({ session }: { session: RunSession }) {
 /** A phase that means "this session still owns its ports and workspace". */
 const LIVE_PHASES: RunPhase[] = [...BUSY_PHASES, 'running'];
 
+/**
+ * The other projects' runs that are holding the run slots.
+ *
+ * A refused preview used to be a dead end: the limit is per user and counts
+ * every project, but this page is scoped to one project, so the run to stop
+ * was on a tab the message never named. Listing them here — with the stop
+ * button beside each — makes the refusal something the reader can act on
+ * without going to look for it.
+ */
+export function OtherRuns({ sessions }: { sessions: RunSession[] }) {
+  const stop = useStopRunSession();
+  if (sessions.length === 0) return null;
+
+  return (
+    <Card>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-fg-muted">
+          {sessions.length === 1 ? 'Another project is' : 'Other projects are'} using the run slots.
+          Stop one to free a slot for this project.
+        </p>
+        <ul className="space-y-2">
+          {sessions.map((entry) => (
+            <li key={entry.id} className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-fg">{entry.projectName}</span>
+              <PhaseBadge phase={entry.phase} />
+              <Button
+                className="ml-auto"
+                icon={<Square className="size-3.5" />}
+                loading={stop.isPending && stop.variables === entry.id}
+                onClick={() => {
+                  stop.mutate(entry.id, {
+                    onSuccess: () => {
+                      toast(`Stopped the ${entry.projectName} preview`, 'success');
+                    },
+                    onError: (error) => {
+                      toast(
+                        error instanceof Error ? error.message : 'Could not stop that run',
+                        'error',
+                      );
+                    },
+                  });
+                }}
+              >
+                Stop
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function PreviewWorkspace({ artifacts }: { artifacts: PipelineArtifacts }) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('app');
@@ -232,6 +285,12 @@ export function PreviewWorkspace({ artifacts }: { artifacts: PipelineArtifacts }
   }, [sessionId, liveSession]);
   const phase = session.data?.phase ?? null;
   const busy = phase !== null && BUSY_PHASES.includes(phase);
+
+  // Everything live that is not this project's own run — the set that can be
+  // standing between the reader and a preview.
+  const otherRuns = (sessions.data ?? []).filter(
+    (candidate) => candidate.projectName !== projectName && LIVE_PHASES.includes(candidate.phase),
+  );
 
   const startPreview = (): void => {
     create.mutate(
@@ -373,6 +432,8 @@ export function PreviewWorkspace({ artifacts }: { artifacts: PipelineArtifacts }
             }
           />
         ))}
+
+      {tab === 'app' && !session.data && <OtherRuns sessions={otherRuns} />}
 
       {tab === 'structure' && <FileExplorer files={artifacts.files} />}
 

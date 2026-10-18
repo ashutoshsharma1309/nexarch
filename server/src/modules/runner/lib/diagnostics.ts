@@ -39,6 +39,13 @@ const RULES: DiagnosticRule[] = [
       'The prisma CLI is missing from the generated project — check its devDependencies installed cleanly.',
   },
   {
+    // Must precede the generic module rule: this one is not a bad import but
+    // a platform binary npm skipped, and the two need different answers.
+    pattern: /Cannot find module ['"]?@(rollup\/rollup|esbuild|tailwindcss\/oxide)-/,
+    explain:
+      'A platform-specific binary npm treats as optional was not installed (npm/cli#4828). The run tries to repair this after install; if it persists, clear the npm cache (npm cache clean --force) and run the preview again.',
+  },
+  {
     pattern: /Cannot find module|ERR_MODULE_NOT_FOUND/,
     explain:
       'A generated import does not resolve — a dependency failed to install or a generated path is wrong; the log names the module.',

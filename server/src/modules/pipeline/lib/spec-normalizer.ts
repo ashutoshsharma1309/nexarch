@@ -38,6 +38,21 @@ function asStringList(value: unknown, limit = MAX_LIST): string[] {
   return out;
 }
 
+/**
+ * Optional fields are spread in only when they carry something. The spec is
+ * declared with `exactOptionalPropertyTypes`, so `{ goal: undefined }` and
+ * "no goal" are different types — and the second is what we mean.
+ */
+function optionalText<K extends string>(key: K, value: unknown): Partial<Record<K, string>> {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text === '' || text.length > 400 ? {} : ({ [key]: text } as Record<K, string>);
+}
+
+function optionalList<K extends string>(key: K, value: unknown): Partial<Record<K, string[]>> {
+  const list = asStringList(value, MAX_LIST);
+  return list.length > 0 ? ({ [key]: list } as Record<K, string[]>) : {};
+}
+
 const IRREGULAR_PLURALS: Record<string, string> = {
   Person: 'People',
   Child: 'Children',
@@ -177,5 +192,17 @@ export function normalizeSpec(value: unknown, options: NormalizeOptions): Requir
         : ['Email and password', 'JWT sessions'],
     integrations: asStringList(raw.integrations, 8),
     missingRequirements: asStringList(raw.missingRequirements, 10),
+    // The planning detail below used to be dropped here, which quietly cost
+    // the website its subject: `deriveSiteDesign` reads `goal` and
+    // `functionalRequirements`, found neither, and fell back to "<Brand>,
+    // ready when you are" for every project ever generated. Keeping them is
+    // free — the deterministic stages read only the fields above.
+    ...optionalText('goal', raw.goal),
+    ...optionalList('functionalRequirements', raw.functionalRequirements),
+    ...optionalList('nonFunctionalRequirements', raw.nonFunctionalRequirements),
+    ...optionalList('constraints', raw.constraints),
+    ...optionalList('assumptions', raw.assumptions),
+    ...optionalList('securityRequirements', raw.securityRequirements),
+    ...optionalList('acceptanceCriteria', raw.acceptanceCriteria),
   };
 }

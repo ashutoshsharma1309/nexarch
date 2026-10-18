@@ -34,14 +34,15 @@ import { emitApiLayer } from './lib/emit-api.js';
 import { emitEntityPages } from './lib/emit-entity-pages.js';
 import { emitFixedPages } from './lib/emit-fixed-pages.js';
 import { emitLanding } from './lib/emit-landing.js';
-import { deriveSiteContent } from './lib/site-content.js';
-import type { SiteContent } from './lib/site-content.js';
+import { deriveSiteDesign } from './lib/site-content.js';
+import type { SiteDesign } from './lib/site-content.js';
 import { emitForms } from './lib/emit-forms.js';
 import { emitLayouts } from './lib/emit-layouts.js';
 import { emitProjectFiles } from './lib/emit-project-files.js';
 import { emitRouting } from './lib/emit-routing.js';
 import { emitStores } from './lib/emit-stores.js';
 import { emitStyles } from './lib/emit-styles.js';
+import { emitArt } from './lib/art-kit.js';
 import { emitUiData } from './lib/emit-ui-data.js';
 import { emitUiOverlays } from './lib/emit-ui-overlays.js';
 import { emitUiPrimitives } from './lib/emit-ui-primitives.js';
@@ -201,10 +202,12 @@ export function generateFrontend(
   openapi: OpenApiDocument,
   backendManifest: BackendManifest,
   entityMetadata: EntityMetadataSet,
-  /** The landing page's copy — model-written by the pipeline; derived from the spec when absent. */
-  siteContent?: SiteContent,
+  /** The website's design — model-written by the pipeline; derived from the spec when absent. */
+  siteDesign?: SiteDesign,
 ): GeneratedFrontend {
   const startedAt = performance.now();
+
+  const design = siteDesign ?? deriveSiteDesign(requirements);
 
   const model = buildProjectModel(
     architecture,
@@ -217,18 +220,19 @@ export function generateFrontend(
 
   const files: GeneratedFile[] = [
     ...emitProjectFiles(model),
-    ...emitStyles(),
+    ...emitStyles(design.theme),
     ...emitUiPrimitives(),
     ...emitUiOverlays(),
     ...emitUiData(),
-    ...emitStores(),
+    ...emitStores(design.theme),
     ...emitLayouts(model.pages, model.authEnabled),
     ...emitApiLayer(model.pages, model.authEnabled),
     ...emitForms(model.pages),
     ...emitEntityPages(model.pages),
     ...emitFixedPages(model),
-    ...emitLanding(siteContent ?? deriveSiteContent(requirements)),
-    ...emitRouting(model),
+    ...emitLanding(design),
+    ...emitArt(),
+    ...emitRouting(model, design.theme),
   ];
 
   const pages = summarizePages(model, files);
@@ -281,5 +285,11 @@ export function generateFrontend(
 
 // The landing page's copy is the one generator input a model writes; the
 // pipeline asks for it and hands the validated result to `generateFrontend`.
-export { deriveSiteContent, normalizeSiteContent } from './lib/site-content.js';
-export type { SiteContent } from './lib/site-content.js';
+export {
+  deriveSiteDesign,
+  normalizeSiteDesign,
+  deriveSiteContent,
+  normalizeSiteContent,
+  fontOf,
+} from './lib/site-content.js';
+export type { SiteContent, SiteDesign, SiteSection, SiteTheme } from './lib/site-content.js';

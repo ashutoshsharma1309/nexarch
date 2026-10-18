@@ -119,16 +119,24 @@ function maxActiveSessionsTotal(): number {
  * kind of rule that needs a test that does not need one.
  */
 export function runAdmission(
-  active: readonly { ownerId: string }[],
+  active: readonly { ownerId: string; projectName?: string }[],
   ownerId: string,
   perOwnerLimit: number = maxActiveSessions(),
   totalLimit: number = maxActiveSessionsTotal(),
 ): { allowed: true } | { allowed: false; message: string } {
-  const mine = active.filter((entry) => entry.ownerId === ownerId).length;
-  if (mine >= perOwnerLimit) {
+  const mine = active.filter((entry) => entry.ownerId === ownerId);
+  if (mine.length >= perOwnerLimit) {
+    // Name them. The slots are almost always held by *other* projects, and
+    // the refusal used to say "stop one from the preview page" while the
+    // page the user was reading it on showed no run at all — the thing to
+    // stop was one project tab away with nothing pointing at it.
+    const held = mine
+      .map((entry) => entry.projectName)
+      .filter((name): name is string => typeof name === 'string' && name.length > 0);
+    const which = held.length > 0 ? ` (${held.join(', ')})` : '';
     return {
       allowed: false,
-      message: `You already have ${String(mine)} run${mine === 1 ? '' : 's'} going — stop one from the preview page, or raise NEXARCH_RUNNER_MAX_SESSIONS`,
+      message: `You already have ${String(mine.length)} run${mine.length === 1 ? '' : 's'} going${which} — stop one below, or raise NEXARCH_RUNNER_MAX_SESSIONS`,
     };
   }
   if (active.length >= totalLimit) {
@@ -428,7 +436,10 @@ export function createSession(request: CreateSessionRequest, ownerId: string): R
   }
 
   const active = [...sessions.values()].filter((r) => ACTIVE_PHASES.includes(r.session.phase));
-  const admission = runAdmission(active, ownerId);
+  const admission = runAdmission(
+    active.map((r) => ({ ownerId: r.ownerId, projectName: r.session.projectName })),
+    ownerId,
+  );
   if (!admission.allowed) throw AppError.conflict(admission.message);
 
   const now = new Date().toISOString();

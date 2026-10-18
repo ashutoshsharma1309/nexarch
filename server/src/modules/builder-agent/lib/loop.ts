@@ -10,12 +10,13 @@
  *
  * Success is not the model's to claim. A `finish` before the website is
  * built, running and inspected is refused once and the policy continues; the
- * session is `succeeded` only when that evidence exists, whatever the final
- * summary says.
+ * session is `succeeded` only when that evidence exists — and only when
+ * validation did not come back against it — whatever the final summary says.
  */
 import { randomUUID } from 'node:crypto';
 
 import { logger } from '../../../shared/logger/index.js';
+import type { ValidationGate } from '../../../shared/types/validation.js';
 import type {
   BuilderSession,
   BuilderStep,
@@ -73,9 +74,30 @@ export function stageOf(tool: BuilderToolName): number {
   return STAGES[tool];
 }
 
+/**
+ * The gate values that mean validation did not hold: `FAILED` is a check that
+ * ran and failed, `BLOCKED` one that could not run at all. Both are evidence
+ * against the website, so neither may complete a session — without this a
+ * build that ran and answered HTTP was reported as `succeeded` while its own
+ * validation said the app was broken.
+ */
+const FAILING_GATES: readonly ValidationGate[] = ['FAILED', 'BLOCKED'];
+
+/** The failing gate the session recorded, or `null` when the gate is not one. */
+function failingGate(state: BuilderSession['state']): string | null {
+  const gate = state.validationGate;
+  if (gate === null) return null;
+  return FAILING_GATES.some((failing) => failing === gate) ? gate : null;
+}
+
 export function isComplete(session: BuilderSession): boolean {
   const { state } = session;
-  return state.pipelineRunId !== null && state.frontendUrl !== null && state.inspected;
+  return (
+    state.pipelineRunId !== null &&
+    state.frontendUrl !== null &&
+    state.inspected &&
+    failingGate(state) === null
+  );
 }
 
 function now(): string {
@@ -108,6 +130,16 @@ function composeSummary(session: BuilderSession): string {
   if (isComplete(session)) {
     const sections = state.landingSections.join(', ') || 'no landing sections';
     return `Built "${state.projectName ?? 'the website'}" and it is running at ${state.frontendUrl ?? ''}. Landing page: ${sections}. Validation gate: ${state.validationGate ?? 'not run'}.`;
+  }
+  // A failed gate leaves no failed step behind — the review tool itself
+  // succeeded in reporting it — so the gate has to speak for itself here.
+  const gate = failingGate(state);
+  if (gate !== null) {
+    const where =
+      state.frontendUrl === null
+        ? 'The website was built but never started'
+        : `The website is running at ${state.frontendUrl}`;
+    return `${where}, and its validation gate came back ${gate} — it is not fit to hand over.`;
   }
   const last = [...session.steps].reverse().find((step) => step.status === 'failed');
   return `The website was not completed${last ? `: ${last.tool ?? last.kind} — ${last.summary}` : '.'}`;
@@ -283,7 +315,10 @@ export async function runLoop(session: BuilderSession, deps: LoopDeps): Promise<
     validationGate: session.state.validationGate,
     landingSections: session.state.landingSections,
   };
-  if (!session.result.complete && session.result.summary.startsWith('Built "')) {
+  // The model writes the summary only when the evidence backs it. Matching a
+  // "Built …" prefix was not enough: any other wording of the same claim
+  // ("All built and live at …") survived onto an incomplete session.
+  if (!session.result.complete) {
     session.result.summary = composeSummary(session);
   }
   if (session.status !== 'cancelled') {

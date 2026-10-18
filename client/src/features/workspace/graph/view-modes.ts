@@ -58,8 +58,8 @@ export const VIEW_MODES: readonly ViewMode[] = [
   {
     id: 'files',
     label: 'Files',
-    description: 'Generated source and tests, by the module that produced them.',
-    types: ['MODULE', 'COMPONENT', 'FILE', 'TEST'],
+    description: 'The generated tree: folders, source files, tests and what they import.',
+    types: ['PROJECT', 'FOLDER', 'FILE', 'TEST'],
   },
   {
     id: 'security',

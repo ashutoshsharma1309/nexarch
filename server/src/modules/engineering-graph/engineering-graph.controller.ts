@@ -15,8 +15,12 @@ import {
   getImpact,
   getNode,
   getPath,
+  synchronize,
   validate,
 } from './engineering-graph.service.js';
+import { getArtifactsIfReady } from '../pipeline/pipeline.service.js';
+import { listRunsForProject } from '../pipeline/lib/run-store.js';
+import { getProjectOrThrow } from '../workspace/workspace.service.js';
 import type { GraphNodeType } from '../../shared/contracts/index.js';
 
 function ownerOf(req: Request): string {
@@ -93,4 +97,42 @@ export async function pathHandler(req: Request, res: Response): Promise<void> {
 
 export async function validateHandler(req: Request, res: Response): Promise<void> {
   sendSuccess(res, await validate(ownerOf(req), projectId(req)));
+}
+
+/**
+ * Recompute the graph from this project's most recent completed build.
+ *
+ * The pipeline already synchronizes the graph at the end of every run, so
+ * this exists for the case the automatic path cannot cover: a graph read
+ * after the API restarted, or one a user simply wants to confirm is current.
+ *
+ * It lives in the controller rather than the service on purpose. The pipeline
+ * imports the graph service to synchronize at the end of a run; having the
+ * graph service import the pipeline back would close that loop. The handler
+ * is the one place that may know about both.
+ */
+export async function refreshHandler(req: Request, res: Response): Promise<void> {
+  const ownerId = ownerOf(req);
+  const id = projectId(req);
+  await getProjectOrThrow(ownerId, id);
+
+  const runs = await listRunsForProject(id, 20);
+  const latest = runs.find((run) => run.status === 'COMPLETED');
+  if (!latest) {
+    throw AppError.badRequest(
+      'This project has no completed build yet, so there is nothing to map',
+    );
+  }
+
+  const artifacts = getArtifactsIfReady(latest.id);
+  if (!artifacts) {
+    // Artifacts are held in the API process; a restart loses them. Say so,
+    // rather than quietly serving the graph that is already stored.
+    throw AppError.conflict(
+      "The latest build's output is no longer held by the server, so the graph cannot be recomputed from it. Rebuild the project to refresh the graph.",
+    );
+  }
+
+  await synchronize(id, latest.id, artifacts);
+  sendSuccess(res, await getGraph(ownerId, id));
 }

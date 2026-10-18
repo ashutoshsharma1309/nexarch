@@ -48,6 +48,8 @@ const RING: Record<EngNodeType, number> = {
   ENTITY: 5,
   SECURITY_RULE: 5,
   FIELD: 6,
+  // A folder sits between what produced it and the files inside it.
+  FOLDER: 5,
   FILE: 6,
   TEST: 6,
   DEPENDENCY: 6,

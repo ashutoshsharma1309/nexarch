@@ -26,6 +26,7 @@ export const FAMILY_OF: Record<EngNodeType, NodeFamily> = {
   FIELD: 'data',
   SECURITY_RULE: 'security',
   FILE: 'artifact',
+  FOLDER: 'artifact',
   TEST: 'artifact',
   DEPENDENCY: 'artifact',
 };

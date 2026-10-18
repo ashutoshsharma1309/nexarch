@@ -399,6 +399,8 @@ async function recordValidationSummary(run: AgentRun): Promise<void> {
   const validationTasks = run.tasks.filter((task) => VALIDATION_AGENTS.has(task.agentId));
   if (validationTasks.length === 0) return;
 
+  recordEvent(run.id, 'VALIDATION_STARTED', { detail: { agents: validationTasks.length } });
+
   const artifacts = artifactsOf(run.id);
   const runtime = (artifacts['runtime-report'] ?? null) as RuntimeResult | null;
   const integration = (artifacts['integration-report'] ?? null) as IntegrationResult | null;
@@ -415,6 +417,18 @@ async function recordValidationSummary(run: AgentRun): Promise<void> {
       status: task.status === 'COMPLETED' ? ('COMPLETED' as const) : ('FAILED' as const),
       durationMs: task.durationMs,
     })),
+  });
+
+  // The gate decides this event, not the fact that validation ran. The
+  // event vocabulary has no PASSED_WITH_WARNINGS member, and BLOCKED and
+  // NOT_VALIDATED are not failures of the code under test, so the gate and
+  // the rule that fired travel in the detail: the event says whether the
+  // gate passed, the detail says what the gate actually was. Nothing here
+  // flattens a warned or never-run validation into a bare "passed" — the
+  // event used to be emitted for every task before anything was validated.
+  const gatePassed = summary.gate === 'PASSED' || summary.gate === 'PASSED_WITH_WARNINGS';
+  recordEvent(run.id, gatePassed ? 'VALIDATION_PASSED' : 'VALIDATION_FAILED', {
+    detail: { gate: summary.gate, reason: summary.gateReason },
   });
 
   storeArtifacts(run.id, { 'validation-summary': summary });
@@ -720,8 +734,6 @@ function commitTask(
   definition: AgentDefinition,
   result: AgentResult,
 ): void {
-  recordEvent(run.id, 'VALIDATION_PASSED', { taskId: task.id, agentId: task.agentId });
-
   // Provenance: whatever this agent declared it consumes, at the version
   // that existed when it ran. Recorded before the write so a new artifact
   // never lists itself among its own inputs.
@@ -910,5 +922,8 @@ function summarize(artifacts: Partial<Record<ArtifactType, unknown>>): string {
     );
   }
 
-  return parts.at(-1) ?? 'completed';
+  // No artifact this function knows how to read means there is nothing to
+  // report. Saying "completed" here claimed a success the artifacts do not
+  // evidence, which is the one thing a summary must never do.
+  return parts.at(-1) ?? 'no reportable output';
 }

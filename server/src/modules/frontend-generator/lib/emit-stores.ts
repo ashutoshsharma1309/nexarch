@@ -1,13 +1,16 @@
 /**
- * Emits the Zustand stores every generated app ships with: theme (dark-first,
- * persisted, applies the `dark` class), auth (token + user, persisted),
+ * Emits the Zustand stores every generated app ships with: theme (opens in
+ * the mode the site design chose, persisted, applies the `dark` class), auth
+ * (token + user, persisted),
  * toast (in-memory notification queue), and settings (workspace prefs,
  * persisted).
  */
 import type { GeneratedFile } from '../frontend-generator.types.js';
 import { file } from './file-tree.js';
+import type { SiteTheme } from './site-content.js';
 
-const themeStore = `import { create } from 'zustand';
+function themeStore(theme: SiteTheme): string {
+  return `import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 export type Theme = 'dark' | 'light';
@@ -25,7 +28,7 @@ function applyTheme(theme: Theme): void {
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set, get) => ({
-      theme: 'dark',
+      theme: '${theme.mode}',
       setTheme: (theme) => {
         applyTheme(theme);
         set({ theme });
@@ -43,6 +46,7 @@ export const useThemeStore = create<ThemeState>()(
   ),
 );
 `;
+}
 
 const authStore = `import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -134,9 +138,9 @@ export const useSettingsStore = create<SettingsState>()(
 );
 `;
 
-export function emitStores(): GeneratedFile[] {
+export function emitStores(theme: SiteTheme): GeneratedFile[] {
   return [
-    file('src/shared/store/theme.store.ts', 'typescript', themeStore),
+    file('src/shared/store/theme.store.ts', 'typescript', themeStore(theme)),
     file('src/shared/store/auth.store.ts', 'typescript', authStore),
     file('src/shared/store/toast.store.ts', 'typescript', toastStore),
     file('src/shared/store/settings.store.ts', 'typescript', settingsStore),

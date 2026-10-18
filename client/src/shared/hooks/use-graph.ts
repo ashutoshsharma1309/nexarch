@@ -1,6 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
+  refreshGraph,
   fetchGraph,
   fetchGraphImpact,
   fetchGraphNode,
@@ -55,5 +56,20 @@ export function useGraphValidation(projectId: string | undefined) {
     },
     enabled: Boolean(projectId),
     staleTime: 60_000,
+  });
+}
+
+/** Recompute the graph, then show the recomputed one rather than the cache. */
+export function useRefreshGraph(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => {
+      if (!projectId) throw new Error('No project selected');
+      return refreshGraph(projectId);
+    },
+    onSuccess: (graph) => {
+      queryClient.setQueryData(['graph', projectId], graph);
+      void queryClient.invalidateQueries({ queryKey: ['graph', projectId] });
+    },
   });
 }

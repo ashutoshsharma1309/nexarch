@@ -22,6 +22,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { publishArtifacts } from '@/features/pipeline/publish-artifacts';
 import { StageList } from '@/features/pipeline/stage-list';
 import { AgentRunPanel } from './agent-run-panel';
+import { EditPanel } from './edit/edit-panel';
 import { PROMPT_MAX_LENGTH } from '@/features/prompt/forge-schema';
 import { Badge } from '@/shared/components/ui/badge';
 import { Button } from '@/shared/components/ui/button';
@@ -193,6 +194,19 @@ export function BuildTab() {
           </CardFooter>
         </Card>
       </form>
+
+      {/* Editing is only possible once something has been built, and only
+          sensibly while nothing is being built — the server edits the latest
+          completed run, which a build in flight is about to replace. */}
+      {workspace.project && workspace.latestRun && !workspace.isBuilding && (
+        <EditPanel
+          projectId={workspace.project.id}
+          currentDesign={workspace.artifacts?.siteDesign ?? null}
+          onOpenPreview={() => {
+            void navigate(`${base}/preview`);
+          }}
+        />
+      )}
 
       {liveRun && (
         <section aria-label="Build progress" aria-live="polite">

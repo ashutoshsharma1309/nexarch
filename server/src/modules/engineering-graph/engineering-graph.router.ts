@@ -22,6 +22,7 @@ import {
   impactHandler,
   nodeHandler,
   pathHandler,
+  refreshHandler,
   validateHandler,
 } from './engineering-graph.controller.js';
 
@@ -31,6 +32,7 @@ engineeringGraphRouter.use(requireAuth);
 
 engineeringGraphRouter.get('/:projectId/graph', graphHandler);
 engineeringGraphRouter.get('/:projectId/graph/validate', validateHandler);
+engineeringGraphRouter.post('/:projectId/graph/refresh', refreshHandler);
 engineeringGraphRouter.get('/:projectId/graph/nodes/:nodeId', nodeHandler);
 engineeringGraphRouter.get('/:projectId/graph/nodes/:nodeId/dependencies', dependenciesHandler);
 engineeringGraphRouter.get('/:projectId/graph/nodes/:nodeId/dependents', dependentsHandler);

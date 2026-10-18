@@ -52,12 +52,45 @@ export const architectureValidation: ValidationChain[] = [
   stringArray('backend', { required: false }),
   stringArray('integrations', { required: false }),
   stringArray('missingRequirements', { required: false }),
+  body('goal').optional({ values: 'undefined' }).isString().withMessage('goal must be a string'),
+  stringArray('functionalRequirements', { required: false }),
+  stringArray('nonFunctionalRequirements', { required: false }),
+  stringArray('constraints', { required: false }),
+  stringArray('assumptions', { required: false }),
+  stringArray('securityRequirements', { required: false }),
+  stringArray('acceptanceCriteria', { required: false }),
 ];
 
-/** Fill optional arrays so the planners always receive a total spec. */
+/**
+ * Fill optional arrays so the planners always receive a total spec, and
+ * carry the planning-mesh detail through untouched.
+ *
+ * The detail used to be dropped here. A caller that had already been
+ * through the Requirement Analyst sent a spec with a goal, constraints,
+ * assumptions and acceptance criteria; this normalizer rebuilt the spec
+ * from the legacy fields alone, and the planner received a bare module
+ * list. The depth was not rejected, which would at least have been
+ * visible — it was silently discarded one call before the stage that
+ * needed it.
+ *
+ * Every detail field is optional on `RequirementSpec`, and under
+ * `exactOptionalPropertyTypes` an explicit `undefined` is not the same as
+ * an absent key, so each is spread in only when the caller actually sent
+ * something. An empty array is treated as "not sent": it carries no more
+ * information than absence, and a present-but-empty `constraints` would
+ * read downstream as "there are none" rather than "none were stated".
+ */
 export function normalizeSpec(body: Record<string, unknown>): RequirementSpec {
   const list = (field: string): string[] =>
     Array.isArray(body[field]) ? (body[field] as string[]) : [];
+
+  const goal = typeof body.goal === 'string' ? body.goal.trim() : '';
+  const functionalRequirements = list('functionalRequirements');
+  const nonFunctionalRequirements = list('nonFunctionalRequirements');
+  const constraints = list('constraints');
+  const assumptions = list('assumptions');
+  const securityRequirements = list('securityRequirements');
+  const acceptanceCriteria = list('acceptanceCriteria');
 
   return {
     projectName: String(body.projectName).trim(),
@@ -70,5 +103,12 @@ export function normalizeSpec(body: Record<string, unknown>): RequirementSpec {
     authentication: list('authentication'),
     integrations: list('integrations'),
     missingRequirements: list('missingRequirements'),
+    ...(goal ? { goal } : {}),
+    ...(functionalRequirements.length ? { functionalRequirements } : {}),
+    ...(nonFunctionalRequirements.length ? { nonFunctionalRequirements } : {}),
+    ...(constraints.length ? { constraints } : {}),
+    ...(assumptions.length ? { assumptions } : {}),
+    ...(securityRequirements.length ? { securityRequirements } : {}),
+    ...(acceptanceCriteria.length ? { acceptanceCriteria } : {}),
   };
 }

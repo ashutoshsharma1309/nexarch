@@ -18,7 +18,6 @@ const SECTIONS = [
   { to: 'repairs', label: 'Self-Repair' },
   { to: 'security', label: 'Security' },
   { to: 'dependencies', label: 'Dependencies' },
-  { to: 'graph', label: 'Engineering Graph' },
 ];
 
 export function IntelligenceTab() {

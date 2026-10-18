@@ -2,55 +2,83 @@
  * Emits the generated project's design tokens (`shared/styles/globals.css`)
  * and the `cn()` class-merging helper every component uses.
  *
- * Dark-first, one warm accent reserved for primary actions, everything else
- * cool graphite — the same restrained, Linear/Vercel-adjacent palette this
- * platform's own console uses, proven at this same quality bar rather than
- * imitated from a screenshot.
+ * The token *names* are fixed — every generated component is written against
+ * `canvas / surface / fg / accent …`, and that is what makes the design
+ * system coherent. The token *values* are not: they come from the site
+ * design, so a cafe gets warm paper and a developer tool gets cool graphite
+ * from the same components. Before this, every generated project shipped the
+ * identical dark palette no matter what was asked for.
+ *
+ * The structural CSS below the palette — focus rings, reduced motion,
+ * contrast, scrollbars — stays fixed. It is accessibility behaviour, not
+ * taste, and a model has no business rewriting it.
  */
 import type { GeneratedFile } from '../frontend-generator.types.js';
 import { file } from './file-tree.js';
+import { fontOf, paletteFor, type SitePalette, type SiteTheme } from './site-content.js';
 
-const globalsCss = `@import 'tailwindcss';
+const CORNER_RADII = {
+  sharp: ['0.125rem', '0.25rem', '0.375rem'],
+  soft: ['0.375rem', '0.5rem', '0.75rem'],
+  round: ['0.625rem', '0.875rem', '1.25rem'],
+} as const;
 
-@custom-variant dark (&:where(.dark, .dark *));
+/**
+ * The design's palette, written as the light and dark halves of the theme.
+ *
+ * Both halves are always emitted: the generated app keeps its theme toggle,
+ * and a visitor who flips it should get a considered palette rather than the
+ * platform default. The design decides which half the app opens in.
+ */
+function paletteBlocks(theme: SiteTheme): string {
+  const chosen = theme.palette;
+  const other = paletteFor(
+    theme.mode === 'dark' ? 'light' : 'dark',
+    theme.temperature,
+    chosen.accent,
+  );
+  const light = theme.mode === 'light' ? chosen : other;
+  const dark = theme.mode === 'dark' ? chosen : other;
 
-:root {
-  --palette-canvas: #f6f6f7;
-  --palette-surface: #ffffff;
-  --palette-raised: #ffffff;
-  --palette-inset: #eeeef0;
-  --palette-line: #e2e3e6;
-  --palette-line-strong: #cbccd1;
-  --palette-fg: #191b1f;
-  --palette-fg-muted: #5c5f66;
-  --palette-fg-subtle: #8b8e96;
-  --palette-accent: #4f5cc4;
-  --palette-accent-hover: #4350b6;
-  --palette-accent-soft: #4f5cc41a;
-  --palette-success: #2f8a62;
-  --palette-warning: #b07d28;
-  --palette-danger: #c04747;
-  --palette-danger-soft: #c047471a;
+  return `:root {
+${tokens(light)}
 }
 
 .dark {
-  --palette-canvas: #0b0c0e;
-  --palette-surface: #101114;
-  --palette-raised: #16181c;
-  --palette-inset: #0e0f11;
-  --palette-line: #24262b;
-  --palette-line-strong: #34373e;
-  --palette-fg: #edeef0;
-  --palette-fg-muted: #a2a5ab;
-  --palette-fg-subtle: #6c6f76;
-  --palette-accent: #7d8ae8;
-  --palette-accent-hover: #929ded;
-  --palette-accent-soft: #7d8ae824;
-  --palette-success: #55b083;
-  --palette-warning: #d0a04a;
-  --palette-danger: #d96a6a;
-  --palette-danger-soft: #d96a6a24;
+${tokens(dark)}
+}`;
 }
+
+function tokens(palette: SitePalette): string {
+  return [
+    `  --palette-canvas: ${palette.canvas};`,
+    `  --palette-surface: ${palette.surface};`,
+    `  --palette-raised: ${palette.raised};`,
+    `  --palette-inset: ${palette.inset};`,
+    `  --palette-line: ${palette.line};`,
+    `  --palette-line-strong: ${palette.lineStrong};`,
+    `  --palette-fg: ${palette.fg};`,
+    `  --palette-fg-muted: ${palette.fgMuted};`,
+    `  --palette-fg-subtle: ${palette.fgSubtle};`,
+    `  --palette-accent: ${palette.accent};`,
+    `  --palette-accent-hover: ${palette.accentHover};`,
+    `  --palette-accent-soft: ${palette.accentSoft};`,
+    `  --palette-accent-fg: ${palette.accentFg};`,
+    `  --palette-success: ${palette.success};`,
+    `  --palette-warning: ${palette.warning};`,
+    `  --palette-danger: ${palette.danger};`,
+    `  --palette-danger-soft: ${palette.dangerSoft};`,
+  ].join('\n');
+}
+
+function globalsCss(theme: SiteTheme): string {
+  const font = fontOf(theme);
+  const [sm, md, lg] = CORNER_RADII[theme.corners];
+  return `@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+${paletteBlocks(theme)}
 
 @theme inline {
   --color-canvas: var(--palette-canvas);
@@ -65,6 +93,7 @@ const globalsCss = `@import 'tailwindcss';
   --color-accent: var(--palette-accent);
   --color-accent-hover: var(--palette-accent-hover);
   --color-accent-soft: var(--palette-accent-soft);
+  --color-accent-fg: var(--palette-accent-fg);
   --color-success: var(--palette-success);
   --color-warning: var(--palette-warning);
   --color-danger: var(--palette-danger);
@@ -72,20 +101,20 @@ const globalsCss = `@import 'tailwindcss';
 }
 
 @theme {
-  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-sans: ${font.stack}, ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
+  --radius-sm: ${sm};
+  --radius-md: ${md};
+  --radius-lg: ${lg};
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: ${theme.mode};
 }
-html:not(.dark) {
-  color-scheme: light;
+html${theme.mode === 'dark' ? ':not(.dark)' : '.dark'} {
+  color-scheme: ${theme.mode === 'dark' ? 'light' : 'dark'};
 }
 
 body {
@@ -127,6 +156,7 @@ dialog::backdrop {
   }
 }
 `;
+}
 
 const cnHelper = `import { clsx } from 'clsx';
 import type { ClassValue } from 'clsx';
@@ -138,9 +168,9 @@ export function cn(...inputs: ClassValue[]): string {
 }
 `;
 
-export function emitStyles(): GeneratedFile[] {
+export function emitStyles(theme: SiteTheme): GeneratedFile[] {
   return [
-    file('src/shared/styles/globals.css', 'css', globalsCss),
+    file('src/shared/styles/globals.css', 'css', globalsCss(theme)),
     file('src/shared/lib/cn.ts', 'typescript', cnHelper),
   ];
 }

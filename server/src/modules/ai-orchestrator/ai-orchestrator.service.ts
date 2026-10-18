@@ -6,7 +6,7 @@
  * directly — this is the only file in the codebase that imports a
  * provider adapter's `call()`.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { AppError } from '../../shared/utils/app-error.js';
 import { estimateCost } from './lib/cost-estimator.js';
@@ -37,8 +37,11 @@ import type {
   ContextPackage,
   CostAnalytics,
   GenerateRequest,
+  ModelContentPart,
+  PromptImage,
   GenerateResponse,
   GenerationRecord,
+  ModelProvider,
   PromptTemplate,
   PromptVariables,
   ValidationResult,
@@ -52,9 +55,12 @@ const MAX_TOKENS_BY_COMPLEXITY: Record<GenerateRequest['complexity'], number> = 
   'small-file-regen': 4096,
   'large-planning': 8192,
   'complex-refactor': 8192,
+  // A visual reading, returned as a compact observation object — not prose.
+  'vision-analysis': 2048,
 };
 
-const router = new ModelRouter();
+/** The routing table every call uses, unless a caller supplies its own. */
+const defaultRouter = new ModelRouter();
 
 function buildPromptText(request: GenerateRequest): {
   text: string;
@@ -82,18 +88,69 @@ function buildPromptText(request: GenerateRequest): {
   return { text: `${rendered.text}\n\n${contextSection}`, contextPackage };
 }
 
+/**
+ * The user message: plain text as before, or text plus image parts.
+ *
+ * Each image is introduced by its label, because "the reference screenshot"
+ * and "the logo to use as an asset" are different instructions to a model
+ * looking at two pictures.
+ */
+function messageContent(text: string, images: readonly PromptImage[]): string | ModelContentPart[] {
+  if (images.length === 0) return text;
+  return [
+    { type: 'text', text },
+    ...images.flatMap((image): ModelContentPart[] => [
+      { type: 'text', text: `Image: ${image.label}` },
+      { type: 'image_url', image_url: { url: image.dataUrl } },
+    ]),
+  ];
+}
+
+/** Images are large; their digest, not their bytes, belongs in a cache key. */
+function digestImages(images: readonly PromptImage[]): string {
+  const hash = createHash('sha256');
+  for (const image of images) hash.update(image.label).update('\0').update(image.dataUrl);
+  return hash.digest('hex');
+}
+
+/**
+ * Refuse an image a provider cannot see.
+ *
+ * Refusing is the point. Sending the instruction without the picture would
+ * produce an answer that reads like the analysis of an image the model never
+ * received — the exact failure this platform must not ship. Exported so the
+ * rule can be checked against a specific adapter, rather than through the
+ * fallback chain that decides which adapter a call ends up at.
+ */
+export function ensureImagesSupported(provider: ModelProvider, imageCount: number): void {
+  if (imageCount === 0 || provider.supportsImages) return;
+  throw new NonRetryableError(
+    `The configured AI provider (${provider.name}) cannot read images, so this reference cannot be analysed. Configure a vision-capable provider, or send the instruction without an image.`,
+  );
+}
+
 export async function generate(
   request: GenerateRequest,
   options: { forceRefresh?: boolean; maxOutputTokens?: number } = {},
+  /** Overridable so a test can route a call at a provider it chooses. */
+  router: ModelRouter = defaultRouter,
 ): Promise<GenerateResponse> {
   const startedAt = Date.now();
   const { text, contextPackage } = buildPromptText(request);
   const compression = compressPrompt(text);
 
   const routed = router.route(request.complexity);
+  const images = request.images ?? [];
+  ensureImagesSupported(routed.provider, images.length);
   logGenerationStart(request.promptId, routed.provider.id, routed.model);
 
-  const cacheKey = CacheManager.key(request.promptId, routed.model, compression.text);
+  // Two requests with the same words but different reference images are not
+  // the same request; the digest keeps them in separate cache entries.
+  const cacheKey = CacheManager.key(
+    request.promptId,
+    routed.model,
+    images.length === 0 ? compression.text : `${compression.text}\u0000${digestImages(images)}`,
+  );
   if (!options.forceRefresh) {
     const cached = globalCache.get(cacheKey);
     if (cached) {
@@ -124,7 +181,7 @@ export async function generate(
     const outcome = await withRetry(async () => {
       const result = await routed.provider.call({
         model: routed.model,
-        messages: [{ role: 'user', content: compression.text }],
+        messages: [{ role: 'user', content: messageContent(compression.text, images) }],
         maxTokens: options.maxOutputTokens ?? MAX_TOKENS_BY_COMPLEXITY[request.complexity],
         // Every prompt in this platform asks for one structured object.
         // Where the provider can enforce that natively, let it — a schema

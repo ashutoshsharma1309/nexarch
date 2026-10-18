@@ -272,56 +272,149 @@ describe('landing page', () => {
   const derived = deriveSiteContent(spec);
   const NUL = String.fromCharCode(0);
 
-  it('derives copy from the spec and never invents prices or customers', () => {
+  it('derives a page from the spec and never invents prices or customers', () => {
     assert.equal(derived.source, 'derived');
-    assert.ok(derived.features.length > 0);
-    assert.ok(derived.faq.length > 0);
-    assert.deepEqual(derived.pricing, []);
-    assert.deepEqual(derived.testimonials, []);
+    const kinds = derived.sections.map((section) => section.kind);
+    assert.equal(kinds[0], 'hero', 'the page opens on a hero');
+    assert.ok(kinds.includes('faq'));
+    // A fallback must not put prices or customers on a page nobody asked for.
+    assert.equal(kinds.includes('pricing'), false);
+    assert.equal(kinds.includes('testimonials'), false);
   });
 
-  it('validates model output field by field and falls back per field', () => {
-    const content = normalizeSiteContent(
+  it('designs the page from the request: sections, order, theme and art', () => {
+    const design = normalizeSiteContent(
       {
-        brand: 'NovaStack',
-        headline: `  Ship   faster${NUL} with\nNovaStack  `,
-        features: [
-          { title: 'Fast' },
-          { title: 'Secure', description: 'Encrypted everywhere.' },
-          42,
-        ],
-        pricing: [
+        brand: 'Bean Lane',
+        tagline: 'Neighbourhood coffee',
+        theme: { mode: 'light', temperature: 'warm', corners: 'round', accent: '#b4581f' },
+        sections: [
           {
-            name: 'Starter',
-            price: '$0',
-            period: 'month',
-            features: ['1 seat', 7],
-            highlighted: false,
+            kind: 'hero',
+            id: 'top',
+            headline: `  Coffee   worth${NUL} the\nwalk  `,
+            art: 'coffee',
+            artLabel: 'A flat white on a saucer',
           },
-          { name: 'Pro', price: '$29', period: 'month', features: ['10 seats'], highlighted: true },
-          { name: '', price: '$99' },
+          {
+            kind: 'catalog',
+            id: 'menu',
+            navLabel: 'Menu',
+            title: 'On the menu',
+            items: [
+              {
+                name: 'Flat white',
+                description: 'Double ristretto.',
+                price: '£3.20',
+                art: 'coffee',
+              },
+              { name: 'Almond croissant', price: '£3.60' },
+              { name: '' },
+            ],
+          },
+          { kind: 'hours', id: 'hours', rows: [{ label: 'Monday', value: '7am – 6pm' }] },
+          { kind: 'testimonials', id: 'loved', items: [] },
+          { kind: 'nonsense', id: 'x' },
         ],
-        testimonials: [{ quote: 'Great.', name: 'Ada Park', role: 'CTO' }, { quote: 'No name' }],
-        faq: 'not-a-list',
-        closing: null,
       },
       derived,
     );
-    assert.equal(content.source, 'ai');
-    assert.equal(content.brand, 'NovaStack');
-    assert.equal(content.headline, 'Ship faster with NovaStack');
-    assert.deepEqual(content.features, [{ title: 'Secure', description: 'Encrypted everywhere.' }]);
+
+    assert.equal(design.source, 'ai');
     assert.deepEqual(
-      content.pricing.map((plan) => [plan.name, plan.price, plan.features]),
-      [
-        ['Starter', '$0', ['1 seat']],
-        ['Pro', '$29', ['10 seats']],
-      ],
+      design.sections.map((section) => section.kind),
+      ['hero', 'catalog', 'hours'],
+      'empty and unknown sections are dropped, order is kept',
     );
-    assert.equal(content.testimonials.length, 1);
-    assert.deepEqual(content.faq, derived.faq);
-    assert.deepEqual(content.closing, derived.closing);
-    assert.ok(normalizeSiteContent({ headline: 'x'.repeat(500) }, derived).headline.length <= 100);
+
+    const hero = design.sections[0];
+    assert.equal(hero?.kind === 'hero' && hero.headline, 'Coffee worth the walk');
+
+    const menu = design.sections[1];
+    assert.ok(menu?.kind === 'catalog');
+    assert.deepEqual(
+      menu.items.map((item) => [item.name, item.price]),
+      [
+        ['Flat white', '£3.20'],
+        ['Almond croissant', '£3.60'],
+      ],
+      'a nameless item is not a menu item',
+    );
+    // An item that named no illustration still gets one that fits its words.
+    assert.equal(menu.items[1]?.art, 'pastry');
+
+    assert.equal(design.theme.mode, 'light');
+    assert.equal(design.theme.temperature, 'warm');
+    assert.equal(design.theme.palette.accent.startsWith('#'), true);
+  });
+
+  it('refuses colours, fonts and art it cannot vouch for', () => {
+    const design = normalizeSiteContent(
+      {
+        theme: {
+          mode: 'sideways',
+          accent: 'url(javascript:alert(1))',
+          fontId: "Comic Sans'; }@import url(evil)",
+        },
+        sections: [
+          { kind: 'hero', id: 'top', headline: 'Hello', art: '../../etc/passwd' },
+          { kind: 'faq', id: 'faq', items: [{ question: 'Why?', answer: 'Because.' }] },
+        ],
+      },
+      derived,
+    );
+
+    assert.equal(design.theme.mode, derived.theme.mode, 'an unknown mode falls back');
+    assert.equal(design.theme.fontId, derived.theme.fontId, 'the font must be one we ship');
+    assert.match(design.theme.palette.accent, /^#[0-9a-f]{6}$/);
+    const hero = design.sections[0];
+    assert.equal(hero?.kind === 'hero' && hero.art, 'abstract', 'art must be a kind we ship');
+  });
+
+  it('never labels a button with a sign-in these apps do not have', () => {
+    const design = normalizeSiteContent(
+      {
+        sections: [
+          {
+            kind: 'hero',
+            id: 'top',
+            headline: 'Welcome to the student portal',
+            primaryCta: 'Login Now',
+            secondaryCta: 'Register',
+          },
+          { kind: 'cta', id: 'start', title: 'Ready?', label: 'Sign up' },
+        ],
+      },
+      derived,
+    );
+
+    const hero = design.sections[0];
+    assert.ok(hero?.kind === 'hero');
+    assert.equal(hero.primaryCta, 'Get started');
+    assert.equal(hero.secondaryCta, '');
+    const cta = design.sections[1];
+    assert.equal(cta?.kind === 'cta' && cta.label, 'Open the app');
+  });
+
+  it('keeps anchors unique so two sections of a kind cannot collide', () => {
+    const design = normalizeSiteContent(
+      {
+        sections: [
+          { kind: 'hero', id: 'top', headline: 'Hello' },
+          { kind: 'catalog', id: 'menu', items: [{ name: 'Tea' }] },
+          { kind: 'catalog', id: 'menu', items: [{ name: 'Cake' }] },
+        ],
+      },
+      derived,
+    );
+    const ids = design.sections.map((section) => section.id);
+    assert.deepEqual(ids, ['top', 'menu', 'menu-2']);
+    assert.equal(new Set(ids).size, ids.length);
+  });
+
+  it('falls back to the derived page when nothing usable came back', () => {
+    assert.deepEqual(normalizeSiteContent({ sections: [] }, derived), derived);
+    assert.deepEqual(normalizeSiteContent('not an object', derived), derived);
   });
 
   it('escapes the project name in index.html and ships an inline favicon', () => {
@@ -364,7 +457,10 @@ describe('landing page', () => {
       bundle.entityMetadata,
     );
     const hostile = normalizeSiteContent(
-      { brand: 'Nova`${process.env.SECRET}`', headline: '"; alert(1); //</script>' },
+      {
+        brand: 'Nova`${process.env.SECRET}`',
+        sections: [{ kind: 'hero', id: 'top', headline: '"; alert(1); //</script>' }],
+      },
       derived,
     );
     const project = generateFrontend(
@@ -389,9 +485,18 @@ describe('landing page', () => {
     // Model text is data: JSON-encoded into the content module, never source.
     const siteModule = byPath.get('src/content/site.ts') ?? '';
     const literal = /export const site: SiteContent = ([\s\S]*);\s*$/.exec(siteModule)?.[1] ?? '';
-    const parsed = JSON.parse(literal) as { brand: string; headline: string };
+    const parsed = JSON.parse(literal) as {
+      brand: string;
+      sections: { headline?: string }[];
+    };
+    const heroSection = hostile.sections[0];
     assert.equal(parsed.brand, hostile.brand);
-    assert.equal(parsed.headline, hostile.headline);
+    assert.equal(
+      parsed.sections[0]?.headline,
+      heroSection?.kind === 'hero' && heroSection.headline,
+    );
     assert.equal(siteModule.includes('"source"'), false);
+    // The theme is applied, not shipped as data for the page to read.
+    assert.equal(siteModule.includes('"theme"'), false);
   });
 });

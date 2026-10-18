@@ -10,9 +10,10 @@
  *   1. The project does not build or typecheck        → FAILED
  *   2. The application does not start                 → FAILED
  *   3. Runtime up but integration/tests never ran     → BLOCKED
- *   4. A CRITICAL test failed, or integration failed  → FAILED
- *   5. Any non-critical failure or warning            → PASSED_WITH_WARNINGS
- *   6. Everything ran and passed                      → PASSED
+ *   4. Not one planned test actually executed         → BLOCKED
+ *   5. A CRITICAL test failed, or integration failed  → FAILED
+ *   6. Any non-critical failure, skip or block        → PASSED_WITH_WARNINGS
+ *   7. Everything ran and passed                      → PASSED
  *
  * Note what is *not* here: nothing about "production ready". A PASSED gate
  * means these checks ran and passed — a claim about this validation, not a
@@ -69,6 +70,18 @@ function decideGate(input: SummaryInput): { gate: ValidationGate; reason: string
       reason: 'The runtime is up but integration or testing never ran, so behaviour is unverified.',
     };
   }
+  /*
+   * A plan whose every case was skipped or blocked is a plan that never
+   * executed: `total > 0` says only that cases were *written*. Without this
+   * rule such a run reached the PASSED branch below, because skips and
+   * blocks were absent from the warning sum.
+   */
+  if (tests.passed + tests.failed === 0) {
+    return {
+      gate: 'BLOCKED',
+      reason: `The runtime is up but not one of the ${String(tests.total)} planned test(s) executed: ${String(tests.skipped)} skipped, ${String(tests.blocked)} blocked. Behaviour is unverified.`,
+    };
+  }
 
   const integrationFailures = integration.checks.filter((check) => check.status === 'FAIL');
   const hardIntegration = integrationFailures.filter((check) => check.kind !== 'ERROR_HANDLING');
@@ -88,23 +101,71 @@ function decideGate(input: SummaryInput): { gate: ValidationGate; reason: string
     };
   }
 
+  /*
+   * A check that never ran is not a check that passed. The sum below used
+   * to count only failures and blocks, so a project with no build and no
+   * typecheck script (both SKIPPED) and a plan of entirely skipped cases
+   * came out PASSED under the sentence "every planned test passed" — the
+   * unevidenced success claim this mesh exists to make impossible. Skips
+   * and non-passing compile checks are therefore warnings, and both
+   * reasons below are assembled from what was actually observed, so
+   * neither sentence can name a check that did not run.
+   */
+  const integrationPassed = integration.checks.filter((check) => check.status === 'PASS').length;
+
+  const ranAndPassed: string[] = [];
+  if (runtime.buildStatus === 'PASS') ranAndPassed.push('build');
+  if (runtime.typeCheckStatus === 'PASS') ranAndPassed.push('typecheck');
+  if (runtime.startupStatus === 'PASS') ranAndPassed.push('startup');
+  if (runtime.healthStatus === 'PASS') ranAndPassed.push('the health endpoint');
+  if (integrationPassed > 0) {
+    ranAndPassed.push(`${String(integrationPassed)} integration check(s)`);
+  }
+  if (tests.passed > 0) {
+    ranAndPassed.push(`${String(tests.passed)} of ${String(tests.total)} planned test(s)`);
+  }
+
+  const neverRan: string[] = [];
+  if (runtime.buildStatus !== 'PASS') neverRan.push(`build ${runtime.buildStatus}`);
+  if (runtime.typeCheckStatus !== 'PASS') neverRan.push(`typecheck ${runtime.typeCheckStatus}`);
+  if (tests.skipped > 0) {
+    neverRan.push(`${String(tests.skipped)} of ${String(tests.total)} planned test(s) SKIPPED`);
+  }
+  if (tests.blocked > 0) neverRan.push(`${String(tests.blocked)} test(s) BLOCKED`);
+
+  const unrunCompileChecks =
+    (runtime.buildStatus === 'PASS' ? 0 : 1) + (runtime.typeCheckStatus === 'PASS' ? 0 : 1);
   const warnings =
     tests.failed +
     tests.blocked +
+    tests.skipped +
     integrationFailures.length +
+    unrunCompileChecks +
     (runtime.lintStatus === 'FAIL' ? 1 : 0) +
     (runtime.healthStatus === 'FAIL' ? 1 : 0);
+
   if (warnings > 0) {
-    return {
-      gate: 'PASSED_WITH_WARNINGS',
-      reason: `Core checks passed; ${String(tests.failed)} non-critical test failure(s), ${String(tests.blocked)} blocked, ${String(integrationFailures.length)} soft integration issue(s).`,
-    };
+    const problems: string[] = [];
+    if (tests.failed > 0) problems.push(`${String(tests.failed)} non-critical test failure(s)`);
+    if (integrationFailures.length > 0) {
+      problems.push(`${String(integrationFailures.length)} soft integration issue(s)`);
+    }
+    if (runtime.lintStatus === 'FAIL') problems.push('lint failed');
+    if (runtime.healthStatus === 'FAIL') problems.push('the health endpoint failed');
+
+    const clauses = [
+      ranAndPassed.length > 0
+        ? `Ran and passed: ${ranAndPassed.join(', ')}`
+        : 'Nothing was confirmed to pass',
+    ];
+    if (neverRan.length > 0) clauses.push(`did not run: ${neverRan.join(', ')}`);
+    if (problems.length > 0) clauses.push(`failed: ${problems.join(', ')}`);
+    return { gate: 'PASSED_WITH_WARNINGS', reason: `${clauses.join('; ')}.` };
   }
 
   return {
     gate: 'PASSED',
-    reason:
-      'Build, startup, integration and every planned test passed against the running application.',
+    reason: `Ran and passed: ${ranAndPassed.join(', ')} — against the running application, with nothing skipped or blocked.`,
   };
 }
 
@@ -173,6 +234,11 @@ export function summarizeValidation(input: SummaryInput): ValidationSummary {
     );
   }
 
+  /*
+   * PASS here needs a pass to point at. The row used to read PASS whenever
+   * nothing failed, which reported a green Tests line for a plan in which
+   * every case was skipped.
+   */
   rows.push(
     row(
       'Tests',
@@ -180,10 +246,12 @@ export function summarizeValidation(input: SummaryInput): ValidationSummary {
         ? 'BLOCKED'
         : tests.failed > 0
           ? 'FAIL'
-          : tests.blocked === tests.total
-            ? 'BLOCKED'
+          : tests.passed === 0
+            ? tests.blocked > 0
+              ? 'BLOCKED'
+              : 'SKIPPED'
             : 'PASS',
-      `${String(tests.passed)}/${String(tests.total)} passed · ${String(tests.failed)} failed · ${String(tests.blocked)} blocked`,
+      `${String(tests.passed)}/${String(tests.total)} passed · ${String(tests.failed)} failed · ${String(tests.blocked)} blocked · ${String(tests.skipped)} skipped`,
     ),
   );
 

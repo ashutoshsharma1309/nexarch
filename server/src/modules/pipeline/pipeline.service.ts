@@ -22,6 +22,7 @@
  * is a `generations` row.
  */
 import { randomUUID } from 'node:crypto';
+import { closeRun, openRun } from './lib/run-store.js';
 
 import { logger } from '../../shared/logger/index.js';
 import { AppError } from '../../shared/utils/app-error.js';
@@ -36,8 +37,9 @@ import {
   analyzeWithAi,
   deriveProjectName,
   designEntityFields,
-  writeSiteContent,
+  writeSiteDesign,
 } from './lib/ai-stages.js';
+import { auditDomainRelevance, summarizeRelevance } from './lib/domain-relevance.js';
 import { describeAll, isArtifactType, selectArtifact } from './lib/artifact-index.js';
 import type { AiCallStat } from './lib/ai-stages.js';
 import type { AgentId } from '../../shared/contracts/agent.js';
@@ -238,6 +240,25 @@ function failRun(run: PipelineRun, id: StageId, error: unknown): void {
 }
 
 /**
+ * Marks one stage failed and leaves the run alone.
+ *
+ * Deliberately distinct from `failRun`: a sub-step can fail without making
+ * the generated application invalid, and the graph-sync catch below used to
+ * record exactly that case with `completeStage` — a failed write reported as
+ * a completed stage, so the run claimed a graph it had never written.
+ */
+function failStage(run: PipelineRun, id: StageId, error: unknown): void {
+  const stage = stageOf(run, id);
+  stage.status = 'failed';
+  stage.completedAt = new Date().toISOString();
+  stage.durationMs = stage.startedAt
+    ? Date.parse(stage.completedAt) - Date.parse(stage.startedAt)
+    : null;
+  stage.error = userFacingError(error);
+  touch(run);
+}
+
+/**
  * Everything a user sees about a failure comes through here. Internal
  * details stay in the server log; the client gets a sentence it can act on.
  */
@@ -251,6 +272,23 @@ function userFacingError(error: unknown): string {
     return 'The AI provider could not be reached';
   }
   return 'An unexpected error interrupted this stage';
+}
+
+/**
+ * Checks that a stage produced its artifact before it is allowed to report
+ * success.
+ *
+ * `completeStage` believes whatever summary string it is handed, so a
+ * generator that wrote nothing would still record a completed stage reading
+ * "0 files · 0 modules" and the run would hand back an empty project as
+ * though it were runnable. Throwing routes the stage through the normal
+ * failure path, which is the truth. The missing artifact is logged because
+ * `userFacingError` keeps an internal fault's text generic on purpose.
+ */
+function assertProduced(id: StageId, produced: boolean, artifact: string): void {
+  if (produced) return;
+  logger.error('stage produced no artifact', { stage: id, artifact });
+  throw new Error(`${id} stage produced no ${artifact}`);
 }
 
 function recordUsage(run: PipelineRun, usage: AiCallStat | null): void {
@@ -270,7 +308,13 @@ function recordUsage(run: PipelineRun, usage: AiCallStat | null): void {
  * un-hardened set produces an app whose every route demands a token no
  * endpoint can issue.
  */
-function overlayFiles(
+/**
+ * The runnable file set: generator output with the hardened security files
+ * laid over it. Exported because an edit re-assembles the same set from the
+ * same parts, and a second copy of this rule would be a second chance to get
+ * the precedence backwards.
+ */
+export function overlayFiles(
   base: { path: string; content: string }[],
   hardened: { path: string; content: string }[],
   prefix: string,
@@ -318,6 +362,7 @@ async function execute(runId: string, prompt: string): Promise<void> {
     /* Stage 3 — database design */
     beginStage(run, 'database');
     const design = designDatabase(plan, requirements);
+    assertProduced('database', design.prismaSchema.trim() !== '', 'Prisma schema');
     const columnCount = design.databaseDesign.tables.reduce(
       (total, table) => total + table.columns.length,
       0,
@@ -339,6 +384,7 @@ async function execute(runId: string, prompt: string): Promise<void> {
       design.validationRules.entities,
       design.entityMetadata,
     );
+    assertProduced('backend', backend.files.length > 0, 'files');
     completeStage(
       run,
       'backend',
@@ -348,9 +394,30 @@ async function execute(runId: string, prompt: string): Promise<void> {
     /* Stage 5 — frontend generation */
     beginStage(run, 'frontend');
     const backendManifest = { modules: backend.modules, routes: backend.routes };
-    // The one model call in this stage: the landing page's copy.
-    const siteContent = await writeSiteContent(prompt, requirements);
-    recordUsage(run, siteContent.usage);
+    // The one model call in this stage: the website's theme and sections.
+    let siteDesign = await writeSiteDesign(prompt, requirements);
+    recordUsage(run, siteDesign.usage);
+
+    // Then check what came back against what was asked for. A model that
+    // writes its own page can also quietly drop half the request, and the
+    // build would otherwise succeed with a page nobody asked for. One
+    // targeted retry, with the gaps named — bounded, because a loop here is
+    // a loop that spends a user's tokens on a model that is not improving.
+    let relevance = auditDomainRelevance(prompt, siteDesign.value, {
+      modelAvailable: !siteDesign.degraded,
+    });
+    if (relevance.status === 'INCOMPLETE' && !siteDesign.degraded) {
+      const retry = await writeSiteDesign(prompt, requirements, relevance.gaps);
+      recordUsage(run, retry.usage);
+      const retried = auditDomainRelevance(prompt, retry.value, {
+        modelAvailable: !retry.degraded,
+      });
+      // Keep the better attempt, not the later one.
+      if (!retry.degraded && retried.passed >= relevance.passed) {
+        siteDesign = retry;
+        relevance = retried;
+      }
+    }
     const frontend = generateFrontend(
       plan,
       requirements,
@@ -358,13 +425,18 @@ async function execute(runId: string, prompt: string): Promise<void> {
       design.openapi,
       backendManifest,
       design.entityMetadata,
-      siteContent.value,
+      siteDesign.value,
     );
+    assertProduced('frontend', frontend.files.length > 0, 'files');
     completeStage(
       run,
       'frontend',
-      `${frontend.files.length} files · ${frontend.pages.length} pages · ${frontend.components.length} components · landing page`,
-      { degraded: siteContent.degraded, note: siteContent.note },
+      `${frontend.files.length} files · ${frontend.pages.length} pages · ${frontend.components.length} components · ${summarizeRelevance(relevance)}`,
+      {
+        degraded: siteDesign.degraded,
+        note:
+          siteDesign.note ?? (relevance.status === 'PASS' ? null : summarizeRelevance(relevance)),
+      },
     );
 
     /* Stage 6 — security hardening */
@@ -386,6 +458,7 @@ async function execute(runId: string, prompt: string): Promise<void> {
         })),
       },
     });
+    assertProduced('security', security.backendFiles.length > 0, 'hardened files');
     completeStage(
       run,
       'security',
@@ -412,6 +485,7 @@ async function execute(runId: string, prompt: string): Promise<void> {
         rbac: { roles: security.rbac.roles, permissions: security.permissions },
       },
     });
+    assertProduced('dependencies', dependencies.stats.totalNodes > 0, 'graph nodes');
     completeStage(
       run,
       'dependencies',
@@ -428,6 +502,7 @@ async function execute(runId: string, prompt: string): Promise<void> {
       frontend,
       security,
       dependencies,
+      siteDesign: siteDesign.value,
       files: [
         ...overlayFiles(backend.files, security.backendFiles, 'backend'),
         ...overlayFiles(frontend.files, security.frontendFiles, 'frontend'),
@@ -450,12 +525,12 @@ async function execute(runId: string, prompt: string): Promise<void> {
           `${sync.nodeCount} nodes · ${sync.edgeCount} edges · ${sync.nodesCreated} new`,
         );
       } catch (error) {
-        // The project is generated and runnable; a graph that failed to
-        // write is a degraded stage, not a failed build.
-        completeStage(run, 'graph', 'graph not updated', {
-          degraded: true,
-          note: userFacingError(error),
-        });
+        // The graph is an index built over the generated project, not part of
+        // it: a sync that failed leaves the app just as runnable, so this one
+        // stage fails and the run below still completes. Only the stage is
+        // marked — completing it, as this path used to, reported a graph that
+        // does not exist.
+        failStage(run, 'graph', error);
         logger.warn('engineering graph sync failed', { runId: run.id, error });
       }
     }
@@ -585,4 +660,56 @@ export function getArtifact(id: string, type: string, ownerId: string | null = n
   const value = selectArtifact(artifacts, type);
   if (value === null) throw AppError.notFound(`This run produced no "${type}" artifact`);
   return value;
+}
+
+/**
+ * Record an edited file set as this project's newest run.
+ *
+ * An edit produces a new version of exactly the thing a run produces — a
+ * requirement spec, an architecture, a file set — so it is recorded as a run
+ * rather than as a parallel kind of object. That is not bookkeeping for its
+ * own sake: Preview, Code, the Knowledge Graph and the project's history all
+ * read "the project's latest completed run", and an edit that did not become
+ * one would be invisible to every one of them.
+ *
+ * The stages are supplied by the caller because an edit genuinely did not run
+ * the eight generation stages; reporting stages it never ran would be the
+ * kind of invented evidence this platform refuses elsewhere.
+ */
+export async function registerEditedRun(input: {
+  projectId: string;
+  projectName: string;
+  ownerId: string | null;
+  /** The instruction that produced this version, kept as the run's prompt. */
+  prompt: string;
+  artifacts: Omit<PipelineArtifacts, 'runId'>;
+  stages: PipelineStage[];
+  ai: PipelineRun['ai'];
+}): Promise<PipelineRun> {
+  const now = new Date().toISOString();
+  const run: PipelineRun = {
+    id: randomUUID(),
+    projectId: input.projectId,
+    projectName: input.projectName,
+    prompt: input.prompt,
+    status: 'completed',
+    stages: input.stages,
+    ai: input.ai,
+    createdAt: now,
+    updatedAt: now,
+    error: null,
+  };
+
+  const artifacts: PipelineArtifacts = { ...input.artifacts, runId: run.id };
+  runs.set(run.id, { run, artifacts, ownerId: input.ownerId });
+  while (runs.size > MAX_RUNS) {
+    const oldest = runs.keys().next().value;
+    if (oldest === undefined) break;
+    runs.delete(oldest);
+  }
+
+  await openRun(run.id, input.projectId, input.prompt);
+  await closeRun(run.id, 'COMPLETED');
+  emit(run, 'settled');
+  return run;
 }

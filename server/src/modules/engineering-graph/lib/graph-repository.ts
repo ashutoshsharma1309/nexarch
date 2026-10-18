@@ -12,6 +12,10 @@
  * refreshing what changed, removing what the project no longer contains.
  * Re-running it with unchanged artifacts is a no-op, which is what makes
  * it safe to call on every pipeline run.
+ *
+ * What the diff is allowed to *delete* is narrower than what it reads,
+ * because two producers write this one graph. The rule is stated in full at
+ * `syncGraph`.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -101,6 +105,83 @@ export function toEdge(row: EdgeRow): GraphEdge {
   };
 }
 
+/**
+ * The artifacts one synchronization speaks for. See `syncGraph` for why a
+ * sync has to say so rather than assuming it speaks for the whole project.
+ */
+export type SyncScope = ReadonlySet<ArtifactType>;
+
+/**
+ * What the draft itself covers, for a caller that did not say.
+ *
+ * Every node carries the artifact it was derived from, so the draft already
+ * names the artifacts it speaks for. This is the conservative reading of
+ * that: a sync sweeps only where it put something.
+ */
+function scopeOfDraft(draft: GraphDraft): SyncScope {
+  const covered = new Set<ArtifactType>();
+  for (const node of draft.nodes) {
+    if (node.sourceArtifactId !== null) covered.add(node.sourceArtifactId);
+  }
+  return covered;
+}
+
+/**
+ * Whether a stored node is the sync's to delete. The project root carries
+ * no source artifact and so belongs to no sync — it is never swept.
+ */
+function inScope(sourceArtifactId: string | null, scope: SyncScope): boolean {
+  // Stored provenance comes back as a plain string; the scope is the narrow
+  // artifact union. Compare as strings rather than asserting the column.
+  return sourceArtifactId !== null && [...scope].some((artifact) => artifact === sourceArtifactId);
+}
+
+/**
+ * Whether an edge endpoint is one the sync may reason about. Unlike node
+ * deletion this counts the project root as in scope: the root is an
+ * endpoint of most CONTAINS edges, and excluding it would leave a
+ * "project contains X" edge standing after the draft stopped asserting it.
+ */
+function endpointInScope(sourceArtifactId: string | null, scope: SyncScope): boolean {
+  return sourceArtifactId === null || inScope(sourceArtifactId, scope);
+}
+
+/** Edge identity, as the unique index defines it: (source, target, relationship). */
+function edgeKey(source: string, target: string, relationship: string): string {
+  return `${source}|${relationship}|${target}`;
+}
+
+/**
+ * The stored edges a sync must delete, for the only two reasons it may.
+ *
+ * An edge whose endpoint is gone is dangling, and a dangling edge is
+ * precisely the stale relationship this module exists to prevent. On the
+ * database path the cascade has already removed those by the time the edge
+ * list is read, so that branch is a safety net; the in-memory path has no
+ * cascade and depends on it. Beyond that, an edge is this sync's to remove
+ * only when both of its endpoints are in scope; an edge touching another
+ * producer's node stands, because this draft never claimed to describe it.
+ */
+function obsoleteEdgeIds(
+  existingEdges: EdgeRow[],
+  wanted: ReadonlyMap<string, unknown>,
+  artifactByNodeId: ReadonlyMap<string, string | null>,
+  scope: SyncScope,
+): string[] {
+  const obsolete: string[] = [];
+  for (const row of existingEdges) {
+    const source = artifactByNodeId.get(row.sourceNodeId);
+    const target = artifactByNodeId.get(row.targetNodeId);
+    if (source === undefined || target === undefined) {
+      obsolete.push(row.id);
+      continue;
+    }
+    if (wanted.has(edgeKey(row.sourceNodeId, row.targetNodeId, row.relationship))) continue;
+    if (endpointInScope(source, scope) && endpointInScope(target, scope)) obsolete.push(row.id);
+  }
+  return obsolete;
+}
+
 /* ── In-memory backend (no DATABASE_URL) ──────────────────────────────── */
 
 const memNodes = new Map<string, NodeRow>();
@@ -119,7 +200,12 @@ function memEdgesOf(projectId: string): EdgeRow[] {
  * reusing the id of an existing (type, canonicalName), so references survive
  * a re-sync just as they do on the database path.
  */
-function memSyncGraph(projectId: string, runId: string, draft: GraphDraft): GraphSyncResult {
+function memSyncGraph(
+  projectId: string,
+  runId: string,
+  draft: GraphDraft,
+  scope: SyncScope,
+): GraphSyncResult {
   const startedAt = Date.now();
   const now = new Date();
   const existingNodes = memNodesOf(projectId);
@@ -155,18 +241,25 @@ function memSyncGraph(projectId: string, runId: string, draft: GraphDraft): Grap
     else nodesCreated += 1;
   }
 
-  // Remove nodes the project no longer contains, and their edges.
+  // Remove what this sync's own artifacts no longer contain, and nothing
+  // else — the scoping rule documented at `syncGraph`.
   const keptIds = new Set(nextIdByKey.values());
   let nodesRemoved = 0;
   for (const row of existingNodes) {
-    if (!keptIds.has(row.id)) {
-      memNodes.delete(row.id);
-      nodesRemoved += 1;
-    }
+    if (keptIds.has(row.id)) continue;
+    if (!inScope(row.sourceArtifactId, scope)) continue;
+    memNodes.delete(row.id);
+    nodesRemoved += 1;
   }
 
-  const edgeKey = (source: string, target: string, relationship: string): string =>
-    `${source}|${relationship}|${target}`;
+  // Mirrors the database path's re-read: an edge may hang off a node this
+  // sync left alone as well as off one it just wrote.
+  const survivingNodes = memNodesOf(projectId);
+  const idByKey = new Map(
+    survivingNodes.map((row) => [nodeKey(row.type, row.canonicalName), row.id]),
+  );
+  const artifactByNodeId = new Map(survivingNodes.map((row) => [row.id, row.sourceArtifactId]));
+
   const existingEdges = memEdgesOf(projectId);
   const existingEdgeIdByKey = new Map(
     existingEdges.map((row) => [
@@ -185,8 +278,8 @@ function memSyncGraph(projectId: string, runId: string, draft: GraphDraft): Grap
     }
   >();
   for (const edge of draft.edges) {
-    const source = nextIdByKey.get(nodeKey(edge.from.type, edge.from.canonicalName));
-    const target = nextIdByKey.get(nodeKey(edge.to.type, edge.to.canonicalName));
+    const source = idByKey.get(nodeKey(edge.from.type, edge.from.canonicalName));
+    const target = idByKey.get(nodeKey(edge.to.type, edge.to.canonicalName));
     if (!source || !target) continue;
     wanted.set(edgeKey(source, target, edge.relationship), {
       source,
@@ -213,20 +306,15 @@ function memSyncGraph(projectId: string, runId: string, draft: GraphDraft): Grap
     edgesCreated += 1;
   }
 
-  let edgesRemoved = 0;
-  for (const [key, id] of existingEdgeIdByKey) {
-    if (!wanted.has(key)) {
-      memEdges.delete(id);
-      edgesRemoved += 1;
-    }
-  }
+  const removedEdgeIds = obsoleteEdgeIds(existingEdges, wanted, artifactByNodeId, scope);
+  for (const id of removedEdgeIds) memEdges.delete(id);
 
   return {
     nodesCreated,
     nodesUpdated,
     nodesRemoved,
     edgesCreated,
-    edgesRemoved,
+    edgesRemoved: removedEdgeIds.length,
     nodeCount: memNodesOf(projectId).length,
     edgeCount: memEdgesOf(projectId).length,
     durationMs: Date.now() - startedAt,
@@ -249,13 +337,33 @@ function nodeUnchanged(row: NodeRow, draft: GraphDraft['nodes'][number]): boolea
  * Node identity is `(projectId, type, canonicalName)`, which the database
  * enforces with a unique index — so deduplication is not a pass this code
  * performs, it is a property the schema guarantees.
+ *
+ * **The scoping rule.** Two producers write one project's graph: the
+ * pipeline, from a complete artifact set, and the agent mesh, from whatever
+ * exists partway through a run. A sweep that deleted every stored node
+ * absent from the draft would therefore make each producer erase the
+ * other's work — a partial mesh sync, which carries no file tree, would
+ * take the whole file/import subtree with it, and the cascade would take
+ * those nodes' edges too. So deletion is confined to the artifacts this
+ * sync actually speaks for: `coveredArtifacts`, matched against each stored
+ * node's `sourceArtifactId`, which already records where that node came
+ * from. A node whose artifact this sync says nothing about survives
+ * untouched, and the project root — the one node with no source artifact —
+ * is never swept by anyone. When the caller does not say, the draft's own
+ * nodes define the scope.
+ *
+ * What is *not* relaxed is dangling edges: an edge whose endpoint a scoped
+ * delete removed is always deleted with it. Leaving stale relationships
+ * behind is the failure this whole function exists to avoid.
  */
 export async function syncGraph(
   projectId: string,
   runId: string,
   draft: GraphDraft,
+  coveredArtifacts?: SyncScope,
 ): Promise<GraphSyncResult> {
-  if (useMemory()) return memSyncGraph(projectId, runId, draft);
+  const scope = coveredArtifacts ?? scopeOfDraft(draft);
+  if (useMemory()) return memSyncGraph(projectId, runId, draft, scope);
   const startedAt = Date.now();
 
   const existingNodes = (await prisma.graphNode.findMany({ where: { projectId } })) as NodeRow[];
@@ -302,10 +410,15 @@ export async function syncGraph(
     nodesUpdated += 1;
   }
 
-  // Anything the project no longer contains goes. Cascading deletes take
-  // that node's edges with it, which is why edge cleanup runs after.
+  // Anything this sync's own artifacts no longer contain goes. Cascading
+  // deletes take that node's edges with it, which is why edge cleanup runs
+  // after.
   const obsoleteNodeIds = existingNodes
-    .filter((row) => !draftByKey.has(nodeKey(row.type, row.canonicalName)))
+    .filter(
+      (row) =>
+        inScope(row.sourceArtifactId, scope) &&
+        !draftByKey.has(nodeKey(row.type, row.canonicalName)),
+    )
     .map((row) => row.id);
   if (obsoleteNodeIds.length > 0) {
     await prisma.graphNode.deleteMany({ where: { id: { in: obsoleteNodeIds } } });
@@ -316,10 +429,9 @@ export async function syncGraph(
   const idByKey = new Map(
     currentNodes.map((row) => [nodeKey(row.type, row.canonicalName), row.id]),
   );
+  const artifactByNodeId = new Map(currentNodes.map((row) => [row.id, row.sourceArtifactId]));
 
   const existingEdges = (await prisma.graphEdge.findMany({ where: { projectId } })) as EdgeRow[];
-  const edgeKey = (source: string, target: string, relationship: string): string =>
-    `${source}|${relationship}|${target}`;
   const existingEdgeKeys = new Map(
     existingEdges.map((row) => [
       edgeKey(row.sourceNodeId, row.targetNodeId, row.relationship),
@@ -368,11 +480,9 @@ export async function syncGraph(
     edgesCreated = toCreate.length;
   }
 
-  const obsoleteEdgeIds = [...existingEdgeKeys.entries()]
-    .filter(([key]) => !wanted.has(key))
-    .map(([, id]) => id);
-  if (obsoleteEdgeIds.length > 0) {
-    await prisma.graphEdge.deleteMany({ where: { id: { in: obsoleteEdgeIds } } });
+  const removedEdgeIds = obsoleteEdgeIds(existingEdges, wanted, artifactByNodeId, scope);
+  if (removedEdgeIds.length > 0) {
+    await prisma.graphEdge.deleteMany({ where: { id: { in: removedEdgeIds } } });
   }
 
   const [nodeCount, edgeCount] = await Promise.all([
@@ -385,7 +495,7 @@ export async function syncGraph(
     nodesUpdated,
     nodesRemoved: obsoleteNodeIds.length,
     edgesCreated,
-    edgesRemoved: obsoleteEdgeIds.length,
+    edgesRemoved: removedEdgeIds.length,
     nodeCount,
     edgeCount,
     durationMs: Date.now() - startedAt,

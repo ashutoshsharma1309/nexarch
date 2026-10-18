@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import { describe, it, beforeEach } from 'node:test';
 
 import {
+  ensureImagesSupported,
   generate,
   retry,
   executeWorkflow,
@@ -48,6 +49,10 @@ describe('prompt engine', () => {
       'context-task',
       'database-generator',
       'dependency-engine',
+      // Editing an existing project: reading a reference image, then
+      // changing the site it already has.
+      'edit-site-design',
+      'edit-vision',
       'entity-fields',
       'frontend-generator',
       // The Product Architect's template: the planning mesh's one new
@@ -58,7 +63,7 @@ describe('prompt engine', () => {
       'requirement-analyzer',
       'security-engine',
       // The landing page's copy for a generated website.
-      'site-content',
+      'site-design',
       // The Test Engineer's template: ranks the deterministic plan, only.
       'test-planner',
       // The UX Engineer's template: asked only what the deterministic
@@ -462,5 +467,49 @@ describe('rate-limit backoff', () => {
     });
     assert.equal(outcome.result, 'ok');
     assert.equal(outcome.attempts[0]?.delayMs, 270);
+  });
+});
+
+describe('image input', () => {
+  it('declares which adapters can actually carry an image', () => {
+    // Capability is a property of the adapter, not of the model id: these
+    // two build an OpenAI-style content array, those two do not build one at
+    // all. A wrong answer here is an image dropped in silence.
+    assert.equal(getProvider('groq').supportsImages, true);
+    assert.equal(getProvider('openai').supportsImages, true);
+    assert.equal(getProvider('openrouter').supportsImages, true);
+    assert.equal(getProvider('claude').supportsImages, false);
+    assert.equal(getProvider('gemini').supportsImages, false);
+  });
+
+  it('routes a vision request to its own model rather than the text model', () => {
+    const router = new ModelRouter([
+      { complexity: 'vision-analysis', provider: 'mock', model: 'vision-1' },
+      { complexity: 'simple-extraction', provider: 'mock', model: 'text-1' },
+    ]);
+    assert.notEqual(
+      router.route('vision-analysis').rule.model,
+      router.route('simple-extraction').rule.model,
+    );
+  });
+
+  it('refuses to answer about an image a provider cannot see', () => {
+    // The failure this prevents: the call goes out without the picture, the
+    // model answers from the words alone, and the product reports an
+    // "analysis" of an image nothing ever looked at.
+    assert.throws(
+      () => {
+        ensureImagesSupported(getProvider('claude'), 1);
+      },
+      /cannot read images/,
+      'the refusal must name the limitation instead of degrading silently',
+    );
+    // And it never gets in the way of a text-only call.
+    assert.doesNotThrow(() => {
+      ensureImagesSupported(getProvider('claude'), 0);
+    });
+    assert.doesNotThrow(() => {
+      ensureImagesSupported(getProvider('groq'), 2);
+    });
   });
 });

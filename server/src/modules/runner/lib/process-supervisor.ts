@@ -8,6 +8,7 @@
  */
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
+import { readFile, stat } from 'node:fs/promises';
 
 import { childEnv } from './child-env.js';
 import { forgetChild, noteChild } from './orphan-reaper.js';
@@ -125,6 +126,94 @@ function isInstall(command: string, args: readonly string[]): boolean {
   return command === 'npm' && (args[0] === 'install' || args[0] === 'ci');
 }
 
+/**
+ * Packages whose platform-specific binary is declared *optional*, and which
+ * the generated frontend cannot start without.
+ */
+const NATIVE_HOSTS = ['rollup', 'esbuild', '@tailwindcss/oxide', 'lightningcss'];
+
+interface HostManifest {
+  optionalDependencies?: Record<string, string>;
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reinstall platform binaries that npm quietly skipped.
+ *
+ * npm treats a failed *optional* dependency as success: if the fetch of
+ * `@rollup/rollup-darwin-arm64` fails — a flaky network, a cache entry the
+ * last killed install left half-written — the install still exits 0 and the
+ * missing binary only surfaces minutes later, when vite dies at startup with
+ * "Cannot find module @rollup/rollup-darwin-arm64" (npm/cli#4828). The whole
+ * preview is wasted on a fault that was visible the moment install finished.
+ *
+ * So check for it here, while it is still cheap to fix, and fetch the binary
+ * by name. Repairing is best-effort: if it cannot be fixed the run continues
+ * and fails where it would have anyway, with the log saying why.
+ */
+export async function missingNativeBinaries(
+  cwd: string,
+  // `darwin-arm64`, `linux-x64` — the token every such package name carries.
+  token = `${process.platform}-${process.arch}`,
+): Promise<{ name: string; version: string }[]> {
+  const missing: { name: string; version: string }[] = [];
+
+  for (const host of NATIVE_HOSTS) {
+    let manifest: HostManifest;
+    try {
+      manifest = JSON.parse(
+        await readFile(`${cwd}/node_modules/${host}/package.json`, 'utf8'),
+      ) as HostManifest;
+    } catch {
+      continue; // Not installed here — nothing this host needs.
+    }
+
+    for (const [name, version] of Object.entries(manifest.optionalDependencies ?? {})) {
+      if (!name.includes(token)) continue;
+      if (await exists(`${cwd}/node_modules/${name}`)) continue;
+      missing.push({ name, version });
+    }
+  }
+  return missing;
+}
+
+async function repairSkippedNativeBinaries(
+  cwd: string,
+  stream: 'backend' | 'frontend',
+  logs: LogBuffer,
+  env: Record<string, string>,
+): Promise<void> {
+  for (const { name, version } of await missingNativeBinaries(cwd)) {
+    logs.append(
+      'system',
+      `${stream}: ${name} was skipped by npm (optional dependency) — installing it directly`,
+    );
+    // No --prefer-offline: the cache is the likeliest reason it is missing.
+    const code = await spawnToCompletion(
+      'npm',
+      ['install', `${name}@${version}`, '--no-save', '--no-audit', '--no-fund'],
+      cwd,
+      stream,
+      logs,
+      env,
+    );
+    if (code !== 0) {
+      logs.append(
+        'system',
+        `${stream}: could not install ${name} (code ${String(code)}) — the app may fail to start`,
+      );
+    }
+  }
+}
+
 /** Run an install/configure-style command to completion. Resolves with the exit code. */
 export async function runToCompletion(
   command: string,
@@ -142,7 +231,9 @@ export async function runToCompletion(
   const release = await acquireInstallSlot();
   try {
     const installArgs = args.includes('--prefer-offline') ? args : [...args, '--prefer-offline'];
-    return await spawnToCompletion(command, installArgs, cwd, stream, logs, env);
+    const code = await spawnToCompletion(command, installArgs, cwd, stream, logs, env);
+    if (code === 0) await repairSkippedNativeBinaries(cwd, stream, logs, env);
+    return code;
   } finally {
     release();
   }

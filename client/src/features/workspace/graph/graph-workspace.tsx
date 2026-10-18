@@ -12,7 +12,7 @@
  * radial view of the database with an entity selected gets exactly that,
  * and the back button walks the states rather than leaving the page.
  */
-import { Hammer, Network } from 'lucide-react';
+import { AlertTriangle, Hammer, Network, RefreshCw } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -20,8 +20,10 @@ import { Button } from '@/shared/components/ui/button';
 import { Card, CardContent } from '@/shared/components/ui/card';
 import { EmptyState } from '@/shared/components/ui/empty-state';
 import { Skeleton } from '@/shared/components/ui/skeleton';
-import { useGraphValidation, useProjectGraph } from '@/shared/hooks/use-graph';
+import { useGraphValidation, useProjectGraph, useRefreshGraph } from '@/shared/hooks/use-graph';
 import { cn } from '@/shared/lib/cn';
+import { formatRelativeTime } from '@/shared/lib/format';
+import { toast } from '@/shared/store/toast.store';
 import { GraphCanvas } from './graph-canvas';
 import { GraphHealth } from './graph-health';
 import { GraphLegend } from './graph-legend';
@@ -35,10 +37,26 @@ import type { LayoutId } from './layouts';
 const DEFAULT_MODE: ViewModeId = 'architecture';
 const DEFAULT_LAYOUT: LayoutId = 'hierarchical';
 
-export function GraphWorkspace({ projectId }: { projectId: string }) {
+export function GraphWorkspace({
+  projectId,
+  /** The project's newest build, so a graph of an older one can say so. */
+  latestRunId,
+}: {
+  projectId: string;
+  latestRunId?: string;
+}) {
   const navigate = useNavigate();
   const graph = useProjectGraph(projectId);
   const validation = useGraphValidation(projectId);
+  const refresh = useRefreshGraph(projectId);
+
+  // A graph built from an earlier run is not this project as it stands now.
+  // Saying so is the whole difference between a map and a stale map.
+  const stale =
+    latestRunId !== undefined &&
+    graph.data !== undefined &&
+    graph.data.runId !== '' &&
+    graph.data.runId !== latestRunId;
 
   // Shareable, back-button-friendly view state.
   const [params, setParams] = useSearchParams();
@@ -162,6 +180,42 @@ export function GraphWorkspace({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-fg-subtle">
+          Mapped from this project&rsquo;s generated files · analysed{' '}
+          {formatRelativeTime(graph.data.generatedAt)}
+        </p>
+        <Button
+          size="sm"
+          icon={<RefreshCw className="size-3.5" />}
+          loading={refresh.isPending}
+          onClick={() => {
+            refresh.mutate(undefined, {
+              onError: (error) => {
+                toast(
+                  error instanceof Error ? error.message : 'Could not refresh the graph',
+                  'error',
+                );
+              },
+            });
+          }}
+        >
+          Refresh
+        </Button>
+      </div>
+
+      {stale && (
+        <Card className="border-warning/40">
+          <div className="flex flex-wrap items-center gap-2 p-3 text-sm">
+            <AlertTriangle className="size-4 shrink-0 text-warning" />
+            <span className="text-fg-muted">
+              This graph was built from an earlier build of the project. Refresh it to map the
+              latest one.
+            </span>
+          </div>
+        </Card>
+      )}
+
       <GraphStats stats={graph.data.stats} />
 
       <GraphToolbar

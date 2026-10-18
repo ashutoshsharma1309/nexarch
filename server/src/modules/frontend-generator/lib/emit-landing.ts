@@ -1,30 +1,56 @@
 /**
- * Emits the generated application's public landing page: a real website at
- * `/` — navigation, hero, features, and pricing / testimonials / FAQ when the
- * content has them — with the working application one click away at
+ * Emits the generated application's public website at `/` — the page a
+ * visitor actually lands on, with the working application one click away at
  * `/dashboard`.
  *
- * The copy is data, not code: it is written into `src/content/site.ts` with
- * `JSON.stringify`, so whatever a model wrote can only ever be a string the
- * page renders (React escapes it) and never becomes source. The page itself
- * is fixed, reviewed code that lays out whichever sections have content.
+ * The page used to be a fixed sequence: hero, features, pricing,
+ * testimonials, FAQ, always in that order, always in the same dark palette,
+ * with about a dozen model-written strings poured into it. That is why a
+ * cafe and a developer tool came out looking like the same product. The
+ * request chose the nouns; the template chose everything else.
  *
- * It uses the app's own theme tokens (canvas / surface / fg / accent …), so it
- * follows the dark/light setting and looks like the rest of the project.
+ * Now the design chooses. `SiteDesign` carries an ordered list of typed
+ * sections, and this file renders them in that order — a menu with prices,
+ * opening hours and a map note for one project; features, stats and steps
+ * for another. Each section kind is one reviewed component; the design picks
+ * which appear, in what order, and what they say.
+ *
+ * Two properties are worth keeping as you edit. First, the copy is data, not
+ * code: it is written into `src/content/site.ts` with `JSON.stringify`, so
+ * whatever a model wrote can only ever be a string React escapes, never
+ * source. Second, the page reads the app's own theme tokens, so it follows
+ * the palette the design asked for and stays consistent with the rest of the
+ * generated project.
  */
 import type { GeneratedFile } from '../frontend-generator.types.js';
 import { file } from './file-tree.js';
-import type { SiteContent } from './site-content.js';
+import type { SiteDesign } from './site-content.js';
 
-function contentFile(content: SiteContent): string {
-  const { source: _source, ...site } = content;
+/** The section data, as a module the page imports. */
+function contentFile(design: SiteDesign): string {
+  const { source: _source, theme: _theme, ...site } = design;
   return `/**
- * The landing page's copy. Edit freely — the page renders whatever is here
- * and hides any section whose list is empty.
+ * This website's content. Edit freely — the page renders the sections in the
+ * order they appear here, and a section with no items simply does not render.
  */
 export interface SiteFeature {
   title: string;
   description: string;
+}
+
+export interface SiteCatalogItem {
+  name: string;
+  description: string;
+  price: string;
+  tag: string;
+  art: ArtKind;
+  artLabel: string;
+}
+
+export interface SiteGalleryItem {
+  caption: string;
+  art: ArtKind;
+  artLabel: string;
 }
 
 export interface SitePricingPlan {
@@ -47,381 +73,580 @@ export interface SiteFaq {
   answer: string;
 }
 
+export interface SiteRow {
+  label: string;
+  value: string;
+}
+
+export type ArtKind =
+  | 'coffee'
+  | 'pastry'
+  | 'dining'
+  | 'storefront'
+  | 'campus'
+  | 'book'
+  | 'calendar'
+  | 'health'
+  | 'commerce'
+  | 'analytics'
+  | 'code'
+  | 'abstract';
+
+export type SiteSection =
+  | {
+      kind: 'hero';
+      id: string;
+      navLabel: string;
+      headline: string;
+      subheadline: string;
+      badge: string;
+      primaryCta: string;
+      secondaryCta: string;
+      art: ArtKind;
+      artLabel: string;
+    }
+  | {
+      kind: 'features';
+      id: string;
+      navLabel: string;
+      title: string;
+      subtitle: string;
+      items: SiteFeature[];
+    }
+  | {
+      kind: 'catalog';
+      id: string;
+      navLabel: string;
+      title: string;
+      subtitle: string;
+      items: SiteCatalogItem[];
+    }
+  | {
+      kind: 'gallery';
+      id: string;
+      navLabel: string;
+      title: string;
+      subtitle: string;
+      items: SiteGalleryItem[];
+    }
+  | {
+      kind: 'hours';
+      id: string;
+      navLabel: string;
+      title: string;
+      subtitle: string;
+      rows: SiteRow[];
+      note: string;
+    }
+  | {
+      kind: 'contact';
+      id: string;
+      navLabel: string;
+      title: string;
+      subtitle: string;
+      rows: SiteRow[];
+      note: string;
+    }
+  | {
+      kind: 'stats';
+      id: string;
+      navLabel: string;
+      title: string;
+      items: { value: string; label: string }[];
+    }
+  | {
+      kind: 'steps';
+      id: string;
+      navLabel: string;
+      title: string;
+      subtitle: string;
+      items: SiteFeature[];
+    }
+  | {
+      kind: 'pricing';
+      id: string;
+      navLabel: string;
+      title: string;
+      subtitle: string;
+      plans: SitePricingPlan[];
+    }
+  | {
+      kind: 'testimonials';
+      id: string;
+      navLabel: string;
+      title: string;
+      subtitle: string;
+      items: SiteTestimonial[];
+    }
+  | {
+      kind: 'faq';
+      id: string;
+      navLabel: string;
+      title: string;
+      subtitle: string;
+      items: SiteFaq[];
+    }
+  | { kind: 'cta'; id: string; navLabel: string; title: string; subtitle: string; label: string };
+
 export interface SiteContent {
   brand: string;
   tagline: string;
-  headline: string;
-  subheadline: string;
-  primaryCta: string;
-  features: SiteFeature[];
-  pricing: SitePricingPlan[];
-  testimonials: SiteTestimonial[];
-  faq: SiteFaq[];
-  closing: { title: string; subtitle: string };
+  sections: SiteSection[];
+  footerNote: string;
 }
 
 export const site: SiteContent = ${JSON.stringify(site, null, 2)};
 `;
 }
 
-const landingPage = `import {
-  ArrowRight,
-  BarChart3,
-  Check,
-  ChevronDown,
-  Layers,
-  Menu,
-  Rocket,
-  Shield,
-  Sparkles,
-  X,
-  Zap,
-} from 'lucide-react';
-import { useState } from 'react';
+const landingPage = `import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ArrowRight, Check, ChevronDown, Menu, X } from 'lucide-react';
 
+import { Art } from '@/components/Art';
 import { site } from '@/content/site';
-import { cn } from '@/shared/lib/cn';
+import type { SiteSection } from '@/content/site';
 
-const FEATURE_ICONS = [Sparkles, Zap, Shield, Layers, BarChart3, Rocket];
+/**
+ * The public website. Every section comes from \`src/content/site.ts\` and is
+ * rendered in the order it appears there.
+ */
 
-function initials(name: string): string {
-  return name
-    .split(/\\s+/)
-    .slice(0, 2)
-    .map((part) => part.charAt(0).toUpperCase())
-    .join('');
+function Container({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return <div className={\`mx-auto w-full max-w-6xl px-5 sm:px-8 \${className}\`}>{children}</div>;
+}
+
+function SectionHeading({ title, subtitle }: { title: string; subtitle?: string }) {
+  if (!title) return null;
+  return (
+    <div className="mb-10 max-w-2xl">
+      <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h2>
+      {subtitle ? <p className="mt-3 text-base text-fg-muted">{subtitle}</p> : null}
+    </div>
+  );
+}
+
+function Hero({ section }: { section: Extract<SiteSection, { kind: 'hero' }> }) {
+  return (
+    <section id={section.id} className="relative overflow-hidden border-b border-line">
+      <div className="pointer-events-none absolute -top-32 right-0 h-96 w-96 rounded-full bg-accent-soft blur-3xl" />
+      <Container className="relative grid items-center gap-12 py-20 sm:py-28 lg:grid-cols-2">
+        <div>
+          {section.badge ? (
+            <span className="inline-flex items-center rounded-full border border-line bg-surface px-3 py-1 text-xs font-medium text-fg-muted">
+              {section.badge}
+            </span>
+          ) : null}
+          <h1 className="mt-5 text-balance text-4xl font-semibold leading-[1.1] tracking-tight sm:text-5xl lg:text-6xl">
+            {section.headline}
+          </h1>
+          {section.subheadline ? (
+            <p className="mt-5 max-w-xl text-pretty text-lg text-fg-muted">{section.subheadline}</p>
+          ) : null}
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Link
+              to="/dashboard"
+              className="inline-flex items-center gap-2 rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover"
+            >
+              {section.primaryCta}
+              <ArrowRight className="size-4" />
+            </Link>
+            {section.secondaryCta ? (
+              <a
+                href={\`#\${site.sections[1]?.id ?? 'top'}\`}
+                className="inline-flex items-center rounded-md border border-line bg-surface px-5 py-2.5 text-sm font-medium transition-colors hover:border-line-strong"
+              >
+                {section.secondaryCta}
+              </a>
+            ) : null}
+          </div>
+        </div>
+        <div className="overflow-hidden rounded-lg border border-line bg-surface text-accent shadow-sm">
+          <Art kind={section.art} label={section.artLabel} className="h-64 w-full sm:h-80" />
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+function Features({ section }: { section: Extract<SiteSection, { kind: 'features' | 'steps' }> }) {
+  const numbered = section.kind === 'steps';
+  return (
+    <section id={section.id} className="border-b border-line py-20">
+      <Container>
+        <SectionHeading title={section.title} subtitle={section.subtitle} />
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {section.items.map((item, index) => (
+            <div key={item.title} className="rounded-lg border border-line bg-surface p-6">
+              {numbered ? (
+                <span className="inline-flex size-8 items-center justify-center rounded-full bg-accent-soft text-sm font-semibold text-accent">
+                  {index + 1}
+                </span>
+              ) : null}
+              <h3 className={\`font-medium \${numbered ? 'mt-4' : ''}\`}>{item.title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-fg-muted">{item.description}</p>
+            </div>
+          ))}
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+function Catalog({ section }: { section: Extract<SiteSection, { kind: 'catalog' }> }) {
+  return (
+    <section id={section.id} className="border-b border-line py-20">
+      <Container>
+        <SectionHeading title={section.title} subtitle={section.subtitle} />
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {section.items.map((item) => (
+            <article
+              key={item.name}
+              className="flex flex-col overflow-hidden rounded-lg border border-line bg-surface"
+            >
+              <div className="h-40 w-full bg-inset text-accent">
+                <Art kind={item.art} label={item.artLabel} className="h-full w-full" />
+              </div>
+              <div className="flex flex-1 flex-col p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="font-medium">{item.name}</h3>
+                  {item.price ? (
+                    <span className="shrink-0 text-sm font-semibold text-accent">{item.price}</span>
+                  ) : null}
+                </div>
+                {item.description ? (
+                  <p className="mt-2 flex-1 text-sm leading-relaxed text-fg-muted">
+                    {item.description}
+                  </p>
+                ) : null}
+                {item.tag ? (
+                  <span className="mt-4 inline-flex w-fit rounded-full border border-line px-2.5 py-0.5 text-2xs uppercase tracking-wide text-fg-subtle">
+                    {item.tag}
+                  </span>
+                ) : null}
+              </div>
+            </article>
+          ))}
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+function Gallery({ section }: { section: Extract<SiteSection, { kind: 'gallery' }> }) {
+  return (
+    <section id={section.id} className="border-b border-line py-20">
+      <Container>
+        <SectionHeading title={section.title} subtitle={section.subtitle} />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {section.items.map((item) => (
+            <figure key={item.caption} className="overflow-hidden rounded-lg border border-line">
+              <div className="h-44 bg-surface text-accent">
+                <Art kind={item.art} label={item.artLabel} className="h-full w-full" />
+              </div>
+              <figcaption className="border-t border-line bg-surface px-4 py-3 text-sm text-fg-muted">
+                {item.caption}
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+function RowList({ section }: { section: Extract<SiteSection, { kind: 'hours' | 'contact' }> }) {
+  return (
+    <section id={section.id} className="border-b border-line py-20">
+      <Container>
+        <div className="grid gap-10 lg:grid-cols-2">
+          <SectionHeading title={section.title} subtitle={section.subtitle} />
+          <div>
+            <dl className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface">
+              {section.rows.map((row) => (
+                <div key={row.label} className="flex items-baseline justify-between gap-4 px-5 py-3.5">
+                  <dt className="text-sm text-fg-muted">{row.label}</dt>
+                  <dd className="text-sm font-medium">{row.value}</dd>
+                </div>
+              ))}
+            </dl>
+            {section.note ? <p className="mt-4 text-sm text-fg-subtle">{section.note}</p> : null}
+          </div>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+function Stats({ section }: { section: Extract<SiteSection, { kind: 'stats' }> }) {
+  return (
+    <section id={section.id} className="border-b border-line py-16">
+      <Container>
+        {section.title ? (
+          <h2 className="mb-8 text-2xl font-semibold tracking-tight">{section.title}</h2>
+        ) : null}
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          {section.items.map((item) => (
+            <div key={item.label} className="rounded-lg border border-line bg-surface p-6">
+              <p className="text-3xl font-semibold tracking-tight text-accent">{item.value}</p>
+              <p className="mt-1 text-sm text-fg-muted">{item.label}</p>
+            </div>
+          ))}
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+function Pricing({ section }: { section: Extract<SiteSection, { kind: 'pricing' }> }) {
+  return (
+    <section id={section.id} className="border-b border-line py-20">
+      <Container>
+        <SectionHeading title={section.title} subtitle={section.subtitle} />
+        <div className="grid gap-6 lg:grid-cols-3">
+          {section.plans.map((plan) => (
+            <div
+              key={plan.name}
+              className={\`flex flex-col rounded-lg border bg-surface p-6 \${
+                plan.highlighted ? 'border-accent shadow-sm' : 'border-line'
+              }\`}
+            >
+              {plan.highlighted ? (
+                <span className="mb-4 inline-flex w-fit rounded-full bg-accent-soft px-2.5 py-0.5 text-2xs font-medium uppercase tracking-wide text-accent">
+                  Most popular
+                </span>
+              ) : null}
+              <h3 className="font-medium">{plan.name}</h3>
+              <p className="mt-3 flex items-baseline gap-1">
+                <span className="text-3xl font-semibold tracking-tight">{plan.price}</span>
+                {plan.period ? <span className="text-sm text-fg-subtle">{plan.period}</span> : null}
+              </p>
+              {plan.description ? (
+                <p className="mt-3 text-sm text-fg-muted">{plan.description}</p>
+              ) : null}
+              <ul className="mt-5 flex-1 space-y-2">
+                {plan.features.map((feature) => (
+                  <li key={feature} className="flex gap-2 text-sm text-fg-muted">
+                    <Check className="mt-0.5 size-4 shrink-0 text-accent" />
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+              <Link
+                to="/dashboard"
+                className={\`mt-6 inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-colors \${
+                  plan.highlighted
+                    ? 'bg-accent text-accent-fg hover:bg-accent-hover'
+                    : 'border border-line hover:border-line-strong'
+                }\`}
+              >
+                Choose {plan.name}
+              </Link>
+            </div>
+          ))}
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+function Testimonials({ section }: { section: Extract<SiteSection, { kind: 'testimonials' }> }) {
+  return (
+    <section id={section.id} className="border-b border-line py-20">
+      <Container>
+        <SectionHeading title={section.title} subtitle={section.subtitle} />
+        <div className="grid gap-6 lg:grid-cols-3">
+          {section.items.map((item) => (
+            <figure key={item.name} className="rounded-lg border border-line bg-surface p-6">
+              <blockquote className="text-sm leading-relaxed text-fg-muted">
+                “{item.quote}”
+              </blockquote>
+              <figcaption className="mt-5 flex items-center gap-3">
+                <span className="flex size-9 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent">
+                  {item.name
+                    .split(' ')
+                    .map((part) => part.charAt(0))
+                    .join('')
+                    .slice(0, 2)
+                    .toUpperCase()}
+                </span>
+                <span>
+                  <span className="block text-sm font-medium">{item.name}</span>
+                  {item.role ? (
+                    <span className="block text-xs text-fg-subtle">{item.role}</span>
+                  ) : null}
+                </span>
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+function Faq({ section }: { section: Extract<SiteSection, { kind: 'faq' }> }) {
+  return (
+    <section id={section.id} className="border-b border-line py-20">
+      <Container>
+        <SectionHeading title={section.title} subtitle={section.subtitle} />
+        <div className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface">
+          {section.items.map((item) => (
+            <details key={item.question} className="group">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-sm font-medium">
+                {item.question}
+                <ChevronDown className="size-4 shrink-0 text-fg-subtle transition-transform group-open:rotate-180" />
+              </summary>
+              <p className="px-5 pb-4 text-sm leading-relaxed text-fg-muted">{item.answer}</p>
+            </details>
+          ))}
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+function Cta({ section }: { section: Extract<SiteSection, { kind: 'cta' }> }) {
+  return (
+    <section id={section.id} className="py-20">
+      <Container>
+        <div className="rounded-lg border border-line bg-surface px-6 py-14 text-center">
+          <h2 className="text-balance text-3xl font-semibold tracking-tight">{section.title}</h2>
+          {section.subtitle ? (
+            <p className="mx-auto mt-3 max-w-xl text-base text-fg-muted">{section.subtitle}</p>
+          ) : null}
+          <Link
+            to="/dashboard"
+            className="mt-8 inline-flex items-center gap-2 rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover"
+          >
+            {section.label}
+            <ArrowRight className="size-4" />
+          </Link>
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+function Section({ section }: { section: SiteSection }) {
+  switch (section.kind) {
+    case 'hero':
+      return <Hero section={section} />;
+    case 'features':
+    case 'steps':
+      return <Features section={section} />;
+    case 'catalog':
+      return <Catalog section={section} />;
+    case 'gallery':
+      return <Gallery section={section} />;
+    case 'hours':
+    case 'contact':
+      return <RowList section={section} />;
+    case 'stats':
+      return <Stats section={section} />;
+    case 'pricing':
+      return <Pricing section={section} />;
+    case 'testimonials':
+      return <Testimonials section={section} />;
+    case 'faq':
+      return <Faq section={section} />;
+    case 'cta':
+      return <Cta section={section} />;
+  }
 }
 
 export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false);
-
-  const sections = [
-    { id: 'features', label: 'Features', show: site.features.length > 0 },
-    { id: 'pricing', label: 'Pricing', show: site.pricing.length > 0 },
-    { id: 'testimonials', label: 'Testimonials', show: site.testimonials.length > 0 },
-    { id: 'faq', label: 'FAQ', show: site.faq.length > 0 },
-  ].filter((section) => section.show);
+  const navItems = site.sections.filter((section) => section.navLabel !== '');
 
   return (
     <div className="min-h-dvh bg-canvas text-fg">
-      <header className="sticky top-0 z-30 border-b border-line bg-canvas/85 backdrop-blur">
-        <nav
-          aria-label="Main"
-          className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6"
-        >
-          <Link to="/" className="text-lg font-semibold tracking-tight text-fg">
+      <header className="sticky top-0 z-40 border-b border-line bg-canvas/85 backdrop-blur">
+        <Container className="flex h-16 items-center justify-between gap-4">
+          <a href="#top" className="text-base font-semibold tracking-tight">
             {site.brand}
-          </Link>
+          </a>
 
-          <div className="hidden items-center gap-7 md:flex">
-            {sections.map((section) => (
+          <nav className="hidden items-center gap-7 md:flex">
+            {navItems.map((section) => (
               <a
                 key={section.id}
-                href={'#' + section.id}
+                href={\`#\${section.id}\`}
                 className="text-sm text-fg-muted transition-colors hover:text-fg"
               >
-                {section.label}
+                {section.navLabel}
               </a>
             ))}
-          </div>
+          </nav>
 
           <div className="flex items-center gap-2">
             <Link
               to="/dashboard"
-              className="hidden rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover sm:inline-flex"
+              className="hidden rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover sm:inline-flex"
             >
               Open app
             </Link>
             <button
               type="button"
-              className="inline-flex size-9 items-center justify-center rounded-md border border-line text-fg-muted md:hidden"
               aria-label={menuOpen ? 'Close menu' : 'Open menu'}
               aria-expanded={menuOpen}
-              aria-controls="mobile-menu"
-              onClick={() => {
-                setMenuOpen((open) => !open);
-              }}
+              onClick={() => { setMenuOpen((open) => !open); }}
+              className="inline-flex size-9 items-center justify-center rounded-md border border-line md:hidden"
             >
               {menuOpen ? <X className="size-4" /> : <Menu className="size-4" />}
             </button>
           </div>
-        </nav>
+        </Container>
 
-        {menuOpen && (
-          <div id="mobile-menu" className="border-t border-line px-4 pb-4 md:hidden">
-            <div className="flex flex-col gap-1 pt-2">
-              {sections.map((section) => (
+        {menuOpen ? (
+          <div className="border-t border-line bg-canvas md:hidden">
+            <Container className="flex flex-col gap-1 py-4">
+              {navItems.map((section) => (
                 <a
                   key={section.id}
-                  href={'#' + section.id}
-                  className="rounded-md px-2 py-2 text-sm text-fg-muted hover:bg-surface hover:text-fg"
-                  onClick={() => {
-                    setMenuOpen(false);
-                  }}
+                  href={\`#\${section.id}\`}
+                  onClick={() => { setMenuOpen(false); }}
+                  className="rounded-md px-2 py-2 text-sm text-fg-muted hover:bg-inset hover:text-fg"
                 >
-                  {section.label}
+                  {section.navLabel}
                 </a>
               ))}
               <Link
                 to="/dashboard"
-                className="mt-2 rounded-md bg-accent px-3 py-2 text-center text-sm font-medium text-white"
+                className="mt-2 rounded-md bg-accent px-4 py-2 text-center text-sm font-medium text-accent-fg"
               >
                 Open app
               </Link>
-            </div>
+            </Container>
           </div>
-        )}
+        ) : null}
       </header>
 
-      <main>
-        <section className="relative overflow-hidden border-b border-line">
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 -top-40 mx-auto h-80 max-w-3xl rounded-full bg-accent-soft blur-3xl"
-          />
-          <div className="relative mx-auto max-w-4xl px-4 py-20 text-center sm:px-6 sm:py-28">
-            <p className="inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-xs font-medium text-fg-muted">
-              <Sparkles className="size-3.5 text-accent" />
-              {site.tagline}
-            </p>
-            <h1 className="mt-6 text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">
-              {site.headline}
-            </h1>
-            <p className="mx-auto mt-5 max-w-2xl text-base leading-relaxed text-fg-muted sm:text-lg">
-              {site.subheadline}
-            </p>
-            <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <Link
-                to="/dashboard"
-                className="inline-flex items-center gap-2 rounded-md bg-accent px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
-              >
-                {site.primaryCta}
-                <ArrowRight className="size-4" />
-              </Link>
-              {sections.length > 0 && (
-                <a
-                  href={'#' + (sections[0]?.id ?? 'features')}
-                  className="inline-flex items-center rounded-md border border-line px-5 py-3 text-sm font-medium text-fg transition-colors hover:border-line-strong"
-                >
-                  Learn more
-                </a>
-              )}
-            </div>
-          </div>
-        </section>
-
-        {site.features.length > 0 && (
-          <section id="features" aria-labelledby="features-title" className="scroll-mt-20 py-20">
-            <div className="mx-auto max-w-6xl px-4 sm:px-6">
-              <div className="mx-auto max-w-2xl text-center">
-                <h2 id="features-title" className="text-3xl font-semibold tracking-tight">
-                  Everything you need
-                </h2>
-                <p className="mt-3 text-fg-muted">What {site.brand} does for you.</p>
-              </div>
-              <div
-                className={cn(
-                  'mt-12 grid gap-5 sm:grid-cols-2',
-                  // Two or four cards read as pairs; three, five or six as rows of three.
-                  site.features.length % 2 === 0 && site.features.length < 6
-                    ? 'lg:grid-cols-2'
-                    : 'lg:grid-cols-3',
-                )}
-              >
-                {site.features.map((feature, index) => {
-                  const Icon = FEATURE_ICONS[index % FEATURE_ICONS.length] ?? Sparkles;
-                  return (
-                    <article
-                      key={feature.title}
-                      className="rounded-xl border border-line bg-surface p-6 transition-colors hover:border-line-strong"
-                    >
-                      <span className="inline-flex size-10 items-center justify-center rounded-lg bg-accent-soft text-accent">
-                        <Icon className="size-5" />
-                      </span>
-                      <h3 className="mt-4 font-semibold">{feature.title}</h3>
-                      <p className="mt-2 text-sm leading-relaxed text-fg-muted">
-                        {feature.description}
-                      </p>
-                    </article>
-                  );
-                })}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {site.pricing.length > 0 && (
-          <section
-            id="pricing"
-            aria-labelledby="pricing-title"
-            className="scroll-mt-20 border-t border-line bg-surface/40 py-20"
-          >
-            <div className="mx-auto max-w-6xl px-4 sm:px-6">
-              <div className="mx-auto max-w-2xl text-center">
-                <h2 id="pricing-title" className="text-3xl font-semibold tracking-tight">
-                  Simple, transparent pricing
-                </h2>
-                <p className="mt-3 text-fg-muted">Pick the plan that fits.</p>
-              </div>
-              <div
-                className={cn(
-                  'mx-auto mt-12 grid gap-5',
-                  site.pricing.length === 1 && 'max-w-md',
-                  site.pricing.length === 2 && 'max-w-3xl md:grid-cols-2',
-                  site.pricing.length >= 3 && 'md:grid-cols-3',
-                )}
-              >
-                {site.pricing.map((plan) => (
-                  <article
-                    key={plan.name}
-                    className={cn(
-                      'relative flex flex-col rounded-xl border bg-canvas p-6',
-                      plan.highlighted ? 'border-accent shadow-lg' : 'border-line',
-                    )}
-                  >
-                    {plan.highlighted && (
-                      <span className="absolute -top-3 left-6 rounded-full bg-accent px-3 py-0.5 text-xs font-medium text-white">
-                        Most popular
-                      </span>
-                    )}
-                    <h3 className="font-semibold">{plan.name}</h3>
-                    <p className="mt-4 flex items-baseline gap-1">
-                      <span className="text-4xl font-semibold tracking-tight">{plan.price}</span>
-                      {plan.period !== '' && (
-                        <span className="text-sm text-fg-muted">/{plan.period}</span>
-                      )}
-                    </p>
-                    <p className="mt-3 text-sm text-fg-muted">{plan.description}</p>
-                    <ul className="mt-6 flex-1 space-y-2.5">
-                      {plan.features.map((item) => (
-                        <li key={item} className="flex items-start gap-2 text-sm">
-                          <Check className="mt-0.5 size-4 shrink-0 text-accent" />
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    <Link
-                      to="/dashboard"
-                      className={cn(
-                        'mt-8 inline-flex justify-center rounded-md px-4 py-2.5 text-sm font-medium transition-colors',
-                        plan.highlighted
-                          ? 'bg-accent text-white hover:bg-accent-hover'
-                          : 'border border-line text-fg hover:border-line-strong',
-                      )}
-                    >
-                      Choose {plan.name}
-                    </Link>
-                  </article>
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {site.testimonials.length > 0 && (
-          <section
-            id="testimonials"
-            aria-labelledby="testimonials-title"
-            className="scroll-mt-20 border-t border-line py-20"
-          >
-            <div className="mx-auto max-w-6xl px-4 sm:px-6">
-              <h2
-                id="testimonials-title"
-                className="text-center text-3xl font-semibold tracking-tight"
-              >
-                Loved by our customers
-              </h2>
-              <div className="mt-12 grid gap-5 md:grid-cols-3">
-                {site.testimonials.map((item) => (
-                  <figure
-                    key={item.name + item.quote}
-                    className="flex flex-col rounded-xl border border-line bg-surface p-6"
-                  >
-                    <blockquote className="flex-1 text-sm leading-relaxed">
-                      “{item.quote}”
-                    </blockquote>
-                    <figcaption className="mt-6 flex items-center gap-3">
-                      <span className="inline-flex size-9 items-center justify-center rounded-full bg-accent-soft text-xs font-semibold text-accent">
-                        {initials(item.name)}
-                      </span>
-                      <span>
-                        <span className="block text-sm font-medium">{item.name}</span>
-                        <span className="block text-xs text-fg-muted">{item.role}</span>
-                      </span>
-                    </figcaption>
-                  </figure>
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {site.faq.length > 0 && (
-          <section
-            id="faq"
-            aria-labelledby="faq-title"
-            className="scroll-mt-20 border-t border-line bg-surface/40 py-20"
-          >
-            <div className="mx-auto max-w-3xl px-4 sm:px-6">
-              <h2 id="faq-title" className="text-center text-3xl font-semibold tracking-tight">
-                Frequently asked questions
-              </h2>
-              <div className="mt-10 divide-y divide-line rounded-xl border border-line bg-canvas">
-                {site.faq.map((item) => (
-                  <details key={item.question} className="group px-5 py-4">
-                    <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium">
-                      {item.question}
-                      <ChevronDown className="size-4 shrink-0 text-fg-muted transition-transform group-open:rotate-180" />
-                    </summary>
-                    <p className="mt-3 text-sm leading-relaxed text-fg-muted">{item.answer}</p>
-                  </details>
-                ))}
-              </div>
-            </div>
-          </section>
-        )}
-
-        <section className="border-t border-line py-20">
-          <div className="mx-auto max-w-3xl px-4 text-center sm:px-6">
-            <h2 className="text-3xl font-semibold tracking-tight">{site.closing.title}</h2>
-            <p className="mt-3 text-fg-muted">{site.closing.subtitle}</p>
-            <Link
-              to="/dashboard"
-              className="mt-8 inline-flex items-center gap-2 rounded-md bg-accent px-5 py-3 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
-            >
-              {site.primaryCta}
-              <ArrowRight className="size-4" />
-            </Link>
-          </div>
-        </section>
+      <main id="top">
+        {site.sections.map((section) => (
+          <Section key={section.id} section={section} />
+        ))}
       </main>
 
-      <footer className="border-t border-line">
-        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-8 text-sm text-fg-muted sm:flex-row sm:items-center sm:justify-between sm:px-6">
+      <footer className="border-t border-line py-10">
+        <Container className="flex flex-col items-center justify-between gap-3 text-sm text-fg-subtle sm:flex-row">
           <p>
-            © {new Date().getFullYear()} {site.brand} · {site.tagline.replace(/[.!]+$/, '')}
+            © {new Date().getFullYear()} {site.brand}
+            {site.footerNote ? \` · \${site.footerNote}\` : ''}
           </p>
-          <div className="flex flex-wrap gap-5">
-            {sections.map((section) => (
-              <a key={section.id} href={'#' + section.id} className="hover:text-fg">
-                {section.label}
-              </a>
-            ))}
-            <Link to="/dashboard" className="hover:text-fg">
-              App
-            </Link>
-          </div>
-        </div>
+          <Link to="/dashboard" className="transition-colors hover:text-fg">
+            Open app
+          </Link>
+        </Container>
       </footer>
     </div>
   );
 }
 `;
 
-export function emitLanding(content: SiteContent): GeneratedFile[] {
+export function emitLanding(design: SiteDesign): GeneratedFile[] {
   return [
-    file('src/content/site.ts', 'typescript', contentFile(content)),
+    file('src/content/site.ts', 'typescript', contentFile(design)),
     file('src/features/landing/LandingPage.tsx', 'typescriptreact', landingPage),
   ];
 }

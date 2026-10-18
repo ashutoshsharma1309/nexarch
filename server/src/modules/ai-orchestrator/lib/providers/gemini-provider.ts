@@ -18,6 +18,8 @@ export class GeminiProvider implements ModelProvider {
   readonly defaultModel = 'gemini-2.5-pro';
   readonly costPerMillionInputTokens = 1.25;
   readonly costPerMillionOutputTokens = 5;
+  // Gemini wants `inlineData` parts; this adapter only maps text.
+  readonly supportsImages = false;
 
   isConfigured(): boolean {
     return Boolean(process.env.GEMINI_API_KEY);

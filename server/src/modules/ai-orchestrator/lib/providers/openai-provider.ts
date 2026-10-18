@@ -20,6 +20,8 @@ export class OpenAiProvider implements ModelProvider {
   readonly defaultModel = 'gpt-5';
   readonly costPerMillionInputTokens = 2.5;
   readonly costPerMillionOutputTokens = 10;
+  // OpenAI-compatible content parts.
+  readonly supportsImages = true;
 
   isConfigured(): boolean {
     return Boolean(process.env.OPENAI_API_KEY);
