@@ -9,6 +9,7 @@
  */
 import { Check, ChevronRight, CircleDashed, RotateCcw, Undo2, Wrench, X } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { Badge } from '@/shared/components/ui/badge';
 import { Card, CardContent } from '@/shared/components/ui/card';
@@ -72,7 +73,8 @@ function Diff({ change }: { change: RepairFileChange }) {
   );
 }
 
-function RepairRow({ repair }: { repair: RepairRecordView }) {
+/** Exported for tests: the finding a repair addressed must be visible. */
+export function RepairRow({ repair }: { repair: RepairRecordView }) {
   const [open, setOpen] = useState(false);
   return (
     <li className="px-4 py-2.5" data-repair={repair.id} data-result={repair.result}>
@@ -107,6 +109,25 @@ function RepairRow({ repair }: { repair: RepairRecordView }) {
       {open && (
         <div className="mt-2 ml-5 space-y-2 border-l border-line pl-3">
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-2xs text-fg-subtle">
+            {/* The repair→finding link is in the data and was never shown, so
+                a repair could not be traced back to what prompted it. */}
+            <dt>finding</dt>
+            <dd className="min-w-0 break-all text-fg-muted">
+              <Link
+                to={`../../graph?q=${encodeURIComponent(repair.findingTitle)}`}
+                className="underline decoration-line underline-offset-2 hover:text-fg"
+                title="Find this finding in the Knowledge Graph"
+              >
+                {repair.findingTitle}
+              </Link>{' '}
+              <span className="text-fg-subtle">({repair.findingId})</span>
+            </dd>
+            <dt>affected</dt>
+            <dd className="min-w-0 break-all text-fg-muted">
+              {repair.rootCause && repair.rootCause.affectedFiles.length > 0
+                ? repair.rootCause.affectedFiles.join(', ')
+                : 'no file was identified for this finding'}
+            </dd>
             <dt>eligibility</dt>
             <dd className="text-fg-muted">
               {repair.eligibility.eligibility} — {repair.eligibility.reason}

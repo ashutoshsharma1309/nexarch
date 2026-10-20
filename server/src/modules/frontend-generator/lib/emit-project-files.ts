@@ -7,6 +7,14 @@ import type { FrontendProjectModel } from './project-model.js';
 import type { GeneratedFile } from '../frontend-generator.types.js';
 import { file } from './file-tree.js';
 
+/**
+ * The React version generated apps are built against.
+ *
+ * One constant for both `react` and `react-dom`, because React 19.3 refuses
+ * to render when the two differ by so much as a patch.
+ */
+const REACT_VERSION = '19.3.1';
+
 function packageJson(model: FrontendProjectModel): GeneratedFile {
   const pkg = {
     name:
@@ -32,8 +40,15 @@ function packageJson(model: FrontendProjectModel): GeneratedFile {
       clsx: '^2.1.1',
       'framer-motion': '^12.9.0',
       'lucide-react': '^0.525.0',
-      react: '^19.1.0',
-      'react-dom': '^19.1.0',
+      // Pinned, and pinned together. React 19.3 refuses to render when
+      // `react` and `react-dom` are not the exact same version, and two
+      // independent carets let them drift apart: the runner installs with
+      // `--prefer-offline`, so a cache holding react 19.3.1 and react-dom
+      // 19.3.0 satisfies both ranges and produces a generated app that
+      // builds, starts, and renders a blank page with a version-mismatch
+      // error in the console. An exact pair cannot drift.
+      react: REACT_VERSION,
+      'react-dom': REACT_VERSION,
       'react-hook-form': '^7.56.0',
       'react-router-dom': '^7.5.0',
       'tailwind-merge': '^3.2.0',

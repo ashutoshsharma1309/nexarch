@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   refreshGraph,
   fetchGraph,
+  fetchGraphPath,
   fetchGraphImpact,
   fetchGraphNode,
   fetchGraphValidation,
@@ -71,5 +72,26 @@ export function useRefreshGraph(projectId: string | undefined) {
       queryClient.setQueryData(['graph', projectId], graph);
       void queryClient.invalidateQueries({ queryKey: ['graph', projectId] });
     },
+  });
+}
+
+/**
+ * The path between two nodes. Only fetched once a target is chosen — a
+ * traversal is work, and until the reader names a destination there is no
+ * question to answer.
+ */
+export function useGraphPath(
+  projectId: string | undefined,
+  fromId: string | null,
+  toId: string | null,
+) {
+  return useQuery({
+    queryKey: ['graph', projectId, 'path', fromId, toId],
+    queryFn: () => {
+      if (!projectId || !fromId || !toId) throw new Error('No path requested');
+      return fetchGraphPath(projectId, fromId, toId);
+    },
+    enabled: Boolean(projectId && fromId && toId),
+    staleTime: 60_000,
   });
 }

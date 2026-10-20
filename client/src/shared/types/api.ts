@@ -1846,6 +1846,22 @@ export interface EngineeringGraph {
   generatedAt: string;
 }
 
+/** Which way an edge was walked to make a hop. */
+export type HopDirection = 'forward' | 'backward';
+
+export interface GraphHop {
+  relationship: EngRelationship;
+  /** `backward` means the edge points the other way; the graph still holds it. */
+  direction: HopDirection;
+}
+
+/** A chain between two nodes, as the graph actually holds it. */
+export interface GraphPath {
+  nodes: EngGraphNode[];
+  relationships: EngRelationship[];
+  hops: GraphHop[];
+}
+
 export interface NodeNeighbourhood {
   node: EngGraphNode;
   outgoing: { edge: EngGraphEdge; node: EngGraphNode }[];

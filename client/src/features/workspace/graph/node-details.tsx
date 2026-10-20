@@ -21,6 +21,7 @@ import { cn } from '@/shared/lib/cn';
 import type { EngGraphNode } from '@/shared/types/api';
 import { artifactTarget } from './artifact-links';
 import { FAMILY_DOT, FAMILY_OF } from './node-style';
+import { TraceTo } from './trace-to';
 
 /** Metadata values are arbitrary JSON; render them without trusting `String()`. */
 function formatValue(value: unknown): string {
@@ -44,6 +45,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export interface NodeDetailsProps {
   projectId: string;
   node: EngGraphNode;
+  /** Every node in the project — the candidates a trace can end at. */
+  nodes: EngGraphNode[];
   impactOpen: boolean;
   onToggleImpact: () => void;
   onFocusNode: (nodeId: string) => void;
@@ -53,6 +56,7 @@ export interface NodeDetailsProps {
 export function NodeDetails({
   projectId,
   node,
+  nodes,
   impactOpen,
   onToggleImpact,
   onFocusNode,
@@ -132,6 +136,10 @@ export function NodeDetails({
             </dl>
           </Section>
         )}
+
+        <Section title="Trace to…">
+          <TraceTo projectId={projectId} origin={node} nodes={nodes} onFocusNode={onFocusNode} />
+        </Section>
 
         <Section title="Relationships">
           {detail.isPending ? (

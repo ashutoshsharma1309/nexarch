@@ -275,6 +275,7 @@ export function GraphWorkspace({
             <NodeDetails
               projectId={projectId}
               node={selectedNode}
+              nodes={graph.data.nodes}
               impactOpen={impactOpen}
               onToggleImpact={() => {
                 setImpactOpen((open) => !open);

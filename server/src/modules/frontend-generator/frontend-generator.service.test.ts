@@ -417,6 +417,39 @@ describe('landing page', () => {
     assert.deepEqual(normalizeSiteContent('not an object', derived), derived);
   });
 
+  it('pins react and react-dom to one exact version', () => {
+    // The failure this prevents: two independent carets, no lockfile, and an
+    // install that prefers a warm cache can satisfy both ranges with
+    // different versions. React 19.3 then refuses to render, so the app
+    // builds, starts, and serves a blank page with a console error — which
+    // reads to a user as "the preview is broken", not "the install drifted".
+    const { plan } = planArchitecture(spec);
+    const bundle = designDatabase(plan, spec);
+    const backend = generateBackend(
+      plan,
+      spec,
+      bundle.databaseDesign,
+      bundle.prismaSchema,
+      bundle.openapi,
+      bundle.validationRules.entities,
+      bundle.entityMetadata,
+    );
+    const project = generateFrontend(
+      plan,
+      spec,
+      bundle.databaseDesign,
+      bundle.openapi,
+      { modules: backend.modules, routes: backend.routes },
+      bundle.entityMetadata,
+    );
+
+    const manifest = project.files.find((f) => f.path === 'package.json')?.content ?? '';
+    const pkg = JSON.parse(manifest) as { dependencies: Record<string, string> };
+
+    assert.equal(pkg.dependencies.react, pkg.dependencies['react-dom'], 'the pair must match');
+    assert.match(pkg.dependencies.react ?? '', /^\d+\.\d+\.\d+$/, 'exact, not a range');
+  });
+
   it('escapes the project name in index.html and ships an inline favicon', () => {
     const hostileSpec = { ...spec, projectName: 'Evil</title><script>alert(1)</script>' };
     const { plan } = planArchitecture(hostileSpec);

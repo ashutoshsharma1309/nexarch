@@ -383,6 +383,60 @@ describe('graph builder (e-commerce project)', () => {
     assert.equal(path.relationships.length, path.nodes.length - 1);
   });
 
+  it('cannot reach a requirement from its code by following edges forwards', () => {
+    // The graph's edges point *at* a requirement: a feature IMPLEMENTS one,
+    // the project CONTAINS one. So a requirement has no outgoing edges, and
+    // the traversal a reader most wants — "this requirement, where does it
+    // end up?" — is impossible in the forward direction. This test pins the
+    // reason the `any` direction exists.
+    const requirement = nodes.find((node) => node.type === 'REQUIREMENT');
+    assert.ok(requirement, 'the fixture has requirements');
+    const file = nodes.find((node) => node.type === 'FILE');
+    assert.ok(file, 'the fixture has files');
+
+    assert.equal(
+      findPath(index, requirement.id, file.id),
+      null,
+      'forwards-only traversal finds nothing, which is why it is not the default for a trace',
+    );
+  });
+
+  it('traces a requirement to code when edges may be walked either way', () => {
+    const requirement = nodes.find((node) => node.type === 'REQUIREMENT');
+    assert.ok(requirement);
+    const file = nodes.find((node) => node.type === 'FILE');
+    assert.ok(file);
+
+    const path = findPath(index, requirement.id, file.id, 6, 'any');
+    assert.ok(path, 'a requirement is connected to the code built from it');
+    assert.equal(path.nodes[0]?.id, requirement.id);
+    assert.equal(path.nodes[path.nodes.length - 1]?.id, file.id);
+
+    // Every hop is accounted for, and each one says which way its edge runs.
+    assert.equal(path.hops.length, path.nodes.length - 1);
+    assert.equal(path.relationships.length, path.hops.length);
+    assert.deepEqual(
+      path.hops.map((hop) => hop.relationship),
+      path.relationships,
+    );
+    assert.ok(
+      path.hops.some((hop) => hop.direction === 'backward'),
+      'reaching a requirement means walking at least one edge against its direction',
+    );
+
+    // Every node on the path is a node this project actually holds.
+    for (const node of path.nodes) {
+      assert.ok(index.nodesById.has(node.id), `${node.name} is a real node`);
+    }
+  });
+
+  it('a node traces to itself without inventing a hop', () => {
+    const file = nodes.find((node) => node.type === 'FILE');
+    assert.ok(file);
+    const path = findPath(index, file.id, file.id, 6, 'any');
+    assert.deepEqual(path, { nodes: [file], relationships: [], hops: [] });
+  });
+
   it('impact analysis reports what a change reaches, never the origin', () => {
     const users = find('ENTITY', 'user');
     assert.ok(users);

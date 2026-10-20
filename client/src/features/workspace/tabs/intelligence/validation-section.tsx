@@ -9,6 +9,7 @@
  */
 import { Check, ChevronRight, CircleDashed, PlayCircle, X } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { Badge } from '@/shared/components/ui/badge';
 import { Card, CardContent } from '@/shared/components/ui/card';
@@ -43,7 +44,18 @@ function StatusIcon({ status }: { status: CheckStatus | ValidationTestCase['stat
   }
 }
 
-function TestRow({ testCase }: { testCase: ValidationTestCase }) {
+/** Status in words needs a tone of its own; the icon is not enough. */
+const STATUS_TONE: Record<ValidationTestCase['status'], string> = {
+  PASSED: 'text-success',
+  FAILED: 'text-danger',
+  BLOCKED: 'text-warning',
+  SKIPPED: 'text-warning',
+  RUNNING: 'text-fg-muted',
+  PENDING: 'text-fg-subtle',
+};
+
+/** Exported for tests: the evidence a reader gets per case is the point. */
+export function TestRow({ testCase }: { testCase: ValidationTestCase }) {
   const [open, setOpen] = useState(false);
   return (
     <li className="px-4 py-2" data-test={testCase.name} data-status={testCase.status}>
@@ -67,6 +79,11 @@ function TestRow({ testCase }: { testCase: ValidationTestCase }) {
         >
           {testCase.name}
         </span>
+        {/* The status in words. An icon alone leaves SKIPPED looking like a
+            pass to anyone scanning the column. */}
+        <span className={cn('font-mono text-2xs', STATUS_TONE[testCase.status])}>
+          {testCase.status.toLowerCase()}
+        </span>
         <Badge variant="neutral">{testCase.type}</Badge>
         {testCase.duration !== null && (
           <span className="font-mono text-2xs text-fg-subtle tabular-nums">
@@ -77,6 +94,27 @@ function TestRow({ testCase }: { testCase: ValidationTestCase }) {
 
       {open && (
         <div className="mt-2 ml-5 space-y-2 border-l border-line pl-3">
+          {/* What the case exercised. It has always been on the wire and was
+              never shown, so a reader could see "Create product: PASSED" with
+              no way to know what it was run against. */}
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 font-mono text-2xs text-fg-subtle">
+            <dt>target</dt>
+            <dd className="min-w-0 text-fg-muted">
+              {testCase.target === '' ? (
+                <span className="text-fg-subtle">not recorded for this case</span>
+              ) : (
+                <Link
+                  to={`../../graph?q=${encodeURIComponent(testCase.target)}`}
+                  className="underline decoration-line underline-offset-2 hover:text-fg"
+                  title="Find this target in the Knowledge Graph"
+                >
+                  {testCase.target}
+                </Link>
+              )}
+            </dd>
+            <dt>priority</dt>
+            <dd className="text-fg-muted">{testCase.priority.toLowerCase()}</dd>
+          </dl>
           <ol className="space-y-0.5 text-2xs text-fg-muted">
             {testCase.steps.map((step) => (
               <li key={step.action}>
@@ -86,8 +124,14 @@ function TestRow({ testCase }: { testCase: ValidationTestCase }) {
             ))}
           </ol>
           <p className="text-2xs text-fg-subtle">{testCase.expectedResult}</p>
-          {testCase.evidence && (
+          {testCase.evidence ? (
             <p className="font-mono text-2xs break-all text-fg-muted">{testCase.evidence}</p>
+          ) : (
+            <p className="text-2xs text-fg-subtle">
+              {testCase.status === 'PASSED' || testCase.status === 'FAILED'
+                ? 'This case recorded no evidence beyond its status.'
+                : 'No evidence — this case did not run.'}
+            </p>
           )}
           {testCase.error && <p className="text-2xs text-danger">{testCase.error}</p>}
         </div>

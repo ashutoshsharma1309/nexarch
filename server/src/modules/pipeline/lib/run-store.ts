@@ -155,3 +155,102 @@ export async function listRunsForProject(projectId: string, limit = 50): Promise
   });
   return rows.map(toRun);
 }
+
+/**
+ * Statuses a run can hold while it is still working. Anything here found at
+ * boot belongs to a process that no longer exists.
+ */
+const NON_TERMINAL: RunStatus[] = ['PENDING', 'ANALYZING', 'PLANNING', 'GENERATING', 'REVIEWING'];
+
+const INTERRUPTED =
+  'This run was interrupted by a server restart. Its generated files lived in the API process and did not survive, so it cannot be resumed — rebuild the project to produce them again.';
+
+export interface ReconcileResult {
+  /** Runs moved from a working status to FAILED. */
+  reconciled: number;
+  /** Set when the sweep itself could not run — the UI can then say so. */
+  error: string | null;
+}
+
+/**
+ * Settle runs that a previous process left mid-flight.
+ *
+ * Why this is safe to do unconditionally at boot: a run's progress lives in
+ * `pipeline.service.ts`'s in-memory map, and its artifacts with it. At the
+ * moment this runs nothing has started executing in *this* process, so every
+ * row still claiming to be working is, by construction, owned by a process
+ * that is gone. There is no live work to mislabel.
+ *
+ * Why they are failed rather than resumed: resuming would mean re-running
+ * generation, which costs tokens and would duplicate the run's side effects —
+ * a second graph sync, a second set of files — for a run the user has
+ * probably already given up on. Failing it truthfully, with a reason that
+ * says what to do next, is the honest outcome.
+ *
+ * Idempotent: a second call finds those rows terminal and changes nothing.
+ * A database that cannot be reached is reported, not thrown — the API must
+ * still boot, and `/health` already says the database is down.
+ */
+export async function reconcileInterruptedRuns(): Promise<ReconcileResult> {
+  if (useMemory()) {
+    // The in-memory log dies with the process it lived in, so after a restart
+    // there is nothing left to reconcile. A row here can only be one this
+    // process wrote, and this runs before any of those exist.
+    let reconciled = 0;
+    for (const row of memGenerations.values()) {
+      if (!NON_TERMINAL.includes(row.status as RunStatus)) continue;
+      row.status = 'FAILED';
+      row.error = INTERRUPTED;
+      row.completedAt = new Date();
+      row.updatedAt = row.completedAt;
+      reconciled += 1;
+    }
+    return { reconciled, error: null };
+  }
+
+  try {
+    const { count } = await prisma.generation.updateMany({
+      where: { status: { in: NON_TERMINAL } },
+      data: { status: 'FAILED', error: INTERRUPTED, completedAt: new Date() },
+    });
+    return { reconciled: count, error: null };
+  } catch (cause) {
+    const error = cause instanceof Error ? cause.message : String(cause);
+    logger.warn('interrupted runs could not be reconciled', { error });
+    return { reconciled: 0, error };
+  }
+}
+
+/** Drops the in-memory generation log. Tests only. */
+export function resetRunStoreForTests(): void {
+  memGenerations.clear();
+}
+
+/**
+ * Seed a generation row in a chosen status. Tests only.
+ *
+ * It exists because the production path writes exactly two non-terminal
+ * states — `openRun` sets ANALYZING and `closeRun` settles it — while the
+ * status column allows five. The reconciliation sweep has to be correct for
+ * every one of them, including rows written by an older build of this
+ * platform, and this is the only way to put one in front of it.
+ */
+export function seedRunForTests(row: {
+  id: string;
+  projectId: string;
+  status: RunStatus;
+  prompt?: string;
+}): void {
+  const now = new Date();
+  memGenerations.set(row.id, {
+    id: row.id,
+    projectId: row.projectId,
+    prompt: row.prompt ?? 'seeded run',
+    status: row.status,
+    error: null,
+    startedAt: now,
+    completedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+}

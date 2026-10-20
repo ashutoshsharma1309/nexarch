@@ -15,11 +15,13 @@
  */
 import type {
   GraphEdge,
+  GraphHop,
   GraphNode,
   GraphNodeType,
   GraphPath,
   GraphRelationship,
   NodeNeighbourhood,
+  PathDirection,
   RelatedNode,
   TraversalDirection,
   TraversalOptions,
@@ -172,43 +174,78 @@ export function nodesByType(index: GraphIndex, type: GraphNodeType): GraphNode[]
  * rather than an empty path when the target is unreachable — "no path"
  * and "a path of length zero" are different answers.
  */
+/**
+ * The chain between two nodes, or null when the graph holds none.
+ *
+ * `direction` decides what counts as a step. Following only outgoing edges
+ * answers "what does this reach", which is right for dependency questions.
+ * But the graph's edges point *toward* requirements — a feature IMPLEMENTS a
+ * requirement, a project CONTAINS one — so a requirement has no outgoing
+ * edges at all, and the one traversal a reader most wants ("this requirement:
+ * where does it end up in the code?") was structurally impossible to answer.
+ *
+ * `'any'` therefore walks an edge from either end, and records which way each
+ * hop went. That is still evidence the graph holds: an edge traversed
+ * backwards is a real edge, and the reader is told it was backwards rather
+ * than being shown a direction that does not exist.
+ */
 export function findPath(
   index: GraphIndex,
   fromId: string,
   toId: string,
   maxDepth = 6,
+  direction: PathDirection = 'outgoing',
 ): GraphPath | null {
   if (fromId === toId) {
     const node = index.nodesById.get(fromId);
-    return node ? { nodes: [node], relationships: [] } : null;
+    return node ? { nodes: [node], relationships: [], hops: [] } : null;
+  }
+
+  interface Step {
+    id: string;
+    nodes: string[];
+    relationships: GraphRelationship[];
+    hops: GraphHop[];
   }
 
   const visited = new Set<string>([fromId]);
-  let frontier: { id: string; nodes: string[]; relationships: GraphRelationship[] }[] = [
-    { id: fromId, nodes: [fromId], relationships: [] },
-  ];
+  let frontier: Step[] = [{ id: fromId, nodes: [fromId], relationships: [], hops: [] }];
 
   for (let depth = 0; depth < maxDepth && frontier.length > 0; depth += 1) {
-    const next: typeof frontier = [];
+    const next: Step[] = [];
 
     for (const current of frontier) {
-      for (const edge of index.outgoing.get(current.id) ?? []) {
-        const neighbourId = edge.targetNodeId;
-        const path = {
+      const forward = (index.outgoing.get(current.id) ?? []).map((edge) => ({
+        edge,
+        neighbourId: edge.targetNodeId,
+        way: 'forward' as const,
+      }));
+      const backward =
+        direction === 'any'
+          ? (index.incoming.get(current.id) ?? []).map((edge) => ({
+              edge,
+              neighbourId: edge.sourceNodeId,
+              way: 'backward' as const,
+            }))
+          : [];
+
+      for (const { edge, neighbourId, way } of [...forward, ...backward]) {
+        const step: Step = {
           id: neighbourId,
           nodes: [...current.nodes, neighbourId],
           relationships: [...current.relationships, edge.relationship],
+          hops: [...current.hops, { relationship: edge.relationship, direction: way }],
         };
 
         if (neighbourId === toId) {
-          const nodes = path.nodes
+          const nodes = step.nodes
             .map((id) => index.nodesById.get(id))
             .filter((node): node is GraphNode => Boolean(node));
-          return { nodes, relationships: path.relationships };
+          return { nodes, relationships: step.relationships, hops: step.hops };
         }
         if (visited.has(neighbourId)) continue;
         visited.add(neighbourId);
-        next.push(path);
+        next.push(step);
       }
     }
     frontier = next;

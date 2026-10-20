@@ -91,7 +91,14 @@ export async function pathHandler(req: Request, res: Response): Promise<void> {
   if (typeof to !== 'string' || to === '') {
     throw AppError.badRequest('A `to` node id is required');
   }
-  const path = await getPath(ownerOf(req), projectId(req), nodeId(req), to);
+  // `any` walks edges from either end. It is opt-in because the two answers
+  // mean different things: "what does this reach" versus "is this connected
+  // to that at all".
+  const raw = req.query.direction;
+  if (raw !== undefined && raw !== 'outgoing' && raw !== 'any') {
+    throw AppError.badRequest('`direction` must be `outgoing` or `any`');
+  }
+  const path = await getPath(ownerOf(req), projectId(req), nodeId(req), to, raw ?? 'outgoing');
   sendSuccess(res, path);
 }
 

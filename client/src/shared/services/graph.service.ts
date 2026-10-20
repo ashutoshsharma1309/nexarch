@@ -9,10 +9,11 @@
 import { apiClient, unwrap } from './api-client';
 import type {
   ApiSuccess,
+  EngGraphValidationReport,
+  EngNodeType,
   EngineeringGraph,
   GraphImpactAnalysis,
-  EngNodeType,
-  EngGraphValidationReport,
+  GraphPath,
   NodeNeighbourhood,
 } from '@/shared/types/api';
 
@@ -63,6 +64,27 @@ export async function refreshGraph(projectId: string): Promise<EngineeringGraph>
     `/projects/${projectId}/graph/refresh`,
     undefined,
     { timeout: 60_000 },
+  );
+  return unwrap(data);
+}
+
+/**
+ * The chain the graph holds between two nodes, or null when there is none.
+ *
+ * The traversal is the server's: it walks real edges, so a path that comes
+ * back is one the project actually has. A null answer means no path exists
+ * and must be shown as that, not as an empty diagram.
+ */
+export async function fetchGraphPath(
+  projectId: string,
+  fromId: string,
+  toId: string,
+): Promise<GraphPath | null> {
+  const { data } = await apiClient.get<ApiSuccess<GraphPath | null>>(
+    `/projects/${projectId}/graph/nodes/${fromId}/path`,
+    // `any` walks an edge from either end. Without it a requirement can
+    // reach nothing: every edge about a requirement points at it, not away.
+    { params: { to: toId, direction: 'any' }, timeout: 30_000 },
   );
   return unwrap(data);
 }

@@ -237,10 +237,30 @@ export interface NodeNeighbourhood {
   incoming: { edge: GraphEdge; node: GraphNode }[];
 }
 
-/** A directed chain of nodes, e.g. Component → API → Service → Entity. */
+/** Which way an edge was walked to make a hop. */
+export type HopDirection = 'forward' | 'backward';
+
+/** Whether a traversal may walk an edge against its direction. */
+export type PathDirection = 'outgoing' | 'any';
+
+export interface GraphHop {
+  relationship: GraphRelationship;
+  /**
+   * `backward` means the edge points the other way — a feature IMPLEMENTS a
+   * requirement, so reaching the feature *from* the requirement walks that
+   * edge in reverse. Recorded rather than smoothed over, because the
+   * direction is part of what the relationship means.
+   */
+  direction: HopDirection;
+}
+
+/** A chain of nodes, e.g. Component → API → Service → Entity. */
 export interface GraphPath {
   nodes: GraphNode[];
+  /** One relationship per hop, in order. */
   relationships: GraphRelationship[];
+  /** The same hops, each saying which way its edge was walked. */
+  hops: GraphHop[];
 }
 
 /* ── Impact analysis ──────────────────────────────────────────────────── */

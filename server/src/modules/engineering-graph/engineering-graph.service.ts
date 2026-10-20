@@ -39,6 +39,7 @@ import type {
   GraphValidationReport,
   ImpactAnalysis,
   NodeNeighbourhood,
+  PathDirection,
   RelatedNode,
   TraversalOptions,
 } from '../../shared/contracts/index.js';
@@ -196,11 +197,15 @@ export async function getPath(
   projectId: string,
   fromId: string,
   toId: string,
+  direction: PathDirection = 'outgoing',
 ): Promise<GraphPath | null> {
+  // Both endpoints are resolved under this owner's project before anything is
+  // traversed, so a node id from another project cannot be reached by asking
+  // for a path to it.
   await requireNode(ownerId, projectId, fromId);
   await requireNode(ownerId, projectId, toId);
   const { index } = await loadFor(ownerId, projectId);
-  return findPath(index, fromId, toId);
+  return findPath(index, fromId, toId, 6, direction);
 }
 
 export async function validate(ownerId: string, projectId: string): Promise<GraphValidationReport> {

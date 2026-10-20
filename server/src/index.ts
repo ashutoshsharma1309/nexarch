@@ -16,6 +16,7 @@ import {
   pruneRunWorkspaces,
   reapOrphanedRunnerProcesses,
 } from './modules/runner/lib/orphan-reaper.js';
+import { reconcileInterruptedRuns } from './modules/pipeline/lib/run-store.js';
 
 const SHUTDOWN_GRACE_MS = 10_000;
 
@@ -41,6 +42,15 @@ async function bootstrap(): Promise<void> {
 
   try {
     await connectDatabase();
+    // With the database up, settle any run the last process left mid-flight.
+    // Until this existed, a restart during a build left the project showing
+    // "building" forever, with nothing building.
+    const settled = await reconcileInterruptedRuns();
+    if (settled.reconciled > 0) {
+      logger.warn('runs interrupted by the last shutdown were marked failed', {
+        count: settled.reconciled,
+      });
+    }
   } catch (error) {
     if (config.isProduction) {
       logger.error('database unreachable at boot — refusing to start', { error });
