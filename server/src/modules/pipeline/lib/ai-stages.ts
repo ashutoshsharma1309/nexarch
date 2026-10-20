@@ -125,7 +125,9 @@ export async function analyzeWithAi(
           model: response.record.model,
           inputTokens: response.record.tokens.inputTokens,
           outputTokens: response.record.tokens.outputTokens,
-          costUsd: response.record.cost.totalCostUsd,
+          // Null when the model has no published price; it adds nothing to the
+          // money total, and the AI analytics counts those calls separately.
+          costUsd: response.record.cost.totalCostUsd ?? 0,
         },
       };
     } catch (error) {
@@ -300,7 +302,9 @@ export async function designEntityFields(
         model: response.record.model,
         inputTokens: response.record.tokens.inputTokens,
         outputTokens: response.record.tokens.outputTokens,
-        costUsd: response.record.cost.totalCostUsd,
+        // Null when the model has no published price; it adds nothing to the
+        // money total, and the AI analytics counts those calls separately.
+        costUsd: response.record.cost.totalCostUsd ?? 0,
       },
     };
   } catch (error) {
@@ -386,7 +390,9 @@ export async function writeSiteDesign(
         model: response.record.model,
         inputTokens: response.record.tokens.inputTokens,
         outputTokens: response.record.tokens.outputTokens,
-        costUsd: response.record.cost.totalCostUsd,
+        // Null when the model has no published price; it adds nothing to the
+        // money total, and the AI analytics counts those calls separately.
+        costUsd: response.record.cost.totalCostUsd ?? 0,
       },
     };
   } catch (error) {

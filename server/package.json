@@ -8,13 +8,17 @@
   "engines": {
     "node": ">=22.0.0"
   },
+  "//config": "The unit-test file list lives here, not inline in the scripts, so `test` and\n`test:coverage` cannot drift apart: two hand-maintained copies of a 35-file list would.\nnpm exports `config` keys as $npm_package_config_* to every script it runs. The list stays\nexplicit rather than a glob because *.integration.test.ts needs a live database and runs\nseparately via `test:integration`.",
+  "config": {
+    "testFiles": "src/modules/analysis/analysis.service.test.ts src/modules/architecture/architecture.service.test.ts src/modules/database-designer/database-designer.service.test.ts src/modules/backend-generator/backend-generator.service.test.ts src/modules/frontend-generator/frontend-generator.service.test.ts src/modules/security-engine/security-engine.service.test.ts src/modules/dependency-graph/dependency-graph.service.test.ts src/modules/ai-orchestrator/ai-orchestrator.service.test.ts src/modules/ai-orchestrator/cost-estimator.test.ts src/modules/pipeline/pipeline.service.test.ts src/modules/workspace/workspace.service.test.ts src/modules/deployment/deployment.service.test.ts src/modules/quality/quality.service.test.ts src/modules/insights/insights.service.test.ts src/modules/runner/runner.service.test.ts src/modules/engineering-graph/engineering-graph.service.test.ts src/modules/engineering-graph/file-imports.test.ts src/modules/context-engine/context-engine.service.test.ts src/modules/agent-orchestrator/agent-orchestrator.service.test.ts src/modules/agent-orchestrator/planning-mesh.test.ts src/modules/agent-orchestrator/generation-mesh.test.ts src/modules/agent-orchestrator/review-mesh.test.ts src/modules/agent-orchestrator/validation-mesh.test.ts src/modules/agent-orchestrator/repair-loop.test.ts src/modules/agent-orchestrator/project-intelligence.test.ts src/shared/security/security.test.ts src/modules/agent-orchestrator/agent-cache.test.ts src/modules/workspace/project-package.test.ts src/modules/agent-orchestrator/validation-gate.test.ts src/shared/identity/requirement-id.test.ts src/modules/pipeline/restart-recovery.test.ts src/modules/pipeline/domain-relevance.test.ts src/modules/project-editor/project-editor.test.ts src/modules/builder-agent/builder-agent.test.ts"
+  },
   "scripts": {
     "postinstall": "prisma generate",
     "dev": "tsx watch --clear-screen=false src/index.ts",
     "build": "tsc -p tsconfig.build.json && node -e \"require('node:fs').cpSync('src/modules/ai-orchestrator/prompts', 'dist/modules/ai-orchestrator/prompts', { recursive: true })\"",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "NODE_ENV=test node --import tsx --test src/modules/analysis/analysis.service.test.ts src/modules/architecture/architecture.service.test.ts src/modules/database-designer/database-designer.service.test.ts src/modules/backend-generator/backend-generator.service.test.ts src/modules/frontend-generator/frontend-generator.service.test.ts src/modules/security-engine/security-engine.service.test.ts src/modules/dependency-graph/dependency-graph.service.test.ts src/modules/ai-orchestrator/ai-orchestrator.service.test.ts src/modules/pipeline/pipeline.service.test.ts src/modules/workspace/workspace.service.test.ts src/modules/deployment/deployment.service.test.ts src/modules/quality/quality.service.test.ts src/modules/insights/insights.service.test.ts src/modules/runner/runner.service.test.ts src/modules/engineering-graph/engineering-graph.service.test.ts src/modules/engineering-graph/file-imports.test.ts src/modules/context-engine/context-engine.service.test.ts src/modules/agent-orchestrator/agent-orchestrator.service.test.ts src/modules/agent-orchestrator/planning-mesh.test.ts src/modules/agent-orchestrator/generation-mesh.test.ts src/modules/agent-orchestrator/review-mesh.test.ts src/modules/agent-orchestrator/validation-mesh.test.ts src/modules/agent-orchestrator/repair-loop.test.ts src/modules/agent-orchestrator/project-intelligence.test.ts src/shared/security/security.test.ts src/modules/agent-orchestrator/agent-cache.test.ts src/modules/workspace/project-package.test.ts src/modules/agent-orchestrator/validation-gate.test.ts src/shared/identity/requirement-id.test.ts src/modules/pipeline/restart-recovery.test.ts src/modules/pipeline/domain-relevance.test.ts src/modules/project-editor/project-editor.test.ts src/modules/builder-agent/builder-agent.test.ts",
+    "test": "NODE_ENV=test node --import tsx --test $npm_package_config_testFiles",
     "lint": "eslint src scripts",
     "lint:fix": "eslint src scripts --fix",
     "db:generate": "prisma generate",
@@ -22,7 +26,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
-    "test:integration": "node --import tsx --test src/modules/workspace/workspace.integration.test.ts src/modules/engineering-graph/engineering-graph.integration.test.ts"
+    "test:integration": "node --import tsx --test src/modules/pipeline/run-artifacts.integration.test.ts src/modules/workspace/workspace.integration.test.ts src/modules/engineering-graph/engineering-graph.integration.test.ts",
+    "test:coverage": "NODE_ENV=test node --import tsx --experimental-test-coverage --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.d.ts' --test $npm_package_config_testFiles"
   },
   "dependencies": {
     "@prisma/client": "^6.8.0",

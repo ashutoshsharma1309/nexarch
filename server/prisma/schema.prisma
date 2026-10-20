@@ -58,21 +58,22 @@ enum ProjectStatus {
 /// A user-owned workspace for one generated application. The prompt that
 /// created it and every regeneration live in `generations`.
 model Project {
-  id          String        @id @default(cuid())
-  name        String        @db.VarChar(120)
-  slug        String        @db.VarChar(140)
-  description String?       @db.Text
-  status      ProjectStatus @default(DRAFT)
+  id           String        @id @default(cuid())
+  name         String        @db.VarChar(120)
+  slug         String        @db.VarChar(140)
+  description  String?       @db.Text
+  status       ProjectStatus @default(DRAFT)
   /// Pinned in the project list. Presentation state, but it belongs to the
   /// row rather than the browser — a pin should survive a different device.
-  favorite    Boolean       @default(false)
-  owner       User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId     String        @map("owner_id")
-  generations Generation[]
-  graphNodes  GraphNode[]
-  graphEdges  GraphEdge[]
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  favorite     Boolean       @default(false)
+  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId      String        @map("owner_id")
+  generations  Generation[]
+  graphNodes   GraphNode[]
+  graphEdges   GraphEdge[]
+  runArtifacts RunArtifact[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   /// Scoped per owner, not globally: two users naming a project "Storefront"
   /// is normal, and a global unique slug would make the second one fail.
@@ -109,6 +110,38 @@ model Generation {
 
   @@index([projectId, createdAt])
   @@map("generations")
+}
+
+/// What a run actually produced.
+///
+/// Until this table existed, generated code lived only in a Map inside the
+/// API process: the `generations` row recorded that a build happened while
+/// the build itself evaporated on the next restart. Every project then
+/// showed a completed run whose Code tab, Preview and editor had nothing to
+/// read, and the knowledge graph — which *is* persisted — kept pointing at
+/// files no longer anywhere.
+///
+/// One row per run, holding the whole bundle as JSON. The reads are
+/// whole-bundle by nature (the Code tab lists every file, the runner writes
+/// every file, an edit regenerates from the same inputs), so splitting it
+/// across tables would buy nothing and cost a join. Postgres stores a value
+/// this size out of line automatically.
+model RunArtifact {
+  /// The run this is the output of. One bundle per run, so the id is the key.
+  runId     String   @id @map("run_id")
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String   @map("project_id")
+  /// Lets a later shape change recognise and skip bundles it cannot read.
+  version   Int      @default(1)
+  /// The PipelineArtifacts bundle: spec, plans, generated files, design.
+  payload   Json
+  /// Denormalised so a listing can show size without loading the payload.
+  fileCount Int      @map("file_count")
+  bytes     Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([projectId, createdAt])
+  @@map("run_artifacts")
 }
 
 /// ── Engineering Graph ──────────────────────────────────────────────────
@@ -159,22 +192,22 @@ enum GraphRelationship {
 }
 
 model GraphNode {
-  id        String        @id @default(cuid())
-  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId String        @map("project_id")
+  id               String        @id @default(cuid())
+  project          Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId        String        @map("project_id")
   /// The run that last produced or refreshed this node. Not a foreign key:
   /// a node outlives the run that created it (the next run refreshes it in
   /// place), so a deleted generation row must not take the node with it.
-  runId     String        @map("run_id")
-  type      GraphNodeType
+  runId            String        @map("run_id")
+  type             GraphNodeType
   /// Stable identity within (project, type). Two artifacts naming the same
   /// thing differently resolve to one node through this column.
-  canonicalName String    @map("canonical_name") @db.VarChar(255)
-  name        String      @db.VarChar(255)
-  description String?     @db.Text
-  metadata    Json
+  canonicalName    String        @map("canonical_name") @db.VarChar(255)
+  name             String        @db.VarChar(255)
+  description      String?       @db.Text
+  metadata         Json
   /// The artifact type this node was derived from — the trace back to source.
-  sourceArtifactId String? @map("source_artifact_id") @db.VarChar(64)
+  sourceArtifactId String?       @map("source_artifact_id") @db.VarChar(64)
 
   outgoing GraphEdge[] @relation("edgeSource")
   incoming GraphEdge[] @relation("edgeTarget")
@@ -190,10 +223,10 @@ model GraphNode {
 }
 
 model GraphEdge {
-  id        String            @id @default(cuid())
-  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId String            @map("project_id")
-  runId     String            @map("run_id")
+  id        String  @id @default(cuid())
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String  @map("project_id")
+  runId     String  @map("run_id")
 
   source       GraphNode @relation("edgeSource", fields: [sourceNodeId], references: [id], onDelete: Cascade)
   sourceNodeId String    @map("source_node_id")

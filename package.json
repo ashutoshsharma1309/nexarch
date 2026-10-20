@@ -21,6 +21,8 @@
     "lint:fix": "npm run lint:fix --workspaces",
     "typecheck": "npm run typecheck --workspaces",
     "test": "npm run test --workspaces",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:generate": "npm run db:generate --workspace server",
@@ -32,13 +34,17 @@
     "docker:down": "docker compose down",
     "prepare": "husky"
   },
-  "//lint-staged": "Root handles only repo-level files; each workspace has its own .lintstagedrc.json so ESLint runs with the correct flat-config working directory.",
+  "//lint-staged": "Root handles only repo-level files; each workspace has its own .lintstagedrc.json so ESLint runs with the correct flat-config working directory. The TypeScript glob is scoped to the repo root and e2e/ for the same reason: the E2E suite is the only TypeScript outside a workspace, and without it `format:check` fails in CI on a commit that looked clean locally.",
   "lint-staged": {
     "*.{js,mjs,cjs,json,md,yml,yaml,css,html}": [
+      "prettier --write"
+    ],
+    "{*.ts,e2e/**/*.ts}": [
       "prettier --write"
     ]
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "concurrently": "^9.1.0",
     "husky": "^9.1.7",
     "lint-staged": "^15.5.0",

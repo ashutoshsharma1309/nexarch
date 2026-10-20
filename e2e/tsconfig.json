@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM"],
+
+    /* Playwright transpiles these files itself, so this config exists only
+       to typecheck them — hence `noEmit` and bundler-style resolution. */
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "types": ["node"],
+
+    /* The same strictness the server and client hold themselves to. A test
+       that only compiles under looser rules is a test that can lie. */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": ["**/*.ts", "../playwright.config.ts"],
+  "exclude": ["node_modules", "build"]
+}

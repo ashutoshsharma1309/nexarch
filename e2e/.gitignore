@@ -1,0 +1,4 @@
+# Playwright's HTML report, traces and failure screenshots. Written here
+# rather than at the repo root so this suite owns its own output, and kept
+# out of git because a trace of a five-minute build is megabytes.
+build/

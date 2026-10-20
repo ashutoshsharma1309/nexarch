@@ -65,7 +65,7 @@ export function BuildRequiredState({
       <EmptyState
         icon={<PackageX className="size-4" />}
         title="This build’s output is no longer available"
-        description="Generated files are held in the API process, so they don’t survive a server restart. The run is still in this project’s history — rebuild to produce the output again."
+        description="This run’s output was not stored — builds from before output was persisted kept their files only in the API process, and a restart lost them. The run is still in this project’s history; rebuild to produce the output again."
         action={
           <Button
             variant="forge"

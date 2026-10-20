@@ -244,9 +244,12 @@ export async function generate(
       cost: {
         provider: routed.provider.id,
         model: routed.model,
+        // A call that failed billed nothing. This zero is measured, not a
+        // stand-in for a price nobody looked up.
         inputCostUsd: 0,
         outputCostUsd: 0,
         totalCostUsd: 0,
+        pricing: { known: true, source: 'the call failed before any tokens were billed' },
       },
       durationMs: Date.now() - startedAt,
       status: 'failed',

@@ -47,6 +47,68 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Reports, never gates. The tree currently audits at 18 advisories,
+      # all in transitive dependencies — including one reached through the
+      # Prisma chain (prisma → @prisma/config → deepmerge-ts). A hard gate
+      # would therefore be red on every run from the day it was added, and a
+      # check that is always red is a check everyone learns to click past,
+      # which costs more than it catches. Turn it into a gate once the
+      # backlog is at zero, not before.
+      #
+      # `continue-on-error` rather than `|| true` so the step shows as a
+      # warning in the run summary instead of reporting success: the advisory
+      # count stays visible without blocking a merge.
+      - name: Audit dependencies (advisory)
+        continue-on-error: true
+        run: npm audit --audit-level=moderate
+
+  e2e-static:
+    name: E2E suite (parse & typecheck only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # What this job can honestly verify, and what it cannot.
+    #
+    # It CAN verify that the specs in e2e/ compile under the same strictness
+    # as the rest of the repo and that Playwright can collect them — which
+    # catches the whole class of "the suite has been broken for three weeks
+    # and nobody noticed because nobody ran it".
+    #
+    # It CANNOT run them. Every spec drives a live stack: a reachable server,
+    # a Postgres, an AI provider key, and — for build-and-preview — a real
+    # `npm install` inside a freshly generated project. This repository has
+    # no AI provider secret configured, and inventing a name for one here
+    # would just produce a job that skips silently and looks green. The specs
+    # themselves skip with an explanation when nothing is listening at the
+    # base URL, so running them here would also be green and still prove
+    # nothing. Until there is a provisioned environment to point at, the
+    # honest check is this one.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Chromium only, matching playwright.config.ts. `--with-deps` installs
+      # the system libraries the browser needs on a bare runner; the local
+      # `test:e2e:install` script omits it because it needs root.
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck E2E suite
+        run: npx tsc --project e2e/tsconfig.json
+
+      # Collects every spec without executing one. Fails on a syntax error, a
+      # bad import, or a config that resolves no tests.
+      - name: Collect E2E specs
+        run: npx playwright test --list
+
   docker:
     name: Docker build
     runs-on: ubuntu-latest

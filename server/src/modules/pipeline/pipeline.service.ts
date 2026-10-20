@@ -23,6 +23,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { closeRun, openRun } from './lib/run-store.js';
+import { loadRunArtifacts, saveRunArtifacts } from './lib/run-artifact-store.js';
 
 import { logger } from '../../shared/logger/index.js';
 import { AppError } from '../../shared/utils/app-error.js';
@@ -510,6 +511,17 @@ async function execute(runId: string, prompt: string): Promise<void> {
     };
     entry.artifacts = artifacts;
 
+    // Durably, as well as in memory. Until this existed a restart left the
+    // project showing a completed build with no files behind it.
+    if (run.projectId !== null) {
+      const stored = await saveRunArtifacts(run.id, run.projectId, artifacts);
+      if (!stored) {
+        logger.warn('this run exists only in memory and will not survive a restart', {
+          runId: run.id,
+        });
+      }
+    }
+
     /* Stage 8 — engineering graph */
     beginStage(run, 'graph');
     if (run.projectId === null) {
@@ -613,6 +625,34 @@ export function getArtifactsIfReady(id: string): PipelineArtifacts | null {
   return runs.get(id)?.artifacts ?? null;
 }
 
+/**
+ * The bundle for a run, from memory or from storage.
+ *
+ * The in-memory map holds the last twenty runs of this process; everything
+ * older, and everything from before a restart, is read back from the database
+ * and cached so the next caller finds it in memory. `null` means it is
+ * genuinely unavailable — never written, pruned, or from a build whose shape
+ * this one does not read — and callers must say so rather than imply the run
+ * produced nothing.
+ */
+export async function loadArtifacts(
+  id: string,
+  ownerId: string | null = null,
+): Promise<PipelineArtifacts | null> {
+  const entry = runs.get(id);
+  if (entry?.artifacts) {
+    // Ownership is only checkable for a run this process still knows about;
+    // for a rehydrated one the caller has already resolved the project.
+    if (ownerId !== null && entry.ownerId !== ownerId) return null;
+    return entry.artifacts;
+  }
+
+  const stored = await loadRunArtifacts(id);
+  if (!stored) return null;
+  if (entry) entry.artifacts = stored;
+  return stored;
+}
+
 export function getArtifacts(id: string, ownerId: string | null = null): PipelineArtifacts {
   const entry = ownedEntry(id, ownerId);
   if (!entry.artifacts) {
@@ -702,6 +742,7 @@ export async function registerEditedRun(input: {
 
   const artifacts: PipelineArtifacts = { ...input.artifacts, runId: run.id };
   runs.set(run.id, { run, artifacts, ownerId: input.ownerId });
+  await saveRunArtifacts(run.id, input.projectId, artifacts);
   while (runs.size > MAX_RUNS) {
     const oldest = runs.keys().next().value;
     if (oldest === undefined) break;

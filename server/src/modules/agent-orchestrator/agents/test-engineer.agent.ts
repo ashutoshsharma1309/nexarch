@@ -162,7 +162,9 @@ export const testEngineerAgent: Agent<{ cases: TestCase[] }> = {
         model: response.record.model,
         inputTokens: response.record.tokens.inputTokens,
         outputTokens: response.record.tokens.outputTokens,
-        costUsd: response.record.cost.totalCostUsd,
+        // Null when the model has no published price; it adds nothing to the
+        // money total, and the AI analytics counts those calls separately.
+        costUsd: response.record.cost.totalCostUsd ?? 0,
         contextTokens: input.context?.tokens ?? 0,
       };
     } catch (error) {

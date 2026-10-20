@@ -1,0 +1,59 @@
+# Nothing was watching this repo's dependencies: the advisory in the Prisma
+# chain sat open for weeks because a human had to go looking for it. Dependabot
+# makes that visible as a pull request CI already runs against.
+#
+# Grouping choice: minor and patch updates are grouped into one PR per
+# ecosystem per week, because ~60 direct dependencies ungrouped is a dozen PRs
+# a week and the review discipline dies within a month. Majors stay ungrouped
+# and arrive one at a time — those are the ones with breaking changes, and each
+# deserves to be read, tested and reverted on its own.
+#
+# npm is declared three times because this is an npm workspace: Dependabot
+# resolves a manifest per directory and does not follow the workspaces field.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /server
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  - package-ecosystem: npm
+    directory: /client
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # The workflow pins actions by major tag (actions/checkout@v4), so this only
+  # moves when a new major lands — low noise, and it is the one update class
+  # that can silently stop CI from running at all.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        update-types:
+          - minor
+          - patch

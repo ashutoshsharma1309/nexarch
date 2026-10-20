@@ -144,12 +144,25 @@ export interface TokenEstimate {
   totalTokens: number;
 }
 
+/** Whether a price for this model is published, or why it is not. */
+export type CostPricing = { known: true; source: string } | { known: false; reason: string };
+
+/**
+ * What a call cost, or an honest refusal to say.
+ *
+ * The amounts are nullable because the alternative was worse: the estimator
+ * used to multiply tokens by a flat per-*provider* rate and ignore the model
+ * that ran, so two models on one provider — here, a 12x price difference —
+ * reported the same cost. A number nobody can stand behind is not better than
+ * no number, so an unpriced model reports null and says which model it was.
+ */
 export interface CostEstimate {
   provider: ProviderId;
   model: string;
-  inputCostUsd: number;
-  outputCostUsd: number;
-  totalCostUsd: number;
+  inputCostUsd: number | null;
+  outputCostUsd: number | null;
+  totalCostUsd: number | null;
+  pricing: CostPricing;
 }
 
 /* ── Cache ────────────────────────────────────────────────────────────── */
@@ -301,6 +314,12 @@ export interface CostAnalytics {
   totalTokens: number;
   averageTokens: number;
   totalCostUsd: number;
+  /**
+   * Calls whose model has no published price. They are excluded from
+   * `totalCostUsd`, so a reader can tell a complete total from a partial one
+   * instead of reading an understated number as the whole bill.
+   */
+  unpricedGenerations: number;
   averageCostUsd: number;
   averageDurationMs: number;
   cache: CacheStats;

@@ -54,7 +54,9 @@ async function runArm(
       outputTokens: response.record.tokens.outputTokens,
       totalTokens: response.record.tokens.inputTokens + response.record.tokens.outputTokens,
       latencyMs: Date.now() - startedAt,
-      costUsd: response.record.cost.totalCostUsd,
+      // Null when the model has no published price; it adds nothing to the
+      // money total, and the AI analytics counts those calls separately.
+      costUsd: response.record.cost.totalCostUsd ?? 0,
       outputValid: response.record.validation.valid,
     };
   } catch (error) {

@@ -35,11 +35,7 @@ import {
   normalizeSiteDesign,
 } from '../frontend-generator/frontend-generator.service.js';
 import { auditDomainRelevance } from '../pipeline/lib/domain-relevance.js';
-import {
-  getArtifactsIfReady,
-  overlayFiles,
-  registerEditedRun,
-} from '../pipeline/pipeline.service.js';
+import { loadArtifacts, overlayFiles, registerEditedRun } from '../pipeline/pipeline.service.js';
 import { listRunsForProject } from '../pipeline/lib/run-store.js';
 import { synchronize as synchronizeGraph } from '../engineering-graph/index.js';
 import { getGraph, getImpact } from '../engineering-graph/engineering-graph.service.js';
@@ -104,10 +100,10 @@ async function baselineOf(
       'This project has no completed build yet, so there is nothing to edit. Build it first.',
     );
   }
-  const artifacts = getArtifactsIfReady(latest.id);
+  const artifacts = await loadArtifacts(latest.id);
   if (!artifacts) {
     throw AppError.conflict(
-      "The latest build's files are no longer held by the server, so an edit would have nothing to start from. Rebuild the project, then edit it.",
+      "The latest build's files were not stored, so an edit would have nothing to start from. Rebuild the project, then edit it.",
     );
   }
   return { runId: latest.id, artifacts };

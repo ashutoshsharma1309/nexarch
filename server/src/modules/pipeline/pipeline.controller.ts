@@ -12,6 +12,7 @@ import { deriveProjectName } from './lib/ai-stages.js';
 import {
   getArtifact,
   getArtifacts,
+  loadArtifacts,
   getRun,
   listArtifacts,
   listRuns,
@@ -68,8 +69,19 @@ export function listRunsHandler(req: Request, res: Response): void {
   sendSuccess(res, listRuns(ownerOf(req)));
 }
 
-export function artifactsHandler(req: Request, res: Response): void {
-  sendSuccess(res, getArtifacts(runId(req), ownerOf(req)));
+export async function artifactsHandler(req: Request, res: Response): Promise<void> {
+  // Read through to storage: a run from before the last restart is no longer
+  // in memory, and until artifacts were persisted that was the end of the
+  // project as far as the Code tab and the preview were concerned.
+  const id = runId(req);
+  const artifacts = await loadArtifacts(id, ownerOf(req));
+  if (!artifacts) {
+    // `getArtifacts` knows why a run this process still holds has none —
+    // still generating, or failed — which is a better answer than "gone".
+    sendSuccess(res, getArtifacts(id, ownerOf(req)));
+    return;
+  }
+  sendSuccess(res, artifacts);
 }
 
 export function retryRunHandler(req: Request, res: Response): void {

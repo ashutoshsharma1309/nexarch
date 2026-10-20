@@ -18,7 +18,7 @@ import {
   synchronize,
   validate,
 } from './engineering-graph.service.js';
-import { getArtifactsIfReady } from '../pipeline/pipeline.service.js';
+import { loadArtifacts } from '../pipeline/pipeline.service.js';
 import { listRunsForProject } from '../pipeline/lib/run-store.js';
 import { getProjectOrThrow } from '../workspace/workspace.service.js';
 import type { GraphNodeType } from '../../shared/contracts/index.js';
@@ -131,12 +131,12 @@ export async function refreshHandler(req: Request, res: Response): Promise<void>
     );
   }
 
-  const artifacts = getArtifactsIfReady(latest.id);
+  const artifacts = await loadArtifacts(latest.id);
   if (!artifacts) {
     // Artifacts are held in the API process; a restart loses them. Say so,
     // rather than quietly serving the graph that is already stored.
     throw AppError.conflict(
-      "The latest build's output is no longer held by the server, so the graph cannot be recomputed from it. Rebuild the project to refresh the graph.",
+      "The latest build's output was not stored, so the graph cannot be recomputed from it. Rebuild the project to refresh the graph.",
     );
   }
 

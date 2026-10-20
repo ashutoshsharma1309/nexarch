@@ -37,7 +37,10 @@ export function computeCostAnalytics(cache: CacheStats): CostAnalytics {
     (sum, r) => sum + r.tokens.inputTokens + r.tokens.outputTokens,
     0,
   );
-  const totalCostUsd = round(history.reduce((sum, r) => sum + r.cost.totalCostUsd, 0));
+  // An unpriced call is not a free call: it is excluded from the total and
+  // counted separately, so a reader can tell "$0.004" from "$0.004 so far".
+  const totalCostUsd = round(history.reduce((sum, r) => sum + (r.cost.totalCostUsd ?? 0), 0));
+  const unpricedGenerations = history.filter((r) => r.cost.totalCostUsd === null).length;
   const totalDuration = history.reduce((sum, r) => sum + r.durationMs, 0);
 
   const byProvider: CostAnalytics['byProvider'] = {};
@@ -47,7 +50,7 @@ export function computeCostAnalytics(cache: CacheStats): CostAnalytics {
     const providerBucket = byProvider[record.provider] ?? { generations: 0, tokens: 0, costUsd: 0 };
     providerBucket.generations += 1;
     providerBucket.tokens += record.tokens.inputTokens + record.tokens.outputTokens;
-    providerBucket.costUsd = round(providerBucket.costUsd + record.cost.totalCostUsd);
+    providerBucket.costUsd = round(providerBucket.costUsd + (record.cost.totalCostUsd ?? 0));
     byProvider[record.provider] = providerBucket;
 
     byComplexity[record.complexity] = (byComplexity[record.complexity] ?? 0) + 1;
@@ -58,6 +61,7 @@ export function computeCostAnalytics(cache: CacheStats): CostAnalytics {
     totalTokens,
     averageTokens: totalGenerations > 0 ? Math.round(totalTokens / totalGenerations) : 0,
     totalCostUsd,
+    unpricedGenerations,
     averageCostUsd: totalGenerations > 0 ? round(totalCostUsd / totalGenerations) : 0,
     averageDurationMs: totalGenerations > 0 ? Math.round(totalDuration / totalGenerations) : 0,
     cache,
