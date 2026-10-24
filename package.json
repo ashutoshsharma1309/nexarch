@@ -45,7 +45,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",
-    "concurrently": "^9.1.0",
+    "concurrently": "^10.0.6",
     "husky": "^9.1.7",
     "lint-staged": "^15.5.0",
     "prettier": "^3.5.0",
