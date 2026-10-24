@@ -54,7 +54,7 @@
     "@types/express": "^5.0.1",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/morgan": "^1.9.9",
-    "@types/node": "^22.15.0",
+    "@types/node": "^26.6.5",
     "eslint": "^9.25.0",
     "eslint-config-prettier": "^10.1.0",
     "prisma": "^6.8.0",
