@@ -34,7 +34,18 @@ const PASSTHROUGH_KEYS = [
   'no_proxy',
 ] as const;
 
-/** Minimal toolchain environment plus per-process overrides. */
+/**
+ * Minimal toolchain environment plus per-process overrides.
+ *
+ * The list above is a whitelist and must stay one: a child gets a key only
+ * by being named here, so a new platform secret is excluded by default
+ * instead of needing to be remembered. `overrides` is the runner's own
+ * (PORT, CORS_ORIGINS, BACKEND_URL) and is spread last, so it is NOT
+ * filtered — `CreateSessionRequest.env` is accepted by the validator and
+ * deliberately never reaches here. Anything that changes that is handing
+ * caller-controlled text straight past the whitelist and must filter it
+ * first.
+ */
 export function childEnv(overrides: Record<string, string> = {}): Record<string, string> {
   const env: Record<string, string> = {};
   for (const key of PASSTHROUGH_KEYS) {

@@ -69,6 +69,20 @@ export function redactValue(value: unknown, depth = 0, maxDepth = 6): unknown {
   if (depth > maxDepth) return '[redacted-depth]';
   if (typeof value === 'string') return redactString(value);
   if (Array.isArray(value)) return value.map((entry) => redactValue(entry, depth + 1, maxDepth));
+  // An Error must be described before it is walked. `message`, `stack` and
+  // `cause` are non-enumerable, so `Object.entries` sees nothing and the
+  // whole error redacts to `{}` — which is what every `logger.warn('…', {
+  // error })` in this codebase was publishing instead of its reason.
+  if (value instanceof Error) {
+    return {
+      name: value.name,
+      message: redactString(value.message),
+      ...(value.stack === undefined ? {} : { stack: redactString(value.stack) }),
+      ...(value.cause === undefined
+        ? {}
+        : { cause: redactValue(value.cause, depth + 1, maxDepth) }),
+    };
+  }
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value)) {

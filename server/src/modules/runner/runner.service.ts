@@ -7,6 +7,28 @@
  * obvious places. Every failure path funnels through `fail()`, which
  * attaches human diagnostics from the log tail — a session dies with an
  * explanation, and the platform process never dies with it.
+ *
+ * SECURITY, stated plainly: there is NO isolation boundary here. A
+ * generated project is model-written code, and this module installs its
+ * dependencies and runs its dev servers as ordinary child processes with
+ * the full privileges of the developer running NexArch — same user, same
+ * home directory, same ssh keys, same network, same disk. `npm install`
+ * alone executes whatever the generated `package.json` put in its
+ * lifecycle scripts, and `npm run dev` executes the script body itself;
+ * neither is sandboxed, rate-limited or confined to the workspace.
+ *
+ * What the runner does provide is defence in depth around that fact, and
+ * nothing more: writes are confined to the run workspace by path and by
+ * realpath (`workspace-writer.ts`), children get a whitelisted environment
+ * with none of the platform's secrets (`child-env.ts`), every spawn is an
+ * explicit executable plus an argv array with `shell: false`, every
+ * command has a deadline and dies as a process group, and the one
+ * recursive delete proves its target is inside the run root. None of that
+ * stops a generated app from reading the developer's files, spending their
+ * network, forking without bound or filling the disk. Docker is not
+ * available on the target machine and macOS `sandbox-exec` is deprecated
+ * and unverified here, so no such claim is made: do not call this
+ * sandboxed.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -50,6 +72,14 @@ interface SessionRuntime {
   children: Map<ProcessKind, ChildProcess>;
   plan: RunPlan;
   cancelled: boolean;
+  /**
+   * Cancellation for the run-to-completion commands (install, prisma).
+   * `cancelled` is only read *between* awaits, so on its own a stop left
+   * the running `npm install` to finish minutes later — against a
+   * workspace nobody was waiting for, holding the one install slot. The
+   * abort kills that command's process group instead.
+   */
+  abort: AbortController;
 }
 
 const ACTIVE_PHASES: RunPhase[] = [
@@ -166,6 +196,10 @@ function fail(runtime: SessionRuntime, detail: string, exitCode: number | null):
   runtime.session.diagnostics = diagnose(exitCode, runtime.logs.tail(40));
   transition(runtime, 'failed', detail);
   releaseSessionPorts(runtime);
+  // Both halves, because a failure can arrive from either: a command still
+  // running (one target's install failed while the other's runs on) and the
+  // dev servers already started.
+  runtime.abort.abort();
   for (const child of runtime.children.values()) stopChild(child);
   runtime.children.clear();
 }
@@ -216,6 +250,8 @@ async function configureTargets(runtime: SessionRuntime): Promise<boolean> {
       cwd,
       target.kind,
       runtime.logs,
+      {},
+      runtime.abort.signal,
     );
     if (isCancelled(runtime)) return false;
     if (generateCode !== 0) {
@@ -242,6 +278,8 @@ async function configureTargets(runtime: SessionRuntime): Promise<boolean> {
       cwd,
       target.kind,
       runtime.logs,
+      {},
+      runtime.abort.signal,
     );
     if (isCancelled(runtime)) return false;
 
@@ -269,6 +307,8 @@ async function configureTargets(runtime: SessionRuntime): Promise<boolean> {
         cwd,
         target.kind,
         runtime.logs,
+        {},
+        runtime.abort.signal,
       );
       if (isCancelled(runtime)) return false;
     }
@@ -406,6 +446,8 @@ async function runPipeline(runtime: SessionRuntime, request: CreateSessionReques
       `${session.workspaceDir}/${target.directory}`,
       target.kind,
       runtime.logs,
+      {},
+      runtime.abort.signal,
     );
     if (isCancelled(runtime)) return;
     if (code !== 0) {
@@ -470,6 +512,7 @@ export function createSession(request: CreateSessionRequest, ownerId: string): R
     children: new Map(),
     plan,
     cancelled: false,
+    abort: new AbortController(),
   };
   for (const warning of plan.warnings) runtime.logs.append('system', `warning: ${warning}`);
 
@@ -524,12 +567,20 @@ export function stopSession(id: string, ownerId: string): RunSession {
   }
   runtime.cancelled = true;
   transition(runtime, 'stopping', 'Stop requested');
+  // Kills an install or prisma command that is still running, not just the
+  // dev servers: a stop during the install phase has no children to kill
+  // and used to leave npm working away in the background.
+  runtime.abort.abort();
   for (const child of runtime.children.values()) stopChild(child);
   runtime.children.clear();
   for (const record of runtime.session.processes) {
     if (record.status === 'running' || record.status === 'starting') record.status = 'exited';
     record.pid = null;
   }
+  // Hand back any port this session reserved but never bound — a stop
+  // between allocation and listen would otherwise hold it until the
+  // reservation's TTL expired.
+  releaseSessionPorts(runtime);
   transition(runtime, 'stopped', 'All processes stopped');
   return runtime.session;
 }
@@ -546,6 +597,7 @@ export function restartSession(id: string, ownerId: string): RunSession {
   // Stop whatever is live, then re-run the start step only: the workspace
   // and node_modules survive, so a restart skips straight to `starting`.
   runtime.cancelled = true;
+  runtime.abort.abort();
   for (const child of runtime.children.values()) stopChild(child);
   runtime.children.clear();
   transition(runtime, 'restarting', 'Restarting processes');
@@ -558,6 +610,9 @@ export function restartSession(id: string, ownerId: string): RunSession {
   }
   runtime.session.diagnostics = null;
   runtime.cancelled = false;
+  // An abort is permanent, so the restarted session needs a fresh one or
+  // every command it runs from here would be refused before it spawned.
+  runtime.abort = new AbortController();
 
   void startTargets(runtime).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);

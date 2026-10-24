@@ -2544,6 +2544,44 @@ export interface EditValidation {
   backendUrl: string | null;
 }
 
+export type EditJobStatus =
+  | 'QUEUED'
+  | 'RUNNING'
+  | 'SUCCEEDED'
+  /** The edit ran and was refused — the project kept its previous files. */
+  | 'REJECTED'
+  /** The attempt itself broke. The project is still unchanged. */
+  | 'FAILED'
+  /** The server restarted mid-edit. Nothing can be assumed about progress. */
+  | 'INTERRUPTED';
+
+export type EditStage = 'queued' | 'rebuilding' | 'validating' | 'deciding' | 'finished';
+
+export interface EditStageRecord {
+  stage: EditStage;
+  startedAt: string;
+  completedAt: string | null;
+  detail: string | null;
+}
+
+/** An edit running on the server, which outlives the request that started it. */
+export interface EditJob {
+  id: string;
+  projectId: string;
+  planId: string;
+  status: EditJobStatus;
+  stage: EditStage;
+  stages: EditStageRecord[];
+  instruction: string;
+  result: EditResult | null;
+  error: string | null;
+  runId: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface EditResult {
   planId: string;
   projectId: string;

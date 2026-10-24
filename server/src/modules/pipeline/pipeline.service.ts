@@ -725,7 +725,7 @@ export async function registerEditedRun(input: {
   artifacts: Omit<PipelineArtifacts, 'runId'>;
   stages: PipelineStage[];
   ai: PipelineRun['ai'];
-}): Promise<PipelineRun> {
+}): Promise<{ run: PipelineRun; persisted: true } | { run: null; persisted: false }> {
   const now = new Date().toISOString();
   const run: PipelineRun = {
     id: randomUUID(),
@@ -741,8 +741,18 @@ export async function registerEditedRun(input: {
   };
 
   const artifacts: PipelineArtifacts = { ...input.artifacts, runId: run.id };
+
+  // Storage first, and nothing is registered until it succeeds.
+  //
+  // Registering the run and *then* reporting that its files were not stored
+  // left the worst possible state behind: a COMPLETED row and an in-memory
+  // entry for an edit the user had just been told was not applied. The next
+  // edit would baseline off those files, and a restart — which drops the
+  // memory but keeps the row — made the project permanently un-editable.
+  const persisted = await saveRunArtifacts(run.id, input.projectId, artifacts);
+  if (!persisted) return { run: null, persisted: false };
+
   runs.set(run.id, { run, artifacts, ownerId: input.ownerId });
-  await saveRunArtifacts(run.id, input.projectId, artifacts);
   while (runs.size > MAX_RUNS) {
     const oldest = runs.keys().next().value;
     if (oldest === undefined) break;
@@ -752,5 +762,5 @@ export async function registerEditedRun(input: {
   await openRun(run.id, input.projectId, input.prompt);
   await closeRun(run.id, 'COMPLETED');
   emit(run, 'settled');
-  return run;
+  return { run, persisted: true };
 }

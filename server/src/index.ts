@@ -17,6 +17,7 @@ import {
   reapOrphanedRunnerProcesses,
 } from './modules/runner/lib/orphan-reaper.js';
 import { reconcileInterruptedRuns } from './modules/pipeline/lib/run-store.js';
+import { reconcileInterruptedJobs } from './modules/project-editor/lib/edit-job-store.js';
 
 const SHUTDOWN_GRACE_MS = 10_000;
 
@@ -49,6 +50,16 @@ async function bootstrap(): Promise<void> {
     if (settled.reconciled > 0) {
       logger.warn('runs interrupted by the last shutdown were marked failed', {
         count: settled.reconciled,
+      });
+    }
+    // Edits outlive their request, so a restart can land in the middle of
+    // one. Saying "interrupted" is the only honest answer: nothing here can
+    // know how far it got, and the project keeps its previous files either
+    // way because an edit writes nothing until its checks pass.
+    const interruptedEdits = await reconcileInterruptedJobs();
+    if (interruptedEdits > 0) {
+      logger.warn('edits interrupted by the last shutdown were marked interrupted', {
+        count: interruptedEdits,
       });
     }
   } catch (error) {

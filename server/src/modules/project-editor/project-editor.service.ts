@@ -43,9 +43,21 @@ import { canonicalizePath } from '../engineering-graph/lib/canonical.js';
 import { getProjectOrThrow } from '../workspace/workspace.service.js';
 import { AppError } from '../../shared/utils/app-error.js';
 import { logger } from '../../shared/logger/index.js';
+import { redactString } from '../../shared/security/redact.js';
 import type { PipelineArtifacts, PipelineStage } from '../pipeline/pipeline.types.js';
 import type { SiteDesign } from '../frontend-generator/frontend-generator.service.js';
 import type { AcceptedImage } from './lib/image-input.js';
+import {
+  ActiveEditExists,
+  activeJobFor,
+  advanceStage,
+  createJob,
+  finishJob,
+  getJob,
+  heartbeat,
+  latestJobFor,
+} from './lib/edit-job-store.js';
+import type { EditJob, EditStage } from './lib/edit-job-store.js';
 import type {
   ChangedFile,
   EditImpact,
@@ -582,10 +594,20 @@ export function decideEditOutcome(
   };
 }
 
+/**
+ * Run an edit to completion: rebuild, validate for real, accept or discard.
+ *
+ * `onStage` is how the work reports where it is. It is called at the real
+ * boundaries — the only stages that exist — so a progress display shows
+ * measured steps rather than an animation of a number.
+ */
 export async function applyEdit(
   planId: string,
   ownerId: string,
   deps: EditDeps = DEFAULT_DEPS,
+  onStage: (stage: EditStage, detail?: string) => Promise<void> = async () => {
+    await Promise.resolve();
+  },
 ): Promise<EditResult> {
   const entry = planOrThrow(planId, ownerId);
   const { plan, artifacts } = entry;
@@ -593,8 +615,10 @@ export async function applyEdit(
     throw AppError.conflict(`This edit was already ${plan.status}.`);
   }
 
+  await onStage('rebuilding');
   const { files, frontend } = rebuildFiles(artifacts, plan.design);
   const changedFiles = changedFilesBetween(artifacts.files, files);
+  await onStage('validating', `${String(changedFiles.length)} files rebuilt`);
 
   const project = await getProjectOrThrow(ownerId, plan.projectId);
   const runIdForValidation = randomUUID();
@@ -671,6 +695,7 @@ export async function applyEdit(
     }
   }
 
+  await onStage('deciding', 'install, build, type check, lint and startup finished');
   const { accepted, outcome } = decideEditOutcome(validation, changedFiles.length, files.length);
 
   if (!accepted) {
@@ -707,7 +732,7 @@ export async function applyEdit(
     },
   ];
 
-  const run = await registerEditedRun({
+  const { run, persisted } = await registerEditedRun({
     projectId: plan.projectId,
     projectName: project.name,
     ownerId,
@@ -723,6 +748,22 @@ export async function applyEdit(
       estimatedCostUsd: 0,
     },
   });
+
+  // `persisted` is the discriminant: the false branch is the only one whose
+  // `run` is null, so narrowing on it is what makes `run` safe to use below.
+  if (!persisted) {
+    // The edit built and started, but its files were not stored. Saying
+    // "applied" here would be a lie written to disk: a restart would bring
+    // back the *previous* build while the job record still listed the
+    // changed files. The old synchronous endpoint's version of this lie died
+    // with the HTTP response; this one would outlive it.
+    // The plan stays `planned`. This failure was the database's, not the
+    // user's, and burning the plan would make them pay for the vision and
+    // design calls again to retry something that may well work next time.
+    throw AppError.internal(
+      'The edit built and started, but its files could not be stored, so it was not applied. The project still has the files it had before.',
+    );
+  }
 
   // The graph describes the project as it now is, so it is resynchronized
   // against the edited files rather than left pointing at the old ones.
@@ -760,4 +801,177 @@ const INTERNAL_EDIT_OWNER = 'internal:project-editor';
 
 export function resetEditPlansForTests(): void {
   plans.clear();
+}
+
+/* ── Edits as background work ─────────────────────────────────────────── */
+
+/**
+ * Start an edit and return immediately.
+ *
+ * The apply itself takes minutes, which is longer than any HTTP request
+ * should live: the old synchronous endpoint made the client's timeout a race
+ * the user could lose, failing the request while the server went on to apply
+ * the edit anyway. Now the request creates a job, the work continues after
+ * the response, and the client polls.
+ *
+ * One active job per project, enforced here rather than by the UI, because a
+ * double-click, a retry and a second tab are all the same request to a server
+ * — and two applies against one baseline would race, the slower one silently
+ * overwriting the faster.
+ */
+export async function startEditJob(
+  planId: string,
+  ownerId: string,
+  deps: EditDeps = DEFAULT_DEPS,
+): Promise<EditJob> {
+  const entry = planOrThrow(planId, ownerId);
+  const { plan } = entry;
+  if (plan.status !== 'planned') {
+    throw AppError.conflict(`This edit was already ${plan.status}.`);
+  }
+
+  // Asked first so the common case gets the clear answer, but the database
+  // is what actually enforces it: between this read and the create, another
+  // request can win, and only the unique index sees both.
+  const active = await activeJobFor(plan.projectId);
+  if (active) {
+    throw AppError.conflict(
+      'An edit is already running for this project. Wait for it to finish before starting another.',
+    );
+  }
+
+  let job: EditJob;
+  try {
+    job = await createJob({
+      projectId: plan.projectId,
+      ownerId,
+      planId: plan.id,
+      instruction: plan.instruction,
+    });
+  } catch (error) {
+    if (error instanceof ActiveEditExists) {
+      throw AppError.conflict(
+        'An edit is already running for this project. Wait for it to finish before starting another.',
+      );
+    }
+    throw error;
+  }
+
+  // Deliberately not awaited: the point is that this outlives the request.
+  // Every path inside writes a terminal state, so a job cannot be left
+  // claiming to run after the work stops.
+  void runEditJob(job.id, planId, ownerId, deps);
+  return job;
+}
+
+/**
+ * How much of a diff is worth keeping in the job record.
+ *
+ * The result is stored as a row and re-sent on every poll, and a diff is
+ * unbounded: one added file contributes its entire text. The counts stay
+ * exact — they are computed from the real diff — and the hunks are capped so
+ * a large edit cannot grow the row without limit or make polling expensive.
+ */
+/** Often enough that a ten-minute silence means something is actually wrong. */
+const HEARTBEAT_MS = 60_000;
+
+const MAX_STORED_FILES = 40;
+const MAX_STORED_HUNKS = 30;
+
+function storableResult(result: EditResult): EditResult {
+  const changedFiles = result.changedFiles.slice(0, MAX_STORED_FILES).map((file) => ({
+    ...file,
+    hunks: file.hunks.slice(0, MAX_STORED_HUNKS),
+  }));
+  // Each check's detail is the tail of a real command's output, and the
+  // generated project is configured with a database URL that has a password
+  // in it. Only the job's `error` was being redacted; this is stored in the
+  // same row and handed to the same screen.
+  const validation = {
+    ...result.validation,
+    checks: result.validation.checks.map((check) => ({
+      ...check,
+      detail: redactString(check.detail),
+    })),
+  };
+  return { ...result, changedFiles, validation, outcome: redactString(result.outcome) };
+}
+
+async function runEditJob(
+  jobId: string,
+  planId: string,
+  ownerId: string,
+  deps: EditDeps,
+): Promise<void> {
+  const startedAt = Date.now();
+  let settled = false;
+  // The validating stage writes nothing for minutes; without this the row
+  // looks abandoned to the staleness check that protects the project.
+  const pulse = setInterval(() => {
+    void heartbeat(jobId);
+  }, HEARTBEAT_MS);
+  pulse.unref();
+
+  try {
+    const result = await applyEdit(planId, ownerId, deps, async (stage, detail) => {
+      await advanceStage(jobId, stage, detail ?? null);
+    });
+
+    await finishJob(jobId, {
+      status: result.status === 'applied' ? 'SUCCEEDED' : 'REJECTED',
+      result: storableResult(result),
+      runId: result.runId,
+      detail: result.outcome,
+    });
+    settled = true;
+    logger.info('edit job finished', {
+      jobId,
+      status: result.status,
+      changedFiles: result.changedFiles.length,
+      durationMs: Date.now() - startedAt,
+    });
+  } catch (error) {
+    // A throw after the job was already settled must not rewrite a true
+    // SUCCEEDED into a false FAILED.
+    if (settled) {
+      logger.warn('edit job threw after it had already finished', { jobId });
+      return;
+    }
+    // The edit broke rather than being refused. The project is untouched
+    // either way — nothing is written until the checks pass — and the
+    // message says so rather than leaving the user to guess.
+    // Redacted before it is stored: this field is handed straight back to
+    // the client, and a provider or Prisma error can carry a key or a
+    // connection string in its message. The schema comment promised this;
+    // nothing was enforcing it.
+    const reason = redactString(error instanceof Error ? error.message : String(error));
+    logger.warn('edit job failed', { jobId, reason, durationMs: Date.now() - startedAt });
+    await finishJob(jobId, {
+      status: 'FAILED',
+      error: `${reason} The project was not changed.`,
+      detail: 'the edit could not be completed',
+    });
+  } finally {
+    clearInterval(pulse);
+  }
+}
+
+/** One job, for the client's polling. */
+export async function getEditJob(jobId: string, ownerId: string): Promise<EditJob> {
+  const job = await getJob(jobId, ownerId);
+  if (!job) throw AppError.notFound('That edit job does not exist');
+  return job;
+}
+
+/**
+ * The job a reader should be looking at for this project.
+ *
+ * This is what makes a page reload survivable: the client does not have to
+ * remember a job id, it asks the project what is happening.
+ */
+export async function currentEditJob(projectId: string, ownerId: string): Promise<EditJob | null> {
+  await getProjectOrThrow(ownerId, projectId);
+  const active = await activeJobFor(projectId);
+  if (active?.ownerId === ownerId) return active;
+  return latestJobFor(projectId, ownerId);
 }

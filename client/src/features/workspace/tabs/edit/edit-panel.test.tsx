@@ -26,10 +26,19 @@ import type {
 } from '@/shared/types/api';
 
 const planEdit = vi.hoisted(() => vi.fn());
+/**
+ * The panel asks the project what it is already doing as soon as it mounts,
+ * so this has to answer even in tests about something else — "nothing is
+ * running" is the answer these three want. The job polling itself is covered
+ * in `edit-panel.jobs.test.tsx`.
+ */
+const fetchCurrentEditJob = vi.hoisted(() => vi.fn(() => Promise.resolve(null)));
 vi.mock('@/shared/services/project-editor.service', () => ({
   planEdit,
   fetchEditPlan: vi.fn(),
   applyEdit: vi.fn(),
+  fetchEditJob: vi.fn(),
+  fetchCurrentEditJob,
 }));
 
 /**

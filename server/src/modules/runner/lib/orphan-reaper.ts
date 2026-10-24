@@ -16,11 +16,19 @@
  * leaving a port bound.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 
 import { logger } from '../../../shared/logger/index.js';
-import { workspaceRoot } from './workspace-writer.js';
+import { isInside, workspaceRoot } from './workspace-writer.js';
 
 interface ChildNote {
   pid: number;
@@ -73,11 +81,49 @@ function isAlive(pid: number): boolean {
  * Returning null means "cannot prove this is ours", and the caller must then
  * leave the process alone.
  */
-function commandLineOf(pid: number): string | null {
+/**
+ * The working directory a live process is actually in.
+ *
+ * This replaces an ownership check that could never pass: it compared the
+ * note's `cwd` against `ps -o command=`, which prints the argv. The runner
+ * spawns `npm run dev`, whose argv never contains a path, so the gate was
+ * unsatisfiable for every process this module exists to reap — nothing was
+ * ever reaped, and the note was deleted anyway, which then hid a *live*
+ * workspace from the pruner that reads those notes to know what is in use.
+ *
+ * `lsof` on macOS and `/proc` on Linux both answer the question the check was
+ * always trying to ask. A pid whose cwd cannot be read is left alone.
+ */
+function processCwd(pid: number): string | null {
   if (process.platform === 'win32') return null;
-  const result = spawnSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' });
+
+  if (process.platform === 'linux') {
+    try {
+      return realpathSync(`/proc/${String(pid)}/cwd`);
+    } catch {
+      return null;
+    }
+  }
+
+  const result = spawnSync('lsof', ['-a', '-d', 'cwd', '-p', String(pid), '-Fn'], {
+    encoding: 'utf8',
+  });
   if (result.status !== 0 || !result.stdout) return null;
-  return result.stdout.trim();
+  // `-Fn` prints one field per line; the cwd is the line beginning with `n`.
+  const line = result.stdout.split('\n').find((entry) => entry.startsWith('n'));
+  return line === undefined ? null : line.slice(1).trim();
+}
+
+/** Two paths that resolve to the same place, symlinks and all. */
+function samePath(a: string, b: string): boolean {
+  const resolve = (value: string): string => {
+    try {
+      return realpathSync(value);
+    } catch {
+      return path.resolve(value);
+    }
+  };
+  return resolve(a) === resolve(b);
 }
 
 function killGroup(pid: number, signal: NodeJS.Signals): void {
@@ -126,15 +172,33 @@ export function reapOrphanedRunnerProcesses(): number {
       continue;
     }
 
-    // Pid reuse is real. Only kill a process that still looks like the one
-    // we wrote down; if we cannot read its command line, leave it be.
-    const commandLine = commandLineOf(note.pid);
-    if (!commandLine?.includes(note.cwd)) {
-      logger.warn('leaving a recorded runner process alone — it is no longer ours', {
+    // A note only speaks for a process the runner started, and the runner
+    // only ever runs things from inside the run root. The notes directory
+    // sits in that root, writable by every generated app this platform
+    // starts (same uid, same tmp root) — so without this check a project
+    // could drop in a note and have the next boot SIGKILL any pid of the
+    // developer's whose command line it could guess.
+    if (!isInside(workspaceRoot(), path.resolve(note.cwd))) {
+      logger.warn('ignoring a runner process note that points outside the run root', {
         pid: note.pid,
         cwd: note.cwd,
       });
       rmSync(file, { force: true });
+      continue;
+    }
+
+    // Pid reuse is real. Only kill a process that is still sitting in the
+    // directory we wrote down; if its cwd cannot be read, leave it running
+    // AND leave the note, because the note is what tells the pruner this
+    // workspace is in use. Deleting it here is how a live app's node_modules
+    // used to get deleted out from under it moments later.
+    const cwd = processCwd(note.pid);
+    if (cwd === null || !samePath(cwd, note.cwd)) {
+      logger.warn('leaving a recorded runner process alone — it is no longer ours', {
+        pid: note.pid,
+        cwd: note.cwd,
+        observed: cwd,
+      });
       continue;
     }
 
@@ -195,7 +259,7 @@ export function pruneRunWorkspaces(): { removed: number; bytes: number } {
       if (!entry.endsWith('.json')) continue;
       try {
         const note = JSON.parse(readFileSync(path.join(notesDir(), entry), 'utf8')) as ChildNote;
-        if (isAlive(note.pid)) inUse.add(note.cwd);
+        if (isAlive(note.pid)) inUse.add(path.resolve(note.cwd));
       } catch {
         // An unreadable note protects nothing.
       }
@@ -209,9 +273,14 @@ export function pruneRunWorkspaces(): { removed: number; bytes: number } {
     if (entry.startsWith('.')) continue; // .live-processes and friends
     const dir = path.join(root, entry);
     try {
-      const stats = statSync(dir);
+      // lstat, not stat: a symlink that merely points at a directory is not
+      // a workspace this platform wrote, and following one would aim a
+      // recursive delete at whatever it names.
+      const stats = lstatSync(dir);
       if (!stats.isDirectory()) continue;
-      if ([...inUse].some((cwd) => cwd.startsWith(dir))) continue;
+      // Path-boundary containment, not a raw string prefix: `…/app-1` must
+      // not be read as protecting — or being protected by — `…/app-12`.
+      if ([...inUse].some((cwd) => isInside(dir, cwd))) continue;
       workspaces.push({ dir, mtimeMs: stats.mtimeMs });
     } catch {
       // Vanished between listing and stat — nothing to do.
@@ -224,9 +293,19 @@ export function pruneRunWorkspaces(): { removed: number; bytes: number } {
   let bytes = 0;
   let removed = 0;
   for (const workspace of stale) {
+    // The only recursive delete in the runner, so prove the target before
+    // running it: strictly inside the resolved run root, on the resolved
+    // path rather than the string that was listed. `entries` are names from
+    // readdir and cannot contain a separator today — the assertion is what
+    // keeps that true if someone later passes a path in from elsewhere.
+    const resolved = path.resolve(workspace.dir);
+    if (resolved === root || !isInside(root, resolved)) {
+      logger.warn('refusing to prune a path outside the run workspace root', { dir: resolved });
+      continue;
+    }
     try {
-      bytes += directorySize(workspace.dir);
-      rmSync(workspace.dir, { recursive: true, force: true });
+      bytes += directorySize(resolved);
+      rmSync(resolved, { recursive: true, force: true });
       removed += 1;
     } catch (error) {
       logger.debug('could not remove a stale run workspace', { dir: workspace.dir, error });
@@ -247,7 +326,12 @@ function directorySize(dir: string): number {
   for (const entry of entries) {
     const child = path.join(dir, entry);
     try {
-      const stats = statSync(child);
+      // lstat so symlinks count as themselves and are never walked into.
+      // node_modules is full of them, and a link that points back up its
+      // own tree (what npm workspaces and local `file:` deps produce) makes
+      // a following walk recurse until the stack goes — which the caller
+      // catches, so pruning would silently stop happening.
+      const stats = lstatSync(child);
       total += stats.isDirectory() ? directorySize(child) : stats.size;
     } catch {
       // Skip what cannot be read.

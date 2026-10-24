@@ -142,6 +142,8 @@ describe('polling reads are metered separately', () => {
       '/projects/p1/engineering-review',
       '/projects/p1/intelligence/summary',
       '/pipeline/runs/run-1',
+      '/projects/p1/edits/jobs/current',
+      '/projects/p1/edits/jobs/job-1',
     ]) {
       assert.equal(isPolledRead(asRequest('GET', path)), true, `${path} should be exempt`);
     }
@@ -158,6 +160,10 @@ describe('polling reads are metered separately', () => {
       ['POST', '/auth/login'],
       ['GET', '/projects'],
       ['POST', '/pipeline/runs'],
+      // Planning and applying an edit are writes and expensive; only the
+      // job polling that follows them is exempt.
+      ['POST', '/projects/p1/edits/plan'],
+      ['POST', '/projects/p1/edits/plan-1/apply'],
     ] as const) {
       assert.equal(
         isPolledRead(asRequest(method, path)),

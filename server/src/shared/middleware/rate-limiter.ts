@@ -42,6 +42,12 @@ const POLLED_READS: RegExp[] = [
   /^\/projects\/[^/]+\/(findings|validation|repairs|engineering-review|intelligence)(\/|$)/,
   /^\/pipeline\/runs\/[^/]+$/,
   /^\/builder\/sessions(\/|$)/,
+  // An edit runs for five or six minutes and the console polls its job the
+  // whole time, plus one read of `jobs/current` on every page load. Left on
+  // the global budget those polls alone can exhaust a minute's allowance,
+  // and the first casualty is the same one named above: the session refresh
+  // that keeps the user signed in while their edit finishes.
+  /^\/projects\/[^/]+\/edits\/jobs(\/|$)/,
 ];
 
 export function isPolledRead(req: Parameters<RequestHandler>[0]): boolean {

@@ -10,7 +10,13 @@
 import { Router, json } from 'express';
 
 import { requireAuth } from '../auth/auth.middleware.js';
-import { applyHandler, planHandler, planDetailHandler } from './project-editor.controller.js';
+import {
+  applyHandler,
+  currentJobHandler,
+  jobHandler,
+  planHandler,
+  planDetailHandler,
+} from './project-editor.controller.js';
 
 export const projectEditorRouter: Router = Router();
 
@@ -22,3 +28,7 @@ const imageBody = json({ limit: '8mb' });
 projectEditorRouter.post('/:projectId/edits/plan', imageBody, planHandler);
 projectEditorRouter.get('/:projectId/edits/:planId', planDetailHandler);
 projectEditorRouter.post('/:projectId/edits/:planId/apply', applyHandler);
+// Polled while an edit runs, and read once on load so a reload or a second
+// tab picks up the edit already in progress instead of starting another.
+projectEditorRouter.get('/:projectId/edits/jobs/current', currentJobHandler);
+projectEditorRouter.get('/:projectId/edits/jobs/:jobId', jobHandler);

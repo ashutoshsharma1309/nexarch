@@ -8,7 +8,13 @@ import type { Request, Response } from 'express';
 import { sendSuccess } from '../../shared/utils/api-response.js';
 import { AppError } from '../../shared/utils/app-error.js';
 import { acceptImage, ImageRejected } from './lib/image-input.js';
-import { applyEdit, getPlan, planEdit } from './project-editor.service.js';
+import {
+  currentEditJob,
+  getEditJob,
+  getPlan,
+  planEdit,
+  startEditJob,
+} from './project-editor.service.js';
 import type { AcceptedImage } from './lib/image-input.js';
 
 const MIN_INSTRUCTION = 8;
@@ -76,6 +82,27 @@ export function planDetailHandler(req: Request, res: Response): void {
   sendSuccess(res, getPlan(req.params.planId as string, ownerOf(req)));
 }
 
+/**
+ * Start the edit and answer immediately with the job to poll.
+ *
+ * 202, not 200: the work has been accepted and is not finished. The old
+ * endpoint held the request open for five or six minutes, which made the
+ * client's timeout a race it sometimes lost — reporting failure for an edit
+ * the server then applied anyway.
+ */
 export async function applyHandler(req: Request, res: Response): Promise<void> {
-  sendSuccess(res, await applyEdit(req.params.planId as string, ownerOf(req)));
+  const job = await startEditJob(req.params.planId as string, ownerOf(req));
+  sendSuccess(res, job, { status: 202 });
+}
+
+export async function jobHandler(req: Request, res: Response): Promise<void> {
+  sendSuccess(res, await getEditJob(req.params.jobId as string, ownerOf(req)));
+}
+
+/**
+ * What this project's edit state is, without the client having to remember a
+ * job id — which is exactly what it loses on a page reload.
+ */
+export async function currentJobHandler(req: Request, res: Response): Promise<void> {
+  sendSuccess(res, await currentEditJob(projectId(req), ownerOf(req)));
 }

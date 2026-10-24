@@ -17,7 +17,16 @@ import type { LogBuffer } from './log-buffer.js';
 
 const READY_POLL_MS = 500;
 const READY_TIMEOUT_MS = 120_000;
-const INSTALL_TIMEOUT_MS = 5 * 60_000;
+/**
+ * Deadline for every run-to-completion spawn — install, `prisma generate`,
+ * `prisma db push`, and the build/typecheck/lint commands the validation
+ * mesh runs through here. It always covered all of them; the name and the
+ * log line said "install", which is the kind of detail that gets a deadline
+ * removed from a path it was protecting.
+ */
+const COMMAND_TIMEOUT_MS = 5 * 60_000;
+/** How long a terminated child gets to exit on its own before SIGKILL. */
+const KILL_GRACE_MS = 5_000;
 
 /** Every live child, so one exit hook can sweep them all. */
 const liveChildren = new Set<ChildProcess>();
@@ -106,10 +115,22 @@ function maxConcurrentInstalls(): number {
 let activeInstalls = 0;
 const waitingInstalls: (() => void)[] = [];
 
-async function acquireInstallSlot(): Promise<() => void> {
+async function acquireInstallSlot(signal: AbortSignal | undefined): Promise<() => void> {
   if (activeInstalls >= maxConcurrentInstalls()) {
     await new Promise<void>((resolve) => {
-      waitingInstalls.push(resolve);
+      const wake = (): void => {
+        // Leave the queue on the way out, whichever woke us. A cancelled
+        // waiter that stayed in the array would be handed the slot by the
+        // next release and resolve into nothing — with one slot by default,
+        // that strands every later install for the life of the process.
+        const queued = waitingInstalls.indexOf(wake);
+        if (queued >= 0) waitingInstalls.splice(queued, 1);
+        signal?.removeEventListener('abort', wake);
+        resolve();
+      };
+      waitingInstalls.push(wake);
+      // A stopped session must stop waiting for a slot it will never use.
+      signal?.addEventListener('abort', wake, { once: true });
     });
   }
   activeInstalls += 1;
@@ -131,6 +152,21 @@ function isInstall(command: string, args: readonly string[]): boolean {
  * the generated frontend cannot start without.
  */
 const NATIVE_HOSTS = ['rollup', 'esbuild', '@tailwindcss/oxide', 'lightningcss'];
+
+/**
+ * A registry package name npm can safely be handed as an argument, and a
+ * version that is a version rather than a location.
+ *
+ * The `optionalDependencies` map below is read out of a *generated*
+ * project's node_modules, so both halves are attacker-chosen text about to
+ * become argv for `npm install`. `shell: false` stops it being read as
+ * shell syntax but not as npm syntax: a name beginning with `-` arrives as
+ * a flag, and a version of `https://…/pkg.tgz`, `file:/…` or `git+ssh://…`
+ * makes npm fetch and run code from somewhere nobody chose. Repair only
+ * what looks like the registry package the host declared.
+ */
+const REGISTRY_PACKAGE_NAME = /^(?:@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/;
+const PLAIN_VERSION = /^[~^]?\d[\w.+-]*$/;
 
 interface HostManifest {
   optionalDependencies?: Record<string, string>;
@@ -178,6 +214,7 @@ export async function missingNativeBinaries(
 
     for (const [name, version] of Object.entries(manifest.optionalDependencies ?? {})) {
       if (!name.includes(token)) continue;
+      if (!REGISTRY_PACKAGE_NAME.test(name) || !PLAIN_VERSION.test(version)) continue;
       if (await exists(`${cwd}/node_modules/${name}`)) continue;
       missing.push({ name, version });
     }
@@ -190,6 +227,7 @@ async function repairSkippedNativeBinaries(
   stream: 'backend' | 'frontend',
   logs: LogBuffer,
   env: Record<string, string>,
+  signal: AbortSignal | undefined,
 ): Promise<void> {
   for (const { name, version } of await missingNativeBinaries(cwd)) {
     logs.append(
@@ -204,6 +242,7 @@ async function repairSkippedNativeBinaries(
       stream,
       logs,
       env,
+      signal,
     );
     if (code !== 0) {
       logs.append(
@@ -214,7 +253,16 @@ async function repairSkippedNativeBinaries(
   }
 }
 
-/** Run an install/configure-style command to completion. Resolves with the exit code. */
+/**
+ * Run an install/configure-style command to completion. Resolves with the
+ * exit code.
+ *
+ * `signal` is the session's cancellation: aborting it kills the command's
+ * whole process group. Without it, stopping a session during install left
+ * `npm install` running for up to the command timeout against a workspace
+ * the caller had already given up on — a stop that did not stop, holding
+ * the single install slot while the next run queued behind it.
+ */
 export async function runToCompletion(
   command: string,
   args: string[],
@@ -222,17 +270,20 @@ export async function runToCompletion(
   stream: 'backend' | 'frontend',
   logs: LogBuffer,
   env: Record<string, string> = {},
+  signal?: AbortSignal,
 ): Promise<number> {
-  if (!isInstall(command, args)) return spawnToCompletion(command, args, cwd, stream, logs, env);
+  if (!isInstall(command, args)) {
+    return spawnToCompletion(command, args, cwd, stream, logs, env, signal);
+  }
 
   if (activeInstalls >= maxConcurrentInstalls()) {
     logs.append('system', `${stream}: waiting for another install to finish`);
   }
-  const release = await acquireInstallSlot();
+  const release = await acquireInstallSlot(signal);
   try {
     const installArgs = args.includes('--prefer-offline') ? args : [...args, '--prefer-offline'];
-    const code = await spawnToCompletion(command, installArgs, cwd, stream, logs, env);
-    if (code === 0) await repairSkippedNativeBinaries(cwd, stream, logs, env);
+    const code = await spawnToCompletion(command, installArgs, cwd, stream, logs, env, signal);
+    if (code === 0) await repairSkippedNativeBinaries(cwd, stream, logs, env, signal);
     return code;
   } finally {
     release();
@@ -246,8 +297,17 @@ function spawnToCompletion(
   stream: 'backend' | 'frontend',
   logs: LogBuffer,
   env: Record<string, string>,
+  signal: AbortSignal | undefined,
 ): Promise<number> {
   return new Promise((resolve) => {
+    // Cancelled before it got a turn (the install queue can hold a command
+    // for minutes): never spawn it. 130 is the shell's "killed by SIGINT",
+    // and every caller re-checks cancellation before reading the code.
+    if (signal?.aborted === true) {
+      resolve(130);
+      return;
+    }
+
     // Whitelisted environment: children never see NexArch's own secrets
     // (see child-env.ts for why inheriting DATABASE_URL is catastrophic).
     const child = spawn(command, args, { cwd, shell: false, env: childEnv(env), detached: true });
@@ -257,20 +317,35 @@ function spawnToCompletion(
     const timer = setTimeout(() => {
       logs.append(
         'system',
-        `${stream} install exceeded ${String(INSTALL_TIMEOUT_MS / 60000)} minutes — terminating`,
+        `${stream}: ${command} exceeded ${String(COMMAND_TIMEOUT_MS / 60_000)} minutes — terminating`,
       );
-      killGroup(child, 'SIGTERM');
-    }, INSTALL_TIMEOUT_MS);
+      // stopChild, not a bare SIGTERM: npm forwards signals unevenly, and a
+      // child that ignores the one signal this timeout used to send keeps
+      // running past its own deadline with this promise never settling — so
+      // the install slot it holds is never released and every later run
+      // queues behind it. The escalation is what makes the deadline real.
+      stopChild(child);
+    }, COMMAND_TIMEOUT_MS);
     timer.unref();
 
-    child.once('error', (error) => {
+    const onAbort = (): void => {
+      logs.append('system', `${stream}: ${command} cancelled — terminating`);
+      stopChild(child);
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+
+    const settle = (code: number): void => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      resolve(code);
+    };
+
+    child.once('error', (error) => {
       logs.append('system', `${stream}: failed to spawn ${command}: ${error.message}`);
-      resolve(127);
+      settle(127);
     });
     child.once('exit', (code) => {
-      clearTimeout(timer);
-      resolve(code ?? 1);
+      settle(code ?? 1);
     });
   });
 }
@@ -361,11 +436,17 @@ export async function waitUntilHealthy(
   return false;
 }
 
+/**
+ * The one way a child is terminated: ask the whole group, then insist.
+ * Every caller — stop, restart, failure, timeout, cancellation — goes
+ * through here, so there is no path that sends a SIGTERM a trapping dev
+ * server can simply ignore while keeping its port.
+ */
 export function stopChild(child: ChildProcess): void {
   killGroup(child, 'SIGTERM');
   // Escalate if SIGTERM is ignored — dev servers occasionally trap it.
   const timer = setTimeout(() => {
     killGroup(child, 'SIGKILL');
-  }, 5_000);
+  }, KILL_GRACE_MS);
   timer.unref();
 }

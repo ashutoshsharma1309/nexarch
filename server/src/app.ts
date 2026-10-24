@@ -9,6 +9,11 @@
  * Pipeline order matters and is deliberate:
  *   context → security → parsing (body + cookies) → logging → rate limit →
  *   modules → 404 → errors
+ *
+ * `requestContext` stays first and nothing may be mounted ahead of it: it
+ * opens the AsyncLocalStorage context the logger reads correlation ids from,
+ * and anything running before it — including whatever that handler starts in
+ * the background — logs with no request id at all.
  */
 import compression from 'compression';
 import cookieParser from 'cookie-parser';

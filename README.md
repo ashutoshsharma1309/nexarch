@@ -107,14 +107,14 @@ failing.
 
 Everything that listens on localhost, and why they never collide:
 
-| Port    | What                                                                 |
-| ------- | -------------------------------------------------------------------- |
-| `5173`  | NexArch console (Vite dev server)                                    |
-| `4000`  | NexArch API                                                          |
-| `5432`  | PostgreSQL — the platform's own database (Supabase is remote)        |
-| `3307`  | MySQL sandbox for **generated** apps (`NEXARCH_RUNNER_DATABASE_URL`) |
-| `4001+` | A previewed project's **generated backend** (first free port)        |
-| `5174+` | A previewed project's **generated frontend** (first free port)       |
+| Port    | What                                                                  |
+| ------- | --------------------------------------------------------------------- |
+| `5173`  | NexArch console (Vite dev server)                                     |
+| `4000`  | NexArch API                                                           |
+| `5432`  | PostgreSQL — the platform's own database (Supabase is remote)         |
+| `3307`  | MySQL instance for **generated** apps (`NEXARCH_RUNNER_DATABASE_URL`) |
+| `4001+` | A previewed project's **generated backend** (first free port)         |
+| `5174+` | A previewed project's **generated frontend** (first free port)        |
 
 Preview processes get free ports scanned at start time, so running a preview never
 takes NexArch down — the console stays fully usable beside it, and every preview is
@@ -335,6 +335,28 @@ actually changed. Every run reports its AI calls, tokens and estimated cost.
   (AI/build) endpoints. Oversized bodies are rejected `400`, not crashed on.
 - **AI safety** — prompts are length-bounded and sanitized; the deterministic fallback
   means a missing or throttled provider degrades gracefully rather than failing open.
+
+### What this does not protect against
+
+**Generated projects are not sandboxed.** Previewing one runs `npm install` and then the
+project's own dev servers as your user account, with your filesystem, your network and
+your environment. A generated `postinstall`, a dependency's install script, or the
+application code itself can do anything you can do. The containment described above is
+about where NexArch _writes_ files, not about what generated code may do once it runs.
+
+So NexArch is safe to run on code you are willing to execute locally — your own prompts,
+your own machine. It is **not** safe to expose to arbitrary untrusted users, and turning
+authentication on does not change that: an account that can submit a prompt can get code
+executed on the host. Real multi-tenant use needs OS-level isolation per run (a container
+or VM with no host mount, its own network namespace and a CPU/memory cap), which is not
+implemented.
+
+Two narrower limits worth knowing:
+
+- The boot-time sweep that settles interrupted runs and edits assumes **one server
+  instance**. A second instance starting beside a live one would mark the live one's work
+  interrupted. Scaling horizontally needs per-instance job ownership first.
+- Edit-job rows are never pruned, so the `edit_jobs` table grows with use.
 
 ## Environment variables
 

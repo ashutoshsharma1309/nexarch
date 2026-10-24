@@ -6,7 +6,7 @@
  * glue over these layers and is exercised by live runs.
  */
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import net from 'node:net';
@@ -26,6 +26,7 @@ import {
 } from './runner.service.js';
 import { missingNativeBinaries } from './lib/process-supervisor.js';
 import { childEnv } from './lib/child-env.js';
+import { ensureEnvFile, isInside, writeWorkspace } from './lib/workspace-writer.js';
 import { planProvisioning, runDatabaseName } from './lib/database-provisioner.js';
 import { diagnose } from './lib/diagnostics.js';
 import { LogBuffer } from './lib/log-buffer.js';
@@ -220,6 +221,175 @@ describe('environment isolation', () => {
     // The toolchain still works: PATH must survive the whitelist.
     assert.ok(env.PATH, 'PATH must pass through');
   });
+
+  it('keeps the list closed, so a variable nobody named cannot leak', () => {
+    // Set for real, because the thing under test reads process.env: the
+    // assertion above only proves these keys are absent from *this* machine's
+    // environment unless they are actually present while it runs.
+    const planted: Record<string, string> = {
+      AI_API_KEY: 'sk-not-a-real-key',
+      DATABASE_URL: 'mysql://root:pw@127.0.0.1:3306/nexarch',
+      JWT_SECRET: 'platform-signing-secret',
+      NEXARCH_RUNNER_DATABASE_URL: 'mysql://root:pw@127.0.0.1:3306/runs',
+      SOME_FUTURE_PLATFORM_CREDENTIAL: 'whatever-comes-next',
+    };
+    const previous = new Map(Object.keys(planted).map((key) => [key, process.env[key]]));
+    Object.assign(process.env, planted);
+    try {
+      const env = childEnv({ PORT: '4321' });
+      for (const key of Object.keys(planted)) {
+        assert.equal(env[key], undefined, `${key} must never reach a generated app`);
+      }
+      // A whitelist, not a blacklist — including against its own future: no
+      // secret-shaped name may be appended to the passthrough list either.
+      for (const key of Object.keys(env)) {
+        assert.doesNotMatch(
+          key,
+          /SECRET|TOKEN|PASSWORD|CREDENTIAL|API_KEY|DATABASE/i,
+          `${key} must never reach a generated app`,
+        );
+      }
+    } finally {
+      for (const [key, value] of previous) {
+        // Reflect, because the keys are computed here and a dynamic
+        // `delete` is a lint error; the effect is the same.
+        if (value === undefined) Reflect.deleteProperty(process.env, key);
+        else process.env[key] = value;
+      }
+    }
+  });
+});
+
+describe('run workspace path containment', () => {
+  const SESSION_ID = 'c0ffee11-2222-3333-4444-555555555555';
+  const WORKSPACE = `app-${SESSION_ID.slice(0, 8)}`;
+
+  function isBadRequest(error: unknown): boolean {
+    return AppError.isAppError(error) && error.code === 'BAD_REQUEST';
+  }
+
+  /** A throwaway NEXARCH_RUNNER_DIR, restored and removed afterwards. */
+  async function withRunnerDir(run: (root: string) => Promise<void>): Promise<void> {
+    const previous = process.env.NEXARCH_RUNNER_DIR;
+    const root = await mkdtemp(join(tmpdir(), 'nexarch-contain-'));
+    process.env.NEXARCH_RUNNER_DIR = root;
+    try {
+      await run(root);
+    } finally {
+      if (previous === undefined) delete process.env.NEXARCH_RUNNER_DIR;
+      else process.env.NEXARCH_RUNNER_DIR = previous;
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+
+  it('treats a sibling whose name starts with the root as outside it', () => {
+    const root = join(tmpdir(), 'nexarch-runs', 'app-1');
+    assert.equal(isInside(root, root), true);
+    assert.equal(isInside(root, join(root, 'backend', 'src')), true);
+    // What a raw string prefix gets wrong, and the reason the check is one
+    // function: `app-1` must not authorize `app-12`.
+    assert.equal(isInside(root, `${root}2`), false);
+    assert.equal(isInside(root, join(tmpdir(), 'nexarch-runs')), false);
+  });
+
+  it('refuses every model-supplied path that leaves the workspace', async () => {
+    await withRunnerDir(async (root) => {
+      const escapes = [
+        '../escaped.txt',
+        'backend/../../escaped.txt',
+        './../escaped.txt',
+        '/etc/nexarch-escaped',
+        // Absolute is refused even when it lands inside: project file paths
+        // are relative, and anything else means the file set is not ours.
+        join(root, WORKSPACE, 'escaped.txt'),
+        'backend/esc\0aped.txt',
+      ];
+      for (const path of escapes) {
+        await assert.rejects(
+          () => writeWorkspace(SESSION_ID, 'app', [{ path, content: 'x' }]),
+          isBadRequest,
+          `${path} must be refused`,
+        );
+      }
+      // Nothing escaped: the run root holds the workspace and nothing else.
+      assert.deepEqual(await readdir(root), [WORKSPACE]);
+    });
+  });
+
+  it('writes a legitimate nested path through unchanged', async () => {
+    await withRunnerDir(async (root) => {
+      const dir = await writeWorkspace(SESSION_ID, 'app', [
+        { path: 'backend/src/index.ts', content: 'export const ok = true;\n' },
+      ]);
+      assert.equal(dir, join(root, WORKSPACE));
+      assert.equal(
+        await readFile(join(dir, 'backend/src/index.ts'), 'utf8'),
+        'export const ok = true;\n',
+      );
+    });
+  });
+
+  it('refuses a path that escapes through a symlinked directory', async () => {
+    await withRunnerDir(async (root) => {
+      const outside = await mkdtemp(join(tmpdir(), 'nexarch-outside-'));
+      try {
+        // The shape npm's own install leaves behind and a lifecycle script
+        // can plant: a directory component that is a link out of the
+        // workspace. The path itself contains no `..` and passes every
+        // textual check.
+        await mkdir(join(root, WORKSPACE, 'backend'), { recursive: true });
+        await symlink(outside, join(root, WORKSPACE, 'backend', 'node_modules'), 'dir');
+
+        await assert.rejects(
+          () =>
+            writeWorkspace(SESSION_ID, 'app', [
+              { path: 'backend/node_modules/escaped.txt', content: 'x' },
+            ]),
+          isBadRequest,
+        );
+        assert.deepEqual(await readdir(outside), []);
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it('refuses to follow a symlink planted at the file name itself', async () => {
+    await withRunnerDir(async (root) => {
+      const outside = await mkdtemp(join(tmpdir(), 'nexarch-outside-'));
+      try {
+        const victim = join(outside, 'precious.txt');
+        await writeFile(victim, 'original', 'utf8');
+        await mkdir(join(root, WORKSPACE, 'backend'), { recursive: true });
+        await symlink(victim, join(root, WORKSPACE, 'backend', 'keep.txt'));
+
+        await assert.rejects(
+          () =>
+            writeWorkspace(SESSION_ID, 'app', [{ path: 'backend/keep.txt', content: 'CLOBBERED' }]),
+          isBadRequest,
+        );
+        // The point of O_NOFOLLOW: the developer's file is untouched rather
+        // than truncated through the link.
+        assert.equal(await readFile(victim, 'utf8'), 'original');
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it('applies the same rule to the .env the configure stage writes', async () => {
+    await withRunnerDir(async (root) => {
+      const dir = join(root, WORKSPACE);
+      await mkdir(dir, { recursive: true });
+      await assert.rejects(
+        () => ensureEnvFile(dir, '../escaped.env', 'backend/.env.example', { PORT: '1' }),
+        isBadRequest,
+      );
+      // A contained one still works, with the override appended.
+      await ensureEnvFile(dir, 'backend/.env', 'backend/.env.example', { PORT: '4321' });
+      assert.match(await readFile(join(dir, 'backend', '.env'), 'utf8'), /^PORT=4321$/m);
+    });
+  });
 });
 
 describe('database provisioning plan', () => {
@@ -295,6 +465,28 @@ describe('npm-skipped native binaries', () => {
     await mkdir(join(root, `node_modules/@rollup/rollup-${token}`), { recursive: true });
     assert.deepEqual(await missingNativeBinaries(root, token), []);
 
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it('ignores an optional dependency that is not a plain registry package', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'nexarch-native-'));
+    await mkdir(join(root, 'node_modules/rollup'), { recursive: true });
+    await writeFile(
+      join(root, 'node_modules/rollup/package.json'),
+      JSON.stringify({
+        optionalDependencies: {
+          // Every one of these is about to become argv for `npm install`,
+          // out of a manifest a generated project controls: a tarball URL
+          // or a `file:` spec installs and runs code from somewhere nobody
+          // chose, and a leading dash arrives as a flag.
+          '@rollup/rollup-darwin-arm64': 'https://example.invalid/pkg.tgz',
+          '--omit-darwin-arm64': '4.9.0',
+          'rollup-darwin-arm64-local': 'file:/tmp/nexarch-not-a-package',
+        },
+      }),
+    );
+
+    assert.deepEqual(await missingNativeBinaries(root, 'darwin-arm64'), []);
     await rm(root, { recursive: true, force: true });
   });
 

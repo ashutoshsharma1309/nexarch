@@ -72,6 +72,7 @@ model Project {
   graphNodes   GraphNode[]
   graphEdges   GraphEdge[]
   runArtifacts RunArtifact[]
+  editJobs     EditJob[]
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -142,6 +143,68 @@ model RunArtifact {
 
   @@index([projectId, createdAt])
   @@map("run_artifacts")
+}
+
+/// The lifecycle of one applied edit.
+///
+/// Applying an edit is five to six minutes of real work — it installs, builds,
+/// type-checks, lints and boots the edited project before accepting it — and
+/// it used to run inside a single HTTP request. That made the client's
+/// timeout a race the user could lose: the request failed while the server
+/// went on to apply the edit, so the next edit started from a project the
+/// user believed unchanged. Closing the tab had the same effect.
+///
+/// So the work outlives the request, and this row is what the client polls.
+/// It is durable for one specific reason: a restart mid-edit must be
+/// reportable as an interruption rather than silently forgotten or, worse,
+/// read as success.
+enum EditJobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  /// The edit ran and was refused: validation failed, so the project kept its
+  /// previous files. Distinct from FAILED, which means the attempt broke.
+  REJECTED
+  FAILED
+  /// The process died while this job was running. Nothing can be assumed
+  /// about how far it got.
+  INTERRUPTED
+}
+
+model EditJob {
+  id          String        @id @default(cuid())
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String        @map("project_id")
+  /// Who may read it. Plans live in memory keyed by owner; this outlives them.
+  ownerId     String        @map("owner_id")
+  /// The in-memory plan this came from, for correlating logs after the fact.
+  planId      String        @map("plan_id")
+  status      EditJobStatus @default(QUEUED)
+  /// The stage now in progress — a real step, never a percentage.
+  stage       String
+  /// Every stage with its own start and end, so elapsed time is measured.
+  stages      Json
+  /// What the user asked for, shown while the job runs.
+  instruction String        @db.Text
+  /// The EditResult once terminal: checks, changed files, outcome.
+  result      Json?
+  /// User-facing failure text. Never a stack trace, never a secret.
+  error       String?       @db.Text
+  /// The run this produced, when it was accepted.
+  runId       String?       @map("run_id")
+  startedAt   DateTime?     @map("started_at")
+  completedAt DateTime?     @map("completed_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  @@index([projectId, createdAt])
+  @@index([status])
+  /// A partial unique index on (project_id) WHERE status IN ('QUEUED','RUNNING')
+  /// enforces one active edit per project. Prisma cannot express a partial
+  /// index, so it lives in the migration — see
+  /// 20261024150000_one_active_edit_per_project. Without it the service's
+  /// check-then-create is a race a double-click wins.
+  @@map("edit_jobs")
 }
 
 /// ── Engineering Graph ──────────────────────────────────────────────────

@@ -5,7 +5,7 @@
  * terminal server-side, so continuing to ask would be pure noise on the
  * network tab and in the server log.
  */
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   fetchArtifacts,
@@ -52,10 +52,37 @@ export function usePipelineArtifacts(run: PipelineRun | undefined) {
   });
 }
 
+/**
+ * Start a run, and make sure the project hears about it either way.
+ *
+ * The invalidation lives here rather than in the component's `mutate`
+ * callback on purpose. Those callbacks are dropped if the component
+ * unmounts before the request resolves, and this request resolves in about
+ * 150ms — long enough to lose the race to a re-render that replaces the
+ * subtree. When that happened, the server accepted the run and built the
+ * project to completion while the console still read "Never built", with no
+ * way back to the run but a reload. A hook-level callback always fires, so
+ * the project's run list refreshes, the workspace sees a run in flight, and
+ * the build the user asked for is on screen whichever component is mounted.
+ */
 export function useStartRun() {
-  return useMutation({ mutationFn: startRun });
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: startRun,
+    onSuccess: (run) => {
+      void queryClient.invalidateQueries({ queryKey: ['project', run.projectId, 'runs'] });
+    },
+  });
 }
 
 export function useRetryRun() {
-  return useMutation({ mutationFn: retryRun });
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: retryRun,
+    // Same reasoning as `useStartRun`: a retry is a new run, and losing the
+    // news of it is how a running build becomes invisible.
+    onSuccess: (run) => {
+      void queryClient.invalidateQueries({ queryKey: ['project', run.projectId, 'runs'] });
+    },
+  });
 }

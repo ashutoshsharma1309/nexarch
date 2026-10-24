@@ -62,7 +62,10 @@ test.describe('Build and preview', () => {
     const prompt = page.getByLabel('What should this project be?');
     await expect(prompt).toBeVisible();
     await prompt.fill(PROMPT);
-    await page.getByRole('button', { name: 'Build project' }).click();
+    // Scoped to the form: the project header carries its own "Build project"
+    // action for a project that has never been built, so an unscoped role
+    // query matches two buttons and fails on strict mode.
+    await page.locator('form').getByRole('button', { name: 'Build project' }).click();
 
     /*
      * "Build complete" is the server's own verdict, rendered from the run's
