@@ -57,7 +57,7 @@
     "tailwindcss": "^4.1.5",
     "typescript": "^5.8.0",
     "typescript-eslint": "^8.31.0",
-    "vite": "^6.3.0",
+    "vite": "^8.3.5",
     "vitest": "4.1.10"
   },
   "//devDependencies": "vitest and @vitest/coverage-v8 are pinned exactly and must move together: the coverage provider declares an exact peer on vitest (4.1.10, not ^4.1.10), so a caret lets npm consider providers whose peer contradicts the installed vitest \u2014 which does not resolve, it crashes the installer outright."
