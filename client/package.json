@@ -46,7 +46,7 @@
     "@types/dagre": "^0.7.54",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "@vitejs/plugin-react": "^4.4.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "@vitest/coverage-v8": "4.1.10",
     "eslint": "^9.25.0",
     "eslint-config-prettier": "^10.1.0",
