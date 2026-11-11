@@ -13,7 +13,7 @@ import {
   getArtifact,
   getArtifacts,
   loadArtifacts,
-  getRun,
+  getRunDurable,
   listArtifacts,
   listRuns,
   retryRun,
@@ -42,6 +42,7 @@ export async function startRunHandler(req: Request, res: Response): Promise<void
       // that knows who is asking. Re-running a prompt for the same product
       // lands in the same project rather than littering the workspace.
       projectId: (await resolveProject(req, body)).id,
+      referenceUrls: body.referenceUrls,
     },
     ownerOf(req),
   );
@@ -61,8 +62,8 @@ function runId(req: Request): string {
   return typeof req.params.id === 'string' ? req.params.id : '';
 }
 
-export function getRunHandler(req: Request, res: Response): void {
-  sendSuccess(res, getRun(runId(req), ownerOf(req)));
+export async function getRunHandler(req: Request, res: Response): Promise<void> {
+  sendSuccess(res, await getRunDurable(runId(req), ownerOf(req)));
 }
 
 export function listRunsHandler(req: Request, res: Response): void {

@@ -12,7 +12,8 @@
 
 /* ── Providers ────────────────────────────────────────────────────────── */
 
-export type ProviderId = 'groq' | 'claude' | 'openai' | 'gemini' | 'openrouter' | 'mock';
+export type ProviderId =
+  'groq' | 'claude' | 'openai' | 'gemini' | 'openrouter' | 'cerebras' | 'mock';
 
 export type TaskComplexity =
   | 'simple-extraction'
@@ -20,7 +21,9 @@ export type TaskComplexity =
   | 'small-file-regen'
   | 'complex-refactor'
   /** Reading a reference image. Routed to a model that can actually see one. */
-  | 'vision-analysis';
+  | 'vision-analysis'
+  /** Turning web evidence into a structured research artifact. Routed by `AI_PROVIDER_RESEARCH`. */
+  | 'research-synthesis';
 
 /**
  * A piece of a multimodal message.
@@ -45,11 +48,34 @@ export interface ModelCallOptions {
   temperature?: number;
   /** Ask the provider to constrain output to a single JSON object, where it supports that. */
   json?: boolean | undefined;
+  /**
+   * How hard a reasoning model should think before answering.
+   *
+   * It matters because reasoning tokens are spent from the same budget as
+   * the answer. Measured on `openai/gpt-oss-20b` extracting a requirement
+   * spec: at the default effort 828 of 1070 completion tokens went on
+   * reasoning, and two of ten evaluation runs exhausted a 2048 ceiling
+   * while thinking and returned nothing — which the provider reports as a
+   * 400 `json_validate_failed` with an empty generation, and which this
+   * platform then silently downgraded to its deterministic fallback.
+   *
+   * Only sent to providers that support it; the rest ignore the field.
+   */
+  reasoningEffort?: 'low' | 'medium' | 'high' | undefined;
+  /** This call's limit, when the work has a time budget. Adapters default it. */
+  timeoutMs?: number | undefined;
 }
 
 export interface ModelUsage {
   inputTokens: number;
   outputTokens: number;
+  /**
+   * Which of the two figures the provider did not report; absent when it
+   * reported both. The numbers stay numeric because dozens of call sites sum
+   * them, so a 0 listed here means "not reported" and not "none": cost
+   * estimation and persisted usage read this and turn it into null.
+   */
+  unreported?: readonly ('input' | 'output')[];
 }
 
 export interface ModelCallResult {
@@ -84,9 +110,11 @@ export interface ModelRouteRule {
   complexity: TaskComplexity;
   provider: ProviderId;
   model: string;
-  /** Fallback provider tried when the preferred one is unconfigured or fails all retries. */
+  /** Fallback provider tried when the preferred one is unconfigured or fails. Ignored when `chain` is set. */
   fallbackProvider?: ProviderId;
   fallbackModel?: string;
+  /** Providers tried in order after the preferred one. `model` defaults to the adapter's own. */
+  chain?: { provider: ProviderId; model?: string | undefined }[];
 }
 
 /* ── Prompt templates ─────────────────────────────────────────────────── */
@@ -241,13 +269,26 @@ export interface GenerateRequest {
   complexity: TaskComplexity;
   context?: ContextInputs | undefined;
   schema?:
-    'requirement-spec' | 'architecture-plan' | 'database-design' | 'generic-json' | undefined;
+    | 'requirement-spec'
+    | 'architecture-plan'
+    | 'database-design'
+    | 'research-plan'
+    | 'generic-json'
+    | undefined;
   /**
    * Reference images for the model to read. Only providers that declare
    * `supportsImages` may receive these; the orchestrator refuses rather than
    * dropping them, because a dropped image means a fabricated analysis.
    */
   images?: readonly PromptImage[] | undefined;
+  /**
+   * Content this platform did not write, such as text read from the web.
+   *
+   * When present the rendered prompt becomes the system message and this
+   * travels alone in a user message between per-call nonce delimiters, so a
+   * page cannot pose as instructions or forge the end of its own block.
+   */
+  untrustedData?: string | undefined;
 }
 
 export interface GenerateResponse {

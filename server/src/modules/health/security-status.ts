@@ -33,8 +33,10 @@ export function getSecurityStatus(): SecurityStatusReport {
   /* Authentication: bcrypt hashing, httpOnly cookies, timing-safe verify. */
   checks.push({
     category: 'Authentication',
-    state: 'PASS',
-    detail: 'bcrypt-hashed passwords, JWT in httpOnly cookies, timing-safe verification.',
+    state: config.auth.disabled ? 'WARNING' : 'PASS',
+    detail: config.auth.disabled
+      ? 'Login is off: every request from this machine runs as the built-in admin. Refused in production; remote peers and requests naming any non-loopback Host are rejected.'
+      : 'bcrypt-hashed passwords, JWT in httpOnly cookies, timing-safe verification.',
   });
 
   /* Authorization: every project-scoped read resolves ownership as 404. */
@@ -50,18 +52,28 @@ export function getSecurityStatus(): SecurityStatusReport {
     detail: 'Findings, artifacts, graph and repairs are keyed by project and owner.',
   });
 
-  /* Secret protection: sanitizer before the model, log redaction backstop. */
+  /*
+   * Secret protection. The sanitizer covers the assembled context package.
+   * Prompt variables and untrusted data, which can carry whole project files,
+   * go to the provider without it, so this is not a PASS.
+   */
   checks.push({
     category: 'Secret Protection',
-    state: 'PASS',
-    detail: 'Context sanitized before every model call; logs redacted on the way out.',
+    state: 'WARNING',
+    detail:
+      'The assembled context is sanitized before it reaches a model and logs are redacted. Prompt variables and web evidence are not sanitized, so a secret written into a project file can reach a model provider.',
   });
 
-  /* Sandbox: env allowlist, shell:false spawns, path containment. */
+  /*
+   * Sandbox: the controls below protect the platform from its own spawn
+   * calls. They do not contain the generated code once it is running, so
+   * this can never be a PASS until each run has OS-level isolation.
+   */
   checks.push({
     category: 'Sandbox',
-    state: 'PASS',
-    detail: 'Child env allowlist, argv-array spawns (no shell), workspace path containment.',
+    state: config.isProduction ? 'FAIL' : 'WARNING',
+    detail:
+      'No OS-level isolation: generated apps run as ordinary child processes with this server user’s privileges. Env allowlist, argv-array spawns and workspace path checks are in place but do not contain the running code.',
   });
 
   checks.push({

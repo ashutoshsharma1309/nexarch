@@ -34,7 +34,6 @@ import type {
   GraphNodeType,
   GraphRelationship,
 } from '../../../shared/contracts/engineering-graph.js';
-import { GRAPH_NODE_TYPES } from '../../../shared/contracts/engineering-graph.js';
 import type { PipelineArtifacts } from '../../pipeline/pipeline.types.js';
 import type { ProductSpec } from '../../../shared/types/product.js';
 
@@ -70,11 +69,19 @@ export interface ReviewFindingDraft {
 }
 import { canonicalize, canonicalizeEndpoint, canonicalizePath, nodeKey } from './canonical.js';
 import { folderTree, isConfigFile, parentFolder, resolveImports } from './file-imports.js';
+import { nodeByIdentity } from './node-identity.js';
+import type { IdentityLookup } from './node-identity.js';
 
 /**
  * A ceiling on the file tree, so one enormous project cannot produce a graph
- * no browser can draw. Generated projects run to a few hundred files; this is
- * well clear of that, and the cap is reported rather than silently applied.
+ * no browser can draw. Generated projects run to a few hundred files, so this
+ * is well clear of that.
+ *
+ * When it does bite, it is written onto the PROJECT node as `fileTreeCap` and
+ * `validateGraph` reports it. The comment here used to promise that the cap
+ * "is reported rather than silently applied" while the code was a bare
+ * `slice` — so a project of 4,000 files produced a graph of 1,500 that looked
+ * like the whole thing, which is the one failure a map must not have.
  */
 const MAX_GRAPH_FILES = 1_500;
 
@@ -127,6 +134,14 @@ class DraftCollector {
    */
   findExact(type: GraphNodeType, canonicalName: string): DraftNode | undefined {
     return this.nodes.get(nodeKey(type, canonicalName));
+  }
+
+  /** The collector as `nodeByIdentity` wants to see it. */
+  identityLookup(): IdentityLookup<DraftNode> {
+    return {
+      exact: (type, canonicalName) => this.findExact(type, canonicalName),
+      folded: (type, name) => this.find(type, name),
+    };
   }
 
   result(): GraphDraft {
@@ -532,7 +547,18 @@ export function buildGraph(artifacts: PartialArtifacts): GraphDraft {
    * tell a fact that was parsed from one that was assumed. Nothing here
    * infers a relationship from two files merely sharing a directory.
    */
-  const projectFiles = (files ?? []).slice(0, MAX_GRAPH_FILES);
+  const allFiles = files ?? [];
+  const projectFiles = allFiles.slice(0, MAX_GRAPH_FILES);
+  if (allFiles.length > projectFiles.length) {
+    project.metadata = {
+      ...project.metadata,
+      fileTreeCap: {
+        cap: MAX_GRAPH_FILES,
+        totalFiles: allFiles.length,
+        reason: 'the file tree was capped, so this graph does not map every file',
+      },
+    };
+  }
   if (projectFiles.length > 0) {
     for (const folder of folderTree(projectFiles.map((entry) => entry.path))) {
       const node = c.node({
@@ -676,7 +702,7 @@ export function buildGraph(artifacts: PartialArtifacts): GraphDraft {
  */
 function findingTarget(c: DraftCollector, finding: ReviewFindingDraft): DraftNode | undefined {
   if (finding.targetNodeId) {
-    const stated = nodeByIdentity(c, finding.targetNodeId);
+    const stated = nodeByIdentity(c.identityLookup(), finding.targetNodeId);
     if (stated) return stated;
   }
   if (finding.targetFile) {
@@ -689,44 +715,6 @@ function findingTarget(c: DraftCollector, finding: ReviewFindingDraft): DraftNod
     if (name) return c.findExact('DEPENDENCY', canonicalizePath(name));
   }
   return undefined;
-}
-
-/**
- * The node named by a node identity: either the `TYPE::canonical-name` key
- * the collector deduplicates by, or a bare name tried against every type.
- *
- * Forms are tried before types so a weak match on an early type cannot
- * beat an exact one on a later type, and the identity is tried verbatim
- * first because several types keep structure in their key — an API node is
- * `GET /api/orders`, with the method upper-cased, and path folding would
- * destroy it. `GRAPH_NODE_TYPES` fixes the order, so a name that two types
- * both carry always resolves to the same node rather than to whichever was
- * built first.
- */
-function nodeByIdentity(c: DraftCollector, identity: string): DraftNode | undefined {
-  const separator = identity.indexOf('::');
-  if (separator > 0) {
-    const type = identity.slice(0, separator);
-    const name = identity.slice(separator + 2);
-    if (!isNodeType(type)) return undefined;
-    return c.findExact(type, name) ?? c.find(type, name);
-  }
-
-  for (const key of [identity, canonicalizePath(identity)]) {
-    for (const type of GRAPH_NODE_TYPES) {
-      const node = c.findExact(type, key);
-      if (node) return node;
-    }
-  }
-  for (const type of GRAPH_NODE_TYPES) {
-    const node = c.find(type, identity);
-    if (node) return node;
-  }
-  return undefined;
-}
-
-function isNodeType(value: string): value is GraphNodeType {
-  return GRAPH_NODE_TYPES.some((type) => type === value);
 }
 
 /**

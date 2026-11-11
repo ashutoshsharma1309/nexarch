@@ -13,10 +13,10 @@
  * Adding a model means looking its price up and recording where from, so a
  * stale entry can be re-checked instead of guessed at.
  *
- * Sources, each read on 2026-10-20:
- *   - Groq models and pricing: https://console.groq.com/docs/models
- *   - Anthropic pricing: https://platform.claude.com/docs/en/about-claude/pricing
- *   - OpenAI pricing: https://developers.openai.com/api/docs/pricing
+ * Sources:
+ *   - Groq models and pricing: https://console.groq.com/docs/models (re-read 2026-11-09)
+ *   - Anthropic pricing: https://platform.claude.com/docs/en/about-claude/pricing (2026-10-20)
+ *   - OpenAI pricing: https://developers.openai.com/api/docs/pricing (2026-10-20)
  *
  * Deliberately absent, because no flat pair of numbers is true for them:
  *   - `gemini-2.5-pro` — Google tiers the rate by prompt length ($1.25/$10
@@ -24,7 +24,17 @@
  *     flat would be right only for short prompts.
  *   - `openrouter/auto` — OpenRouter chooses the underlying model per
  *     request, so the price is not derivable from the id at all.
- * Both consequently report an unknown cost, which is the honest answer.
+ *
+ * Routed by default but absent, because the price could not be confirmed when
+ * checked on 2026-11-09:
+ *   - `gemini-3.5-flash` — not listed on aistudio.google.com/docs/pricing,
+ *     which covers 3.5-flash-lite, 3.6-flash and 3.8-flash instead. A
+ *     neighbour's rate is exactly what this table refuses to borrow.
+ *   - `gpt-oss-120b` (Cerebras' id) — cerebras.ai/pricing showed no figures.
+ *     Groq's price for the same weights is Groq's, not Cerebras'.
+ *   - `nvidia/nemotron-3-ultra-550b-a55b:free` — the OpenRouter page lists
+ *     per-provider rates for the paid variant and no price for `:free`.
+ * All of these report an unknown cost, which is the honest answer.
  */
 
 /** One model's published rates. `source` records where the numbers came from so they can be re-verified. */
@@ -34,7 +44,7 @@ export interface ModelPrice {
   readonly source: string;
 }
 
-const GROQ_DOCS = 'console.groq.com/docs/models (read 2026-10-20)';
+const GROQ_DOCS = 'console.groq.com/docs/models (read 2026-11-09)';
 const ANTHROPIC_DOCS = 'platform.claude.com/docs/en/about-claude/pricing (read 2026-10-20)';
 const OPENAI_DOCS = 'developers.openai.com/api/docs/pricing (read 2026-10-20)';
 

@@ -11,17 +11,16 @@
  * demo, or dismiss — marks it done; the card is an invitation, not a gate,
  * so "Skip" is a first-class choice, not hidden.
  */
-import { ArrowRight, PlayCircle, Sparkles, X } from 'lucide-react';
+import { ArrowRight, PlayCircle, X } from 'lucide-react';
 
 import { Button } from '@/shared/components/ui/button';
-import { Card, CardContent } from '@/shared/components/ui/card';
 import { completeOnboarding } from '@/shared/services/auth.service';
 import { useAuthStore } from '@/shared/store/auth.store';
 import { toast } from '@/shared/store/toast.store';
 
 const STEPS = [
   { n: 1, title: 'Create a project', body: 'A project holds one application end to end.' },
-  { n: 2, title: 'Describe it', body: 'One prompt — the domain and its core features.' },
+  { n: 2, title: 'Describe it', body: 'One prompt: the domain and its core features.' },
   { n: 3, title: 'Build', body: 'NexArch plans, generates, reviews and hardens it.' },
   { n: 4, title: 'Explore', body: 'Read the architecture, code, findings and preview.' },
 ];
@@ -66,60 +65,54 @@ export function OnboardingWelcome({
   };
 
   return (
-    <Card className="relative overflow-hidden border-ember/30">
+    <section
+      aria-labelledby="onboarding-title"
+      className="relative rounded-lg border border-line bg-surface p-4 md:p-5"
+    >
       <button
         type="button"
         onClick={dismiss}
         aria-label="Dismiss welcome"
-        className="absolute top-3 right-3 rounded-sm p-1 text-fg-subtle transition-colors hover:bg-raised hover:text-fg"
+        className="absolute top-3 right-3 flex size-7 items-center justify-center rounded-sm text-fg-subtle transition-colors hover:bg-raised hover:text-fg"
       >
         <X className="size-3.5" />
       </button>
-      <CardContent className="py-6">
-        <div className="flex items-center gap-2">
-          <span className="flex size-8 items-center justify-center rounded-md bg-ember-soft text-ember">
-            <Sparkles className="size-4" />
-          </span>
-          <h2 className="text-sm font-medium text-fg">Welcome to NexArch</h2>
-        </div>
-        <p className="mt-2 max-w-2xl text-xs text-fg-muted">
-          You describe an application in plain language. NexArch turns it into a real, reviewed,
-          running codebase — here is the shape of a run:
-        </p>
+      <h2 id="onboarding-title" className="text-base font-semibold tracking-tight text-fg">
+        Your first run, in four steps
+      </h2>
 
-        <ol className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {STEPS.map((step) => (
-            <li key={step.n} className="rounded-md border border-line bg-raised/50 p-3">
-              <div className="flex size-5 items-center justify-center rounded-full bg-inset font-mono text-2xs text-fg-muted">
-                {step.n}
-              </div>
-              <p className="mt-2 text-xs font-medium text-fg">{step.title}</p>
-              <p className="mt-0.5 text-2xs text-fg-muted">{step.body}</p>
-            </li>
-          ))}
-        </ol>
+      <ol className="mt-4 grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+        {STEPS.map((step) => (
+          <li key={step.n} className="border-t border-line-strong/70 pt-2.5">
+            <p className="type-ui font-medium text-fg">
+              <span className="mr-1.5 font-mono text-fg-subtle">{step.n}</span>
+              {step.title}
+            </p>
+            <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">{step.body}</p>
+          </li>
+        ))}
+      </ol>
 
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          <Button variant="forge" icon={<ArrowRight className="size-3.5" />} onClick={create}>
-            Create your first project
-          </Button>
-          <Button
-            variant="secondary"
-            icon={<PlayCircle className="size-3.5" />}
-            onClick={demo}
-            loading={demoLoading}
-          >
-            Explore a demo instead
-          </Button>
-          <button
-            type="button"
-            onClick={dismiss}
-            className="ml-1 text-xs text-fg-subtle transition-colors hover:text-fg"
-          >
-            Skip
-          </button>
-        </div>
-      </CardContent>
-    </Card>
+      <div className="mt-5 flex flex-wrap items-center gap-2">
+        <Button variant="forge" icon={<ArrowRight className="size-3.5" />} onClick={create}>
+          Create your first project
+        </Button>
+        <Button
+          variant="secondary"
+          icon={<PlayCircle className="size-3.5" />}
+          onClick={demo}
+          loading={demoLoading}
+        >
+          Explore a demo instead
+        </Button>
+        <button
+          type="button"
+          onClick={dismiss}
+          className="ml-1 text-xs text-fg-muted transition-colors hover:text-fg"
+        >
+          Skip
+        </button>
+      </div>
+    </section>
   );
 }

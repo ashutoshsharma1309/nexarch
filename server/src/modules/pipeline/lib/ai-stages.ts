@@ -15,10 +15,12 @@ import { analyzeRequirements } from '../../analysis/analysis.service.js';
 import { generate } from '../../ai-orchestrator/ai-orchestrator.service.js';
 import {
   deriveSiteDesign,
+  enforceSiteFacts,
   normalizeSiteDesign,
 } from '../../frontend-generator/frontend-generator.service.js';
 import type { SiteDesign } from '../../frontend-generator/frontend-generator.service.js';
-import { resolveProvider } from '../../ai-orchestrator/lib/providers/provider-registry.js';
+import { listProviders } from '../../ai-orchestrator/lib/providers/provider-registry.js';
+import type { GenerationRecord } from '../../ai-orchestrator/ai-orchestrator.types.js';
 import { logger } from '../../../shared/logger/index.js';
 import type { EntityPlan } from '../../../shared/types/architecture.js';
 import type { RequirementSpec } from '../../../shared/types/requirement.js';
@@ -29,7 +31,29 @@ export interface AiCallStat {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  /** Zero when unpriced, so it can be summed. `knownCostUsd` keeps the difference. */
   costUsd: number;
+  /** Null when this model has no published price. */
+  knownCostUsd: number | null;
+  durationMs: number;
+  attempt: number;
+  cacheHit: boolean;
+}
+
+function callStat(record: GenerationRecord): AiCallStat {
+  return {
+    provider: record.provider,
+    model: record.model,
+    inputTokens: record.tokens.inputTokens,
+    outputTokens: record.tokens.outputTokens,
+    // Null when the model has no published price; it adds nothing to the
+    // money total, and the AI analytics counts those calls separately.
+    costUsd: record.cost.totalCostUsd ?? 0,
+    knownCostUsd: record.cost.totalCostUsd ?? null,
+    durationMs: record.durationMs,
+    attempt: record.retries + 1,
+    cacheHit: record.cacheHit,
+  };
 }
 
 export interface StageOutcome<T> {
@@ -50,11 +74,15 @@ export interface StageOutcome<T> {
    * Absent whenever no model produced the result.
    */
   raw?: unknown;
+  /** True only when research evidence went to a model whose answer was used. */
+  evidenceApplied?: boolean;
+  /** Invented claims code removed from the model's answer, each named. */
+  removedClaims?: string[];
 }
 
 /** True when some real provider (i.e. not the always-available mock) can serve a call. */
 export function aiConfigured(): boolean {
-  return resolveProvider('groq', 'claude').id !== 'mock';
+  return listProviders().some((provider) => provider.id !== 'mock' && provider.isConfigured());
 }
 
 function parseJson(text: string): unknown {
@@ -88,6 +116,8 @@ export function deriveProjectName(prompt: string): string {
 export async function analyzeWithAi(
   prompt: string,
   projectName: string,
+  /** A research brief. Web-derived, so it never joins the trusted prompt. */
+  evidence?: string,
 ): Promise<StageOutcome<RequirementSpec>> {
   if (aiConfigured()) {
     try {
@@ -97,6 +127,7 @@ export async function analyzeWithAi(
           variables: { PROJECT_NAME: projectName, USER_REQUEST: prompt },
           complexity: 'simple-extraction',
           schema: 'requirement-spec',
+          untrustedData: evidence,
         },
         {
           /**
@@ -120,15 +151,8 @@ export async function analyzeWithAi(
         degraded: false,
         note: null,
         raw: parsed,
-        usage: {
-          provider: response.record.provider,
-          model: response.record.model,
-          inputTokens: response.record.tokens.inputTokens,
-          outputTokens: response.record.tokens.outputTokens,
-          // Null when the model has no published price; it adds nothing to the
-          // money total, and the AI analytics counts those calls separately.
-          costUsd: response.record.cost.totalCostUsd ?? 0,
-        },
+        evidenceApplied: evidence !== undefined,
+        usage: callStat(response.record),
       };
     } catch (error) {
       logger.warn('requirement analysis fell back to the deterministic analyzer', {
@@ -202,6 +226,8 @@ const FIELD_PATTERN = /^([a-z][a-z0-9_]{1,38})(\s*\(unique\))?$/;
 export async function designEntityFields(
   entities: EntityPlan[],
   context: { projectName: string; projectType: string },
+  evidence?: string,
+  callModel: typeof generate = generate,
 ): Promise<StageOutcome<EntityPlan[]>> {
   if (!aiConfigured() || entities.length === 0) {
     return {
@@ -223,12 +249,12 @@ export async function designEntityFields(
     return { value: entities, degraded: false, note: null, usage: null };
   }
 
-  // Only the entity names go over the wire — not the plan, not the prompt,
-  // not the upstream spec. The model needs nothing else to name columns.
+  // The entity names and, when there is any, what research found about the
+  // domain — not the plan, not the prompt, not the upstream spec.
   const entityList = designable.map((entity) => `- ${entity.name}`).join('\n');
 
   try {
-    const response = await generate({
+    const response = await callModel({
       promptId: 'entity-fields',
       variables: {
         PROJECT_NAME: context.projectName,
@@ -237,6 +263,7 @@ export async function designEntityFields(
       },
       complexity: 'simple-extraction',
       schema: 'generic-json',
+      untrustedData: evidence,
     });
 
     const parsed = parseJson(response.content) as AiEntityFields;
@@ -293,19 +320,23 @@ export async function designEntityFields(
       };
     });
 
+    // Identity is the record of what happened: an entity the model's answer
+    // did not reach comes back as the same object.
+    if (!merged.some((entity, index) => entity !== entities[index])) {
+      return {
+        value: entities,
+        degraded: true,
+        note: 'The model returned no usable fields, so the built-in conventions were used.',
+        evidenceApplied: false,
+        usage: callStat(response.record),
+      };
+    }
     return {
       value: merged,
       degraded: false,
       note: null,
-      usage: {
-        provider: response.record.provider,
-        model: response.record.model,
-        inputTokens: response.record.tokens.inputTokens,
-        outputTokens: response.record.tokens.outputTokens,
-        // Null when the model has no published price; it adds nothing to the
-        // money total, and the AI analytics counts those calls separately.
-        costUsd: response.record.cost.totalCostUsd ?? 0,
-      },
+      evidenceApplied: evidence !== undefined,
+      usage: callStat(response.record),
     };
   } catch (error) {
     logger.warn('entity field design fell back to built-in conventions', {
@@ -346,6 +377,15 @@ export async function writeSiteDesign(
   spec: RequirementSpec,
   /** What a first attempt left out, fed back verbatim for a second try. */
   gaps: string[] = [],
+  input: {
+    /** Research brief plus design brief. Web-derived, so sent as untrusted data. */
+    evidence?: string;
+    /** True when evidence holds real findings rather than only a design brief. */
+    researchIncluded?: boolean;
+    /** False for a website with no application behind it. */
+    hasApplication?: boolean;
+    callModel?: typeof generate;
+  } = {},
 ): Promise<StageOutcome<SiteDesign>> {
   const derived = deriveSiteDesign(spec);
   if (!aiConfigured()) {
@@ -353,7 +393,7 @@ export async function writeSiteDesign(
   }
 
   try {
-    const response = await generate(
+    const response = await (input.callModel ?? generate)(
       {
         promptId: 'site-design',
         variables: {
@@ -361,6 +401,10 @@ export async function writeSiteDesign(
           PROJECT_NAME: spec.projectName,
           PROJECT_TYPE: spec.projectType,
           CAPABILITIES: spec.modules.join(', ') || 'none stated',
+          PRODUCT_SHAPE:
+            input.hasApplication === false
+              ? 'This is a website only. There is no application, dashboard or stored data behind it, so never offer one, and write calls to action that lead to a section of this page.'
+              : 'The working application sits behind this page at `/dashboard`.',
           GAPS:
             gaps.length === 0
               ? ''
@@ -374,26 +418,37 @@ export async function writeSiteDesign(
                   ...gaps.map((gap) => `- ${gap}`),
                 ].join('\n'),
         },
-        complexity: 'simple-extraction',
+        // Deep tier: this copy is what a visitor reads, and it has to reason
+        // over evidence rather than extract from one sentence.
+        complexity: 'large-planning',
         schema: 'generic-json',
+        untrustedData: input.evidence,
       },
-      // A theme plus up to seven sections in one object: the 2,048 default
-      // truncates it mid-object and JSON mode rejects the whole call.
-      { maxOutputTokens: 5_120 },
+      // A theme plus up to seven sections in one object, from a reasoning
+      // model that spends this same budget thinking.
+      { maxOutputTokens: 8_192 },
     );
+    const normalized = normalizeSiteDesign(parseJson(response.content), derived);
+    // It hands the fallback back itself when no section survived.
+    if (normalized === derived) {
+      return {
+        value: normalized,
+        degraded: true,
+        note: 'The model returned no usable page sections, so the spec-derived page was used.',
+        evidenceApplied: false,
+        usage: callStat(response.record),
+      };
+    }
+    // The prompt forbids invented people, addresses and prices, and the models
+    // write them anyway, so what came back is held to the request here.
+    const { design: value, removed } = enforceSiteFacts(normalized, prompt);
     return {
-      value: normalizeSiteDesign(parseJson(response.content), derived),
+      value,
       degraded: false,
       note: null,
-      usage: {
-        provider: response.record.provider,
-        model: response.record.model,
-        inputTokens: response.record.tokens.inputTokens,
-        outputTokens: response.record.tokens.outputTokens,
-        // Null when the model has no published price; it adds nothing to the
-        // money total, and the AI analytics counts those calls separately.
-        costUsd: response.record.cost.totalCostUsd ?? 0,
-      },
+      evidenceApplied: input.researchIncluded === true,
+      usage: callStat(response.record),
+      ...(removed.length === 0 ? {} : { removedClaims: removed }),
     };
   } catch (error) {
     logger.warn('site design fell back to the spec-derived page', {

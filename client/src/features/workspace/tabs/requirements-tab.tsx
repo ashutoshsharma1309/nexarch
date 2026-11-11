@@ -22,7 +22,7 @@ import { BuildRequiredState } from './build-required-state';
 function List({ label, items }: { label: string; items: string[] }) {
   return (
     <div>
-      <p className="font-mono text-2xs tracking-widest text-fg-subtle uppercase">{label}</p>
+      <p className="text-2xs font-medium text-fg-subtle">{label}</p>
       {items.length === 0 ? (
         <p className="mt-1.5 text-xs text-fg-subtle">None identified</p>
       ) : (
@@ -77,13 +77,11 @@ export function RequirementsTab() {
 
       <Card>
         <CardContent className="py-4">
-          <p className="flex items-center gap-1.5 font-mono text-2xs tracking-widest text-fg-subtle uppercase">
+          <p className="flex items-center gap-1.5 text-2xs font-medium text-fg-subtle">
             <MessageSquareQuote className="size-3" />
             Original prompt
           </p>
-          <p className="mt-2 text-[0.8125rem] leading-relaxed text-fg-muted">
-            {workspace.latestRun.prompt}
-          </p>
+          <p className="mt-2 type-ui leading-relaxed text-fg-muted">{workspace.latestRun.prompt}</p>
         </CardContent>
       </Card>
 
@@ -108,10 +106,16 @@ export function RequirementsTab() {
         </CardContent>
       </Card>
 
-      <section>
-        <h3 className="mb-2 text-sm font-medium text-fg">Structured specification</h3>
-        <JsonViewer value={spec} exportName={slugify(spec.projectName, 'requirement-spec')} />
-      </section>
+      {/* The readable version is above; the raw form is there for whoever
+          wants to inspect or export it, and stays folded until then. */}
+      <details className="group rounded-lg border border-line">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-fg select-none hover:bg-raised md:px-5">
+          Structured specification
+        </summary>
+        <div className="border-t border-line p-4 md:p-5">
+          <JsonViewer value={spec} exportName={slugify(spec.projectName, 'requirement-spec')} />
+        </div>
+      </details>
     </div>
   );
 }

@@ -1,7 +1,11 @@
 # Full production-shaped stack: PostgreSQL + API + console.
-#   cp .env.example .env   (set real passwords)
+#   cp .env.example .env   (set real passwords and a JWT_SECRET)
 #   docker compose up --build
 # Console: http://localhost:8080 · API: http://localhost:4000/api/v1/health
+#
+# Accounts are always on here. Every port is published on loopback only;
+# set BIND_ADDRESS to expose them, knowing that generated apps run with no
+# OS-level isolation (docs/SECURITY.md).
 #
 # To run against Supabase instead of the bundled Postgres, set DATABASE_URL in
 # .env to the project's connection string and drop the `postgres` service plus
@@ -18,7 +22,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-nexarch}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
     ports:
-      - '${POSTGRES_PORT:-5432}:5432'
+      - '${BIND_ADDRESS:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -56,15 +60,45 @@ services:
       # Same-origin via the nginx proxy — no browser origin needs allowing,
       # but the variable stays configurable for split deployments.
       CORS_ORIGINS: http://localhost:${CLIENT_PORT:-8080}
-      # No login by default; set AUTH_DISABLED=false and a real JWT_SECRET for accounts.
-      AUTH_DISABLED: ${AUTH_DISABLED:-true}
-      JWT_SECRET: ${JWT_SECRET:-}
-      # Server-side only — never reaches the browser bundle.
+      # Fixed rather than read from .env: this stack runs NODE_ENV=production,
+      # where the server refuses AUTH_DISABLED=true at boot.
+      AUTH_DISABLED: 'false'
+      JWT_SECRET: ${JWT_SECRET:?set a JWT_SECRET of at least 32 characters in .env}
+      # Server-side only — never reaches the browser bundle. An empty value
+      # counts as unset everywhere these are read.
       AI_PROVIDER: ${AI_PROVIDER:-groq}
+      AI_PROVIDER_DEEP: ${AI_PROVIDER_DEEP:-}
+      AI_PROVIDER_RESEARCH: ${AI_PROVIDER_RESEARCH:-}
+      AI_PROVIDER_CHAIN: ${AI_PROVIDER_CHAIN:-}
+      AI_FALLBACK_PROVIDER: ${AI_FALLBACK_PROVIDER:-}
       AI_API_KEY: ${AI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AI_MODEL_FAST: ${AI_MODEL_FAST:-}
+      AI_MODEL_DEEP: ${AI_MODEL_DEEP:-}
+      AI_MODEL_VISION: ${AI_MODEL_VISION:-}
+      AI_MODEL_GROQ_FAST: ${AI_MODEL_GROQ_FAST:-}
+      AI_MODEL_GROQ_DEEP: ${AI_MODEL_GROQ_DEEP:-}
+      AI_MODEL_GROQ_VISION: ${AI_MODEL_GROQ_VISION:-}
+      AI_MODEL_GEMINI_FAST: ${AI_MODEL_GEMINI_FAST:-}
+      AI_MODEL_GEMINI_DEEP: ${AI_MODEL_GEMINI_DEEP:-}
+      AI_MODEL_OPENROUTER_FAST: ${AI_MODEL_OPENROUTER_FAST:-}
+      AI_MODEL_OPENROUTER_DEEP: ${AI_MODEL_OPENROUTER_DEEP:-}
+      AI_MODEL_CEREBRAS_FAST: ${AI_MODEL_CEREBRAS_FAST:-}
+      AI_MODEL_CEREBRAS_DEEP: ${AI_MODEL_CEREBRAS_DEEP:-}
       AI_MAX_REQUEST_TOKENS: ${AI_MAX_REQUEST_TOKENS:-8000}
+      AI_JOB_TOKEN_CEILING: ${AI_JOB_TOKEN_CEILING:-}
+      AI_JOB_CALL_CEILING: ${AI_JOB_CALL_CEILING:-}
+      WEB_RESEARCH_ENABLED: ${WEB_RESEARCH_ENABLED:-}
+      WEB_RESEARCH_RENDER_REFERENCES: ${WEB_RESEARCH_RENDER_REFERENCES:-}
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
     ports:
-      - '${SERVER_PORT:-4000}:4000'
+      - '${BIND_ADDRESS:-127.0.0.1}:${SERVER_PORT:-4000}:4000'
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -75,7 +109,7 @@ services:
       dockerfile: client/Dockerfile
     restart: unless-stopped
     ports:
-      - '${CLIENT_PORT:-8080}:80'
+      - '${BIND_ADDRESS:-127.0.0.1}:${CLIENT_PORT:-8080}:80'
     depends_on:
       - server
 

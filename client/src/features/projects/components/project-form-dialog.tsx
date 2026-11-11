@@ -36,7 +36,9 @@ export function ProjectFormDialog({
       setName(initialValues?.name ?? '');
       setDescription(initialValues?.description ?? '');
     }
-  }, [open, initialValues]);
+    // By value: a parent re-render passes a new object with the same contents,
+    // and reseeding on that would discard what the user has typed.
+  }, [open, initialValues?.name, initialValues?.description]);
 
   return (
     <Dialog
@@ -45,7 +47,7 @@ export function ProjectFormDialog({
       title={mode === 'create' ? 'New project' : 'Rename project'}
       description={
         mode === 'create'
-          ? 'Give this application a name — it becomes the container for its documentation and exports.'
+          ? 'One project holds one application. You will describe what to build in the next step.'
           : undefined
       }
     >
@@ -55,7 +57,7 @@ export function ProjectFormDialog({
           if (name.trim() === '') return;
           onSubmit({ name: name.trim(), description: description.trim() });
         }}
-        className="space-y-3"
+        className="space-y-4"
       >
         <div>
           <Label htmlFor="project-name">Name</Label>
@@ -66,7 +68,7 @@ export function ProjectFormDialog({
             onChange={(event) => {
               setName(event.target.value);
             }}
-            placeholder="e.g. Hospital Management System"
+            placeholder="Hospital Management System"
           />
         </div>
         <div>
@@ -78,7 +80,7 @@ export function ProjectFormDialog({
             onChange={(event) => {
               setDescription(event.target.value);
             }}
-            placeholder="Optional — shown on the project dashboard and in exported docs"
+            placeholder="Optional. Shown on the project card and in exported docs."
           />
         </div>
         <div className="flex justify-end gap-2 pt-1">

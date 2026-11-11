@@ -12,7 +12,10 @@
  * prompt and, where it matters, checked here: a product spec that mentions
  * Postgres has skipped its own layer and the architecture agent's job.
  */
+import { unpriced } from '../lib/agent-usage.js';
 import { generateWithContext } from '../../ai-orchestrator/ai-orchestrator.service.js';
+import { formatEvidenceBrief } from '../../web-research/index.js';
+import type { ResearchArtifact } from '../../web-research/index.js';
 import { AgentError } from '../lib/executor.js';
 import { getAgentDefinition } from '../../../shared/contracts/index.js';
 import { logger } from '../../../shared/logger/index.js';
@@ -41,6 +44,10 @@ export const productArchitectAgent: Agent<ProductSpec> = {
       throw new AgentError('invalid-input', 'The product architect requires a requirement spec');
     }
 
+    // Absent when research was skipped or not in this run; a run that found
+    // nothing still passes its brief, which tells the model not to claim any.
+    const research = input.inputArtifacts['research-artifact'] as ResearchArtifact | undefined;
+
     const findings: AgentFinding[] = [];
     let product: ProductSpec | null = null;
     let usage: AgentResult['usage'] = null;
@@ -52,6 +59,8 @@ export const productArchitectAgent: Agent<ProductSpec> = {
           promptId: 'product-architect',
           complexity: 'large-planning',
           schema: 'generic-json',
+          // Web-derived, so it travels separately from the instructions.
+          ...(research ? { untrustedData: formatEvidenceBrief(research) } : {}),
           variables: {
             PROJECT_NAME: spec.projectName,
             PROJECT_TYPE: spec.projectType,
@@ -79,6 +88,7 @@ export const productArchitectAgent: Agent<ProductSpec> = {
         // Null when the model has no published price; it adds nothing to the
         // money total, and the AI analytics counts those calls separately.
         costUsd: response.record.cost.totalCostUsd ?? 0,
+        ...unpriced(response.record.cost.totalCostUsd),
         contextTokens: input.context?.tokens ?? 0,
       };
     } catch (error) {

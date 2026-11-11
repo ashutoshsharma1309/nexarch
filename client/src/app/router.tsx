@@ -102,6 +102,13 @@ export const router = createBrowserRouter([
                 },
               },
               {
+                path: 'agents',
+                lazy: async () => {
+                  const { AgentsSection } = await import('./agents-section');
+                  return { Component: AgentsSection };
+                },
+              },
+              {
                 path: 'build',
                 lazy: async () => {
                   const { BuildTab } = await import('@/features/workspace/tabs/build-tab');
@@ -179,6 +186,14 @@ export const router = createBrowserRouter([
                     },
                   },
                   {
+                    path: 'execution',
+                    lazy: async () => {
+                      const { ExecutionSection } =
+                        await import('@/features/workspace/tabs/intelligence/execution-section');
+                      return { Component: ExecutionSection };
+                    },
+                  },
+                  {
                     // The graph is now a destination of its own, beside
                     // Preview and Rebuild; this keeps old links working.
                     path: 'graph',
@@ -204,6 +219,29 @@ export const router = createBrowserRouter([
                 lazy: async () => {
                   const { PreviewTab } = await import('@/features/workspace/tabs/preview-tab');
                   return { Component: PreviewTab };
+                },
+              },
+              {
+                path: 'research',
+                lazy: async () => {
+                  const { ResearchTab } =
+                    await import('@/features/workspace/research/research-tab');
+                  return { Component: ResearchTab };
+                },
+              },
+              {
+                path: 'execution',
+                lazy: async () => {
+                  const { ExecutionTab } =
+                    await import('@/features/workspace/execution/execution-tab');
+                  return { Component: ExecutionTab };
+                },
+              },
+              {
+                path: 'enhance',
+                lazy: async () => {
+                  const { EnhanceTab } = await import('@/features/workspace/enhance/enhance-tab');
+                  return { Component: EnhanceTab };
                 },
               },
             ],

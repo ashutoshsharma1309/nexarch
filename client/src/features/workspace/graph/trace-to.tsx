@@ -11,6 +11,10 @@
  * The two answers that matter are different and are shown differently: a
  * chain, or "there is no path between these" — which is a real finding about
  * a project, not an empty state to hide.
+ *
+ * Each hop also shows what its edge records as evidence — the import
+ * specifier, the foreign key, the reason the architecture stated — because a
+ * chain of verbs with nothing behind them asks the reader to trust it.
  */
 import { useMemo, useState } from 'react';
 import { ArrowDown, Route, Search, X } from 'lucide-react';
@@ -20,6 +24,7 @@ import { Skeleton } from '@/shared/components/ui/skeleton';
 import { useGraphPath } from '@/shared/hooks/use-graph';
 import { cn } from '@/shared/lib/cn';
 import type { EngGraphNode, GraphPath } from '@/shared/types/api';
+import { edgeEvidence } from './edge-evidence';
 import { FAMILY_DOT, FAMILY_OF } from './node-style';
 
 /** Candidates offered first: where a requirement usually lands. */
@@ -159,17 +164,26 @@ function Chain({ path, onFocusNode }: { path: GraphPath; onFocusNode: (nodeId: s
       {path.nodes.map((node, index) => {
         // The relationship that led here is the one before this node.
         const via = index === 0 ? null : path.hops[index - 1];
+        // Why this hop exists, from the edge the server walked. A hop that
+        // carries nothing is drawn as a plain hop rather than as one with no
+        // evidence: a walk that did not hand us the edge's metadata is not
+        // the same as an edge that has none, and saying the second would be
+        // inventing a finding about the project.
+        const why = edgeEvidence(via?.metadata);
         return (
           <li key={node.id}>
             {via !== null && via !== undefined && (
-              <div className="flex items-center gap-1.5 py-0.5 pl-2 text-2xs text-fg-subtle">
-                <ArrowDown className="size-3" />
-                <span className="font-mono">{via.relationship}</span>
-                {/* An edge walked against its direction is still a real edge,
-                    and the reader is told which way it actually points. */}
-                {via.direction === 'backward' && (
-                  <span title="this edge points the other way">(reversed)</span>
-                )}
+              <div className="py-0.5 pl-2 text-2xs text-fg-subtle">
+                <span className="flex items-center gap-1.5">
+                  <ArrowDown className="size-3" />
+                  <span className="font-mono">{via.relationship}</span>
+                  {/* An edge walked against its direction is still a real edge,
+                      and the reader is told which way it actually points. */}
+                  {via.direction === 'backward' && (
+                    <span title="this edge points the other way">(reversed)</span>
+                  )}
+                </span>
+                {why !== null && <span className="block truncate pl-4.5">{why}</span>}
               </div>
             )}
             <button

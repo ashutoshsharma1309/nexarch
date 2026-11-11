@@ -15,11 +15,13 @@ const TASK_COMPLEXITIES = [
   'large-planning',
   'small-file-regen',
   'complex-refactor',
+  'research-synthesis',
 ];
 const RESPONSE_SCHEMAS = [
   'requirement-spec',
   'architecture-plan',
   'database-design',
+  'research-plan',
   'generic-json',
 ];
 

@@ -18,6 +18,7 @@ const SECTIONS = [
   { to: 'repairs', label: 'Self-Repair' },
   { to: 'security', label: 'Security' },
   { to: 'dependencies', label: 'Dependencies' },
+  { to: 'execution', label: 'Execution' },
 ];
 
 export function IntelligenceTab() {
@@ -52,7 +53,7 @@ export function IntelligenceTab() {
                 'shrink-0 rounded-md border px-2.5 py-1 text-xs whitespace-nowrap transition-colors',
                 'focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none',
                 isActive
-                  ? 'border-ember font-medium text-fg'
+                  ? 'border-accent font-medium text-fg'
                   : 'border-line text-fg-muted hover:border-line-strong hover:text-fg',
               )
             }

@@ -4,14 +4,15 @@ import type {
   ModelCallResult,
   ModelProvider,
 } from '../../ai-orchestrator.types.js';
-import { postJson } from './http-utils.js';
+import { postJson, reportedUsage } from './http-utils.js';
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
+/** Optional fields: OpenRouter can relay an upstream failure as a 200 with no choices. */
 interface OpenRouterResponse {
-  choices: { message: { content: string }; finish_reason: string }[];
-  usage: { prompt_tokens: number; completion_tokens: number };
-  model: string;
+  choices?: { message: { content: string | null }; finish_reason: string }[];
+  usage?: { prompt_tokens: number; completion_tokens: number };
+  model?: string;
 }
 
 export class OpenRouterProvider implements ModelProvider {
@@ -36,19 +37,21 @@ export class OpenRouterProvider implements ModelProvider {
       max_tokens: options.maxTokens,
       temperature: options.temperature,
       messages: options.messages,
+      ...(options.json ? { response_format: { type: 'json_object' } } : {}),
     };
 
     const json = (await postJson(
       API_URL,
       { Authorization: `Bearer ${apiKey}` },
       body,
+      options.timeoutMs,
     )) as OpenRouterResponse;
-    const choice = json.choices[0];
+    const choice = json.choices?.[0];
 
     return {
       content: choice?.message.content ?? '',
-      usage: { inputTokens: json.usage.prompt_tokens, outputTokens: json.usage.completion_tokens },
-      model: json.model,
+      usage: reportedUsage(json.usage?.prompt_tokens, json.usage?.completion_tokens),
+      model: json.model ?? options.model,
       provider: 'openrouter',
       stopReason: choice?.finish_reason ?? 'unknown',
     };

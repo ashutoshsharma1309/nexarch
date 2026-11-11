@@ -1,274 +1,130 @@
-import { useState } from 'react';
+/**
+ * Settings: what the server reports, and the few preferences that do something.
+ *
+ * This page used to offer provider, model, token-limit, export-format and
+ * workspace-name controls. Nothing read any of them, so choosing "Claude" here
+ * changed nothing about a build while looking as if it had. They are gone from
+ * the screen. What is left is either read live from the server or labelled as
+ * stored in this browser.
+ */
+import type { ReactNode } from 'react';
 
-import { PageHeader } from '@/shared/components/page-header';
 import { Badge } from '@/shared/components/ui/badge';
-import { Button } from '@/shared/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '@/shared/components/ui/card';
-import { Input } from '@/shared/components/ui/input';
-import { Label } from '@/shared/components/ui/label';
+import { PageTitle } from '@/shared/components/ui/page-title';
 import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { cn } from '@/shared/lib/cn';
 import { useUiStore } from '@/shared/store/ui.store';
 import type { Theme } from '@/shared/store/ui.store';
-import type { AiProviderId, ExportFormat } from '@/shared/types/api';
+import { ServerStatus } from './server-status';
 import { useSettingsStore } from './settings-store';
 
 const themeOptions: { value: Theme; label: string; caption: string }[] = [
-  { value: 'dark', label: 'Dark', caption: 'Default' },
-  { value: 'light', label: 'Light', caption: 'For bright rooms' },
+  { value: 'dark', label: 'Cyanotype', caption: 'Dark, the default' },
+  { value: 'light', label: 'Drafting film', caption: 'Light, for bright rooms' },
 ];
 
-const providerOptions: { value: AiProviderId; label: string }[] = [
-  { value: 'mock', label: 'Mock' },
-  { value: 'claude', label: 'Claude' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'gemini', label: 'Gemini' },
-  { value: 'openrouter', label: 'OpenRouter' },
-];
+function BrowserOnly() {
+  return <Badge>Saved in this browser</Badge>;
+}
 
-const modelsByProvider: Record<AiProviderId, string[]> = {
-  mock: ['mock-fast'],
-  claude: ['claude-haiku-4-5-20251001', 'claude-opus-4-8'],
-  openai: ['gpt-5-mini'],
-  gemini: ['gemini-2.5-pro'],
-  openrouter: ['openrouter/auto'],
-};
-
-const exportFormatOptions: { value: ExportFormat; label: string }[] = [
-  { value: 'zip-project', label: 'Full project ZIP' },
-  { value: 'docker-package', label: 'Docker package' },
-  { value: 'readme', label: 'README' },
-  { value: 'openapi', label: 'OpenAPI contract' },
-  { value: 'postman-collection', label: 'Postman collection' },
-  { value: 'prisma-schema', label: 'Prisma schema' },
-  { value: 'sql-schema', label: 'SQL schema' },
-  { value: 'architecture-report', label: 'Architecture report' },
-  { value: 'dependency-graph', label: 'Dependency graph JSON' },
-  { value: 'security-report', label: 'Security report' },
-  { value: 'project-manifest', label: 'Project manifest' },
-];
-
-const selectClassName = cn(
-  'h-8 w-full rounded-md border border-line bg-inset px-2.5 text-[0.8125rem] text-fg',
-  'transition-colors duration-100 hover:border-line-strong',
-  'focus:border-accent focus:outline-none',
-);
+function SettingsSection({
+  title,
+  description,
+  badge,
+  children,
+}: {
+  title: string;
+  description: string;
+  badge?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="grid gap-4 border-t border-line py-6 md:grid-cols-[15rem_minmax(0,1fr)] md:gap-10">
+      <div>
+        <h2 className="text-base font-semibold tracking-tight text-fg">{title}</h2>
+        <p className="mt-1 type-ui leading-relaxed text-fg-muted">{description}</p>
+        {badge && <div className="mt-2">{badge}</div>}
+      </div>
+      <div className="min-w-0">{children}</div>
+    </section>
+  );
+}
 
 export function SettingsPage() {
   useDocumentTitle('Settings');
   const theme = useUiStore((state) => state.theme);
   const setTheme = useUiStore((state) => state.setTheme);
-  const {
-    workspaceName,
-    setWorkspaceName,
-    preferredProvider,
-    setPreferredProvider,
-    preferredModel,
-    setPreferredModel,
-    maxTokensPerRequest,
-    setMaxTokensPerRequest,
-    defaultExportFormat,
-    setDefaultExportFormat,
-    favoriteNewProjects,
-    setFavoriteNewProjects,
-  } = useSettingsStore();
-
-  const [nameDraft, setNameDraft] = useState(workspaceName);
-  const nameChanged = nameDraft.trim() !== workspaceName && nameDraft.trim() !== '';
+  const favoriteNewProjects = useSettingsStore((state) => state.favoriteNewProjects);
+  const setFavoriteNewProjects = useSettingsStore((state) => state.setFavoriteNewProjects);
 
   return (
     <>
-      <PageHeader
-        eyebrow="console/settings"
-        title="Settings"
-        description="Workspace, generation, and export preferences."
-      />
+      <PageTitle title="Settings" description="Server status and preferences for this browser." />
 
-      <div className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle>Workspace</CardTitle>
-            <CardDescription>Shown in the sidebar and on exported documentation.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="max-w-xs">
-              <Label htmlFor="workspace-name">Workspace name</Label>
-              <Input
-                id="workspace-name"
-                value={nameDraft}
-                onChange={(event) => {
-                  setNameDraft(event.target.value);
-                }}
-              />
-            </div>
-          </CardContent>
-          <CardFooter className="justify-end">
-            <Button
-              variant="primary"
-              disabled={!nameChanged}
+      <SettingsSection
+        title="Server"
+        description="Read live from this NexArch server, refreshed every 30 seconds."
+      >
+        <ServerStatus />
+      </SettingsSection>
+
+      <SettingsSection title="Model routing" description="Decided on the server, not here.">
+        <p className="max-w-xl type-ui leading-relaxed text-fg-muted">
+          Each model call is routed by task complexity, with failover between the providers
+          configured in the server’s environment. There is no per-account override, so this page has
+          no provider or model picker. To change routing, edit{' '}
+          <code className="font-mono text-xs text-fg">AI_PROVIDER</code> and{' '}
+          <code className="font-mono text-xs text-fg">AI_PROVIDER_CHAIN</code> on the server and
+          restart it.
+        </p>
+      </SettingsSection>
+
+      <SettingsSection
+        title="Appearance"
+        description="Applies immediately."
+        badge={<BrowserOnly />}
+      >
+        <div className="grid max-w-md gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Theme">
+          {themeOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={theme === option.value}
               onClick={() => {
-                setWorkspaceName(nameDraft.trim());
+                setTheme(option.value);
               }}
+              className={cn(
+                'rounded-md border px-3.5 py-2.5 text-left transition-colors duration-100',
+                theme === option.value
+                  ? 'border-accent bg-accent-soft'
+                  : 'border-line hover:border-line-strong',
+              )}
             >
-              Save changes
-            </Button>
-          </CardFooter>
-        </Card>
+              <span className="block type-ui font-medium text-fg">{option.label}</span>
+              <span className="mt-0.5 block text-xs text-fg-muted">{option.caption}</span>
+            </button>
+          ))}
+        </div>
+      </SettingsSection>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Appearance</CardTitle>
-            <CardDescription>Applies immediately and persists on this device.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-3" role="radiogroup" aria-label="Theme">
-              {themeOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={theme === option.value}
-                  onClick={() => {
-                    setTheme(option.value);
-                  }}
-                  className={cn(
-                    'max-w-44 flex-1 rounded-md border px-4 py-3 text-left transition-colors duration-100',
-                    theme === option.value
-                      ? 'border-accent bg-accent-soft'
-                      : 'border-line hover:border-line-strong',
-                  )}
-                >
-                  <p className="text-sm font-medium text-fg">{option.label}</p>
-                  <p className="mt-0.5 text-xs text-fg-muted">{option.caption}</p>
-                </button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <CardTitle>AI provider</CardTitle>
-              <Badge variant="accent">Preference</Badge>
-            </div>
-            <CardDescription>
-              Saved for the AI Orchestrator to read once it exposes a per-request override; today
-              every request routes through its own complexity-based model router regardless of this
-              setting.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="provider-select">Provider</Label>
-              <select
-                id="provider-select"
-                className={selectClassName}
-                value={preferredProvider}
-                onChange={(event) => {
-                  const provider = event.target.value as AiProviderId;
-                  setPreferredProvider(provider);
-                  const firstModel = modelsByProvider[provider][0];
-                  if (firstModel) setPreferredModel(firstModel);
-                }}
-              >
-                {providerOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <Label htmlFor="model-select">Model</Label>
-              <select
-                id="model-select"
-                className={selectClassName}
-                value={preferredModel}
-                onChange={(event) => {
-                  setPreferredModel(event.target.value);
-                }}
-              >
-                {modelsByProvider[preferredProvider].map((model) => (
-                  <option key={model} value={model}>
-                    {model}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <Label htmlFor="token-limit">Max tokens per request</Label>
-              <Input
-                id="token-limit"
-                type="number"
-                min={500}
-                max={200000}
-                step={500}
-                value={maxTokensPerRequest}
-                onChange={(event) => {
-                  const value = Number(event.target.value);
-                  if (!Number.isNaN(value)) setMaxTokensPerRequest(value);
-                }}
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Export defaults</CardTitle>
-            <CardDescription>
-              Highlighted as the default format on the Export Center.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="max-w-xs">
-              <Label htmlFor="export-format-select">Default export format</Label>
-              <select
-                id="export-format-select"
-                className={selectClassName}
-                value={defaultExportFormat}
-                onChange={(event) => {
-                  setDefaultExportFormat(event.target.value as ExportFormat);
-                }}
-              >
-                {exportFormatOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Project defaults</CardTitle>
-            <CardDescription>Applied automatically when a new project is created.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <label className="flex items-center gap-2.5 text-xs text-fg-muted">
-              <input
-                type="checkbox"
-                checked={favoriteNewProjects}
-                onChange={(event) => {
-                  setFavoriteNewProjects(event.target.checked);
-                }}
-                className="size-3.5 rounded-sm border-line accent-accent"
-              />
-              Favorite new projects automatically
-            </label>
-          </CardContent>
-        </Card>
-      </div>
+      <SettingsSection
+        title="New projects"
+        description="Applied when you create a project from this browser."
+        badge={<BrowserOnly />}
+      >
+        <label className="flex items-center gap-2.5 type-ui text-fg">
+          <input
+            type="checkbox"
+            checked={favoriteNewProjects}
+            onChange={(event) => {
+              setFavoriteNewProjects(event.target.checked);
+            }}
+            className="size-3.5 rounded-sm border-line accent-accent"
+          />
+          Favorite new projects automatically
+        </label>
+      </SettingsSection>
     </>
   );
 }

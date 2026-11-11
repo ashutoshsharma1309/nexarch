@@ -31,8 +31,12 @@
  * sandboxed.
  */
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { logger } from '../../shared/logger/index.js';
+import { withLogContext } from '../../shared/logger/context.js';
+import { logEvent } from '../../shared/logger/events.js';
 import { AppError } from '../../shared/utils/app-error.js';
 import { slugify } from '../../shared/utils/strings.js';
 import { planRun, portPreferenceFor } from './lib/command-planner.js';
@@ -40,6 +44,11 @@ import { NO_DATABASE_HINT, planProvisioning } from './lib/database-provisioner.j
 import { diagnose } from './lib/diagnostics.js';
 import { LogBuffer } from './lib/log-buffer.js';
 import { findFreePort, releasePort } from './lib/port-scanner.js';
+import {
+  checkProjectPolicy,
+  describeViolations,
+  INSTALL_SCRIPT_PACKAGES,
+} from './lib/script-policy.js';
 import {
   runToCompletion,
   startProcess,
@@ -103,6 +112,34 @@ const sessions = new Map<string, SessionRuntime>();
  * across create/poll/stop without threading a user through the validators.
  */
 export const INTERNAL_RUNNER_OWNER = '@nexarch/internal-validation';
+
+/** Owner tag for build verification, so its admission budget is its own. */
+export const INTERNAL_VERIFY_OWNER = '@nexarch/build-verification';
+
+/**
+ * Tags that all mean "the platform itself".
+ *
+ * The project editor stops the sessions `validateRuntime` created under a tag
+ * of its own, and the mismatch used to come back as not-found, which the
+ * caller swallowed: the edit's preview kept its ports and processes for the
+ * life of the server. One platform caller may stop what another started;
+ * nothing here extends that to a real user, whose id is never one of these.
+ */
+const PLATFORM_OWNERS: ReadonlySet<string> = new Set([
+  INTERNAL_RUNNER_OWNER,
+  INTERNAL_VERIFY_OWNER,
+  'internal:project-editor',
+]);
+
+function sameOwner(sessionOwner: string, caller: string): boolean {
+  if (sessionOwner === caller) return true;
+  return PLATFORM_OWNERS.has(sessionOwner) && PLATFORM_OWNERS.has(caller);
+}
+
+/** Stops a platform-owned session, whichever internal caller started it. */
+export function stopInternalSession(id: string): RunSession {
+  return stopSession(id, INTERNAL_RUNNER_OWNER);
+}
 
 /**
  * Read through a call boundary: `cancelled` is flipped concurrently by
@@ -189,6 +226,20 @@ function transition(runtime: SessionRuntime, phase: RunPhase, detail: string): v
 /** Hands the session's ports back to the allocator: bound now, or never will be. */
 function releaseSessionPorts(runtime: SessionRuntime): void {
   for (const record of runtime.session.processes) releasePort(record.port);
+}
+
+/** What an internal caller can add between configuring and starting. */
+export interface SessionHooks {
+  /**
+   * Runs with dependencies installed and nothing started yet: the point where
+   * a project's own typecheck and build can run without a dev server beside
+   * them. `signal` fires when the session is stopped.
+   */
+  beforeStart?: (context: {
+    workspaceDir: string;
+    signal: AbortSignal;
+    targets: RunPlan['targets'];
+  }) => Promise<void>;
 }
 
 function fail(runtime: SessionRuntime, detail: string, exitCode: number | null): void {
@@ -420,8 +471,198 @@ async function startTargets(runtime: SessionRuntime): Promise<void> {
   }
 }
 
-async function runPipeline(runtime: SessionRuntime, request: CreateSessionRequest): Promise<void> {
+/**
+ * Registry failures worth trying again.
+ *
+ * Not every install failure is. A package.json naming a version that does
+ * not exist fails identically every time, and retrying it three times costs
+ * three minutes to deliver the same message. These markers describe the
+ * registry briefly failing to serve something, which is a different thing
+ * from the project asking for something impossible.
+ *
+ * `ETARGET` is on the list deliberately, and it is the interesting one. It
+ * usually means a bad version pin — but it is also exactly what a partly
+ * propagated release looks like: a generated project asked for
+ * `typescript-eslint@^8.31.0`, npm resolved 8.72.1, and
+ * `@typescript-eslint/eslint-plugin@8.72.1` was not yet visible on the
+ * registry. That killed a preview outright, and the same install succeeded
+ * minutes later untouched. A pin that is genuinely wrong still fails on the
+ * final attempt and is reported with its own message.
+ */
+const TRANSIENT_INSTALL_MARKERS = [
+  'etarget',
+  'econnreset',
+  'etimedout',
+  'enotfound',
+  'eai_again',
+  'econnrefused',
+  'err_socket_timeout',
+  'socket hang up',
+  'network',
+  '429 too many requests',
+  '503 service unavailable',
+  'registry returned 5',
+];
+
+/**
+ * Three attempts, not more: a registry hiccup clears in seconds, and a
+ * fourth attempt mostly delays an honest error.
+ */
+const MAX_INSTALL_ATTEMPTS = 3;
+const INSTALL_RETRY_BACKOFF_MS = 5_000;
+
+/** The marker that makes a failure look transient, or null if none does. */
+export function transientInstallReason(lines: readonly string[]): string | null {
+  const text = lines.join('\n').toLowerCase();
+  return TRANSIENT_INSTALL_MARKERS.find((marker) => text.includes(marker)) ?? null;
+}
+
+/** Sleeps, unless the session is aborted first. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+/**
+ * Installs every target, retrying a failure the registry caused.
+ *
+ * Returns false when the session should stop — cancelled, or an install that
+ * failed for a reason trying again cannot fix.
+ */
+async function rebuildNamedPackages(
+  runtime: SessionRuntime,
+  target: { directory: string; kind: 'backend' | 'frontend' },
+): Promise<void> {
+  const directory = `${runtime.session.workspaceDir}/${target.directory}`;
+  const present = INSTALL_SCRIPT_PACKAGES.filter((name) =>
+    existsSync(join(directory, 'node_modules', name)),
+  );
+  if (present.length === 0) return;
+  runtime.logs.append(
+    'system',
+    `${target.directory}: running install scripts for ${present.join(', ')}`,
+  );
+  const code = await runToCompletion(
+    'npm',
+    ['rebuild', ...present],
+    directory,
+    target.kind,
+    runtime.logs,
+    {},
+    runtime.abort.signal,
+  );
+  if (code !== 0 && !isCancelled(runtime)) {
+    runtime.logs.append(
+      'system',
+      `${target.directory}: npm rebuild exited ${String(code)} — ${present.join(', ')} may not work`,
+    );
+  }
+}
+
+async function installTargets(runtime: SessionRuntime): Promise<boolean> {
   const { plan, session } = runtime;
+  transition(runtime, 'installing', 'Installing dependencies');
+
+  for (const target of plan.targets) {
+    if (isCancelled(runtime)) return false;
+    const record = processOf(runtime, target.kind);
+    record.status = 'installing';
+
+    let code = 1;
+    for (let attempt = 1; attempt <= MAX_INSTALL_ATTEMPTS; attempt += 1) {
+      code = await runToCompletion(
+        'npm',
+        // Scripts off: what a project depends on can follow from web content,
+        // and an install must not be a way to execute it.
+        ['install', '--ignore-scripts', '--no-audit', '--no-fund'],
+        `${session.workspaceDir}/${target.directory}`,
+        target.kind,
+        runtime.logs,
+        {},
+        runtime.abort.signal,
+      );
+      if (code === 0 || isCancelled(runtime)) break;
+
+      const reason = transientInstallReason(runtime.logs.tail(40));
+      if (reason === null || attempt === MAX_INSTALL_ATTEMPTS) break;
+
+      runtime.logs.append(
+        'system',
+        `${target.directory}: npm install failed on a transient registry error (${reason}) — retrying, attempt ${String(attempt + 1)} of ${String(MAX_INSTALL_ATTEMPTS)}`,
+      );
+      logEvent({
+        event: 'retry',
+        target: `npm install ${target.directory}`,
+        attempt: attempt + 1,
+        reason,
+      });
+      await pause(INSTALL_RETRY_BACKOFF_MS * attempt, runtime.abort.signal);
+      if (isCancelled(runtime)) return false;
+    }
+
+    if (isCancelled(runtime)) return false;
+    if (code !== 0) {
+      record.status = 'exited';
+      record.exitCode = code;
+      fail(runtime, `npm install failed in ${target.directory}/ (code ${String(code)})`, code);
+      return false;
+    }
+    await rebuildNamedPackages(runtime, target);
+    if (isCancelled(runtime)) return false;
+    record.status = 'pending';
+  }
+  return true;
+}
+
+/**
+ * Whether this workspace actually has its dependencies on disk.
+ *
+ * A restart used to assume it did — "the workspace and node_modules
+ * survive" — which is true of a session that installed successfully and
+ * false of exactly the session a user is most likely to press Restart on.
+ * After a failed install there is no node_modules, so restarting spawned
+ * dev servers that died on the first import, and the reported error was a
+ * missing package rather than the install that never finished.
+ */
+function isInstalled(runtime: SessionRuntime): boolean {
+  return runtime.plan.targets.every((target) =>
+    existsSync(join(runtime.session.workspaceDir, target.directory, 'node_modules')),
+  );
+}
+
+/**
+ * Brings a restarted session back up, installing first if it never was.
+ *
+ * This is what makes Restart a real recovery from a failed install rather
+ * than a second way to see the same failure.
+ */
+async function resumeSession(runtime: SessionRuntime): Promise<void> {
+  if (!isInstalled(runtime)) {
+    runtime.logs.append(
+      'system',
+      'Dependencies are not installed — installing before starting (the first install did not finish)',
+    );
+    if (!(await installTargets(runtime))) return;
+    if (!(await configureTargets(runtime))) return;
+  }
+  await startTargets(runtime);
+}
+
+async function runPipeline(
+  runtime: SessionRuntime,
+  request: CreateSessionRequest,
+  hooks: SessionHooks,
+): Promise<void> {
+  const { session } = runtime;
 
   transition(
     runtime,
@@ -435,32 +676,19 @@ async function runPipeline(runtime: SessionRuntime, request: CreateSessionReques
   );
   if (isCancelled(runtime)) return;
 
-  transition(runtime, 'installing', 'Installing dependencies');
-  for (const target of plan.targets) {
-    if (isCancelled(runtime)) return;
-    const record = processOf(runtime, target.kind);
-    record.status = 'installing';
-    const code = await runToCompletion(
-      'npm',
-      ['install', '--no-audit', '--no-fund'],
-      `${session.workspaceDir}/${target.directory}`,
-      target.kind,
-      runtime.logs,
-      {},
-      runtime.abort.signal,
-    );
-    if (isCancelled(runtime)) return;
-    if (code !== 0) {
-      record.status = 'exited';
-      record.exitCode = code;
-      fail(runtime, `npm install failed in ${target.directory}/ (code ${String(code)})`, code);
-      return;
-    }
-    record.status = 'pending';
-  }
+  if (!(await installTargets(runtime))) return;
 
   const configured = await configureTargets(runtime);
   if (!configured) return;
+
+  if (hooks.beforeStart) {
+    await hooks.beforeStart({
+      workspaceDir: session.workspaceDir,
+      signal: runtime.abort.signal,
+      targets: runtime.plan.targets,
+    });
+    if (isCancelled(runtime)) return;
+  }
 
   await startTargets(runtime);
 }
@@ -469,7 +697,18 @@ export function planSession(request: CreateSessionRequest): RunPlan {
   return planRun(request);
 }
 
-export function createSession(request: CreateSessionRequest, ownerId: string): RunSession {
+export function createSession(
+  request: CreateSessionRequest,
+  ownerId: string,
+  hooks: SessionHooks = {},
+): RunSession {
+  // Refused here rather than in a route, so a builder or verification run
+  // meets the same rule as a request from the preview page.
+  const violations = checkProjectPolicy(request.files);
+  if (violations.length > 0) {
+    throw AppError.badRequest(`This project cannot be run: ${describeViolations(violations)}`);
+  }
+
   const plan = planRun(request);
   if (plan.targets.length === 0) {
     throw AppError.badRequest(
@@ -526,11 +765,16 @@ export function createSession(request: CreateSessionRequest, ownerId: string): R
   }
 
   // Detached: the response is the preparing session; phases advance async.
-  void runPipeline(runtime, request).catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.warn('run session pipeline crashed', { sessionId: session.id, error: message });
-    runtime.logs.append('system', message);
-    fail(runtime, `Run pipeline error: ${message}`, null);
+  // Forked with the session id so every command this preview spawns, and
+  // every process exit minutes later, is grouped under the session rather
+  // than under the request that has already returned.
+  withLogContext({ sessionId: session.id }, () => {
+    void runPipeline(runtime, request, hooks).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn('run session pipeline crashed', { sessionId: session.id, error: message });
+      runtime.logs.append('system', message);
+      fail(runtime, `Run pipeline error: ${message}`, null);
+    });
   });
 
   return session;
@@ -541,7 +785,7 @@ function requireRuntime(id: string, ownerId: string): SessionRuntime {
   // Not-yours is reported as not-found, so a session id cannot be probed for
   // existence across users.
   if (!runtime) throw AppError.notFound(`No run session with id ${id}`);
-  if (runtime.ownerId !== ownerId) throw AppError.notFound(`No run session with id ${id}`);
+  if (!sameOwner(runtime.ownerId, ownerId)) throw AppError.notFound(`No run session with id ${id}`);
   return runtime;
 }
 
@@ -582,6 +826,14 @@ export function stopSession(id: string, ownerId: string): RunSession {
   // reservation's TTL expired.
   releaseSessionPorts(runtime);
   transition(runtime, 'stopped', 'All processes stopped');
+  // Counts, not paths: a cleanup line says what was released, and the
+  // workspace directory is a path on someone's disk.
+  logEvent({
+    event: 'cleanup',
+    target: 'runner session',
+    outcome: 'removed',
+    reason: `${String(runtime.session.processes.length)} processes stopped`,
+  });
   return runtime.session;
 }
 
@@ -594,8 +846,9 @@ export function restartSession(id: string, ownerId: string): RunSession {
     throw AppError.conflict('Session never materialized a workspace — create a new run instead');
   }
 
-  // Stop whatever is live, then re-run the start step only: the workspace
-  // and node_modules survive, so a restart skips straight to `starting`.
+  // Stop whatever is live, then bring it back up. A session that installed
+  // cleanly skips straight to `starting`; one whose install never finished
+  // installs first, because its node_modules does not exist.
   runtime.cancelled = true;
   runtime.abort.abort();
   for (const child of runtime.children.values()) stopChild(child);
@@ -614,9 +867,13 @@ export function restartSession(id: string, ownerId: string): RunSession {
   // every command it runs from here would be refused before it spawned.
   runtime.abort = new AbortController();
 
-  void startTargets(runtime).catch((error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    fail(runtime, `Restart error: ${message}`, null);
+  // Same reasoning as the first launch: a restart spawns fresh processes
+  // whose exits land long after this call returned.
+  withLogContext({ sessionId: runtime.session.id }, () => {
+    void resumeSession(runtime).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      fail(runtime, `Restart error: ${message}`, null);
+    });
   });
 
   return runtime.session;

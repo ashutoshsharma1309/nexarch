@@ -5,7 +5,7 @@
  *
  *   create_project  → workspace (a project row the user can open)
  *   build_app       → the generation pipeline (analysis → … → graph)
- *   review_app      → the 14-agent mesh (planning, generation, review, runtime, tests)
+ *   review_app      → the agent mesh (planning, generation, review, runtime, tests)
  *   repair_app      → the self-repair engine
  *   preview_app     → the local runner (install, database, start, health)
  *   inspect_website → HTTP checks against the preview the runner reported
@@ -225,7 +225,7 @@ const buildAppTool: BuilderTool = {
 const reviewAppTool: BuilderTool = {
   name: 'review_app',
   description:
-    'Run the 14-agent mesh on the project: planning, generation, security/dependency/code-quality review, then build, start and test the app. Returns the validation gate and findings. Args: {}.',
+    'Run the agent mesh on the project: planning, generation, security/dependency/code-quality review, then build, start and test the app. Returns the validation gate and findings. Args: {}.',
   args: noArgs,
   async run(ctx) {
     const projectId = requireState(ctx, 'projectId', 'Create the project first (create_project).');
@@ -236,7 +236,8 @@ const reviewAppTool: BuilderTool = {
       ctx,
       () => getAgentRun(ctx.ownerId, started.run.id),
       (view) => !['PENDING', 'RUNNING'].includes(view.run.status),
-      { timeoutMs: 20 * 60_000, intervalMs: 2_000, what: 'The agent review' },
+      // Long enough for repair and the re-validation that follows it.
+      { timeoutMs: 35 * 60_000, intervalMs: 2_000, what: 'The agent review' },
     );
     const agents = finished.run.tasks.map((task) => ({ agent: task.agentId, status: task.status }));
     const completed = agents.filter((agent) => agent.status === 'COMPLETED').length;

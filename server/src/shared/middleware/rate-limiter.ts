@@ -48,6 +48,8 @@ const POLLED_READS: RegExp[] = [
   // and the first casualty is the same one named above: the session refresh
   // that keeps the user signed in while their edit finishes.
   /^\/projects\/[^/]+\/edits\/jobs(\/|$)/,
+  // A build's timeline, read repeatedly while it runs when a stream drops.
+  /^\/projects\/[^/]+\/executions(\/|$)/,
 ];
 
 export function isPolledRead(req: Parameters<RequestHandler>[0]): boolean {

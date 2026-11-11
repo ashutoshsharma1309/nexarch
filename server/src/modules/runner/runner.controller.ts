@@ -11,7 +11,8 @@ import {
   restartSession,
   stopSession,
 } from './runner.service.js';
-import { readCreateSessionRequest } from './runner.validator.js';
+import { resolveOwnedFiles } from './lib/owned-project-files.js';
+import { readCreateSessionRequest, readRunSelection } from './runner.validator.js';
 
 /** The authenticated owner of the request — every runner route is guarded. */
 function ownerOf(req: Request): string {
@@ -25,10 +26,15 @@ export function planHandler(req: Request, res: Response): void {
   sendSuccess(res, planSession(request));
 }
 
-export function createSessionHandler(req: Request, res: Response): void {
-  const request = readCreateSessionRequest(req.body as Record<string, unknown>);
+export async function createSessionHandler(req: Request, res: Response): Promise<void> {
+  const ownerId = ownerOf(req);
+  // The request names a generation; the bytes that run come from storage.
+  const owned = await resolveOwnedFiles(
+    readRunSelection(req.body as Record<string, unknown>),
+    ownerId,
+  );
   // 202: the session record is the answer; poll it to watch phases advance.
-  sendSuccess(res, createSession(request, ownerOf(req)), { status: 202 });
+  sendSuccess(res, createSession(owned, ownerId), { status: 202 });
 }
 
 export function listSessionsHandler(req: Request, res: Response): void {

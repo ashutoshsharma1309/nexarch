@@ -15,12 +15,19 @@
  * that does not exist is broken in the specific way that is hardest to
  * see: it compiles, it renders, and it fails at runtime.
  */
-import { generateFrontend } from '../../frontend-generator/frontend-generator.service.js';
+import {
+  deriveSiteDesign,
+  generateFrontend,
+} from '../../frontend-generator/frontend-generator.service.js';
 import { writeSiteDesign } from '../../pipeline/lib/ai-stages.js';
 import { auditFrontendContract } from '../lib/contract-audit.js';
 import { generateEntityMetadata } from '../../database-designer/lib/entity-metadata-generator.js';
+import { SITE_DESIGN_ARTIFACT } from '../../../shared/contracts/agent-registry.js';
 import { getAgentDefinition } from '../../../shared/contracts/index.js';
+import { isApiOnlyRequest } from '../lib/agent-selection.js';
+import { toAgentUsage } from '../lib/agent-usage.js';
 import { AgentError } from '../lib/executor.js';
+import type { SiteDesign } from '../../frontend-generator/lib/site-content.js';
 import type {
   Agent,
   AgentExecutionInput,
@@ -123,11 +130,17 @@ export const frontendEngineerAgent: Agent<GeneratedFrontend> = {
 
     const entityMetadata = generateEntityMetadata(database, requirements);
 
-    // The website is designed from the user's own words. This agent has had
-    // `input.prompt` all along and did not pass it on, so every app built
-    // through the mesh — unlike the same app built through the pipeline —
-    // got the spec-derived fallback page: no theme, no domain sections.
-    const siteDesign = await writeSiteDesign(input.prompt, requirements);
+    // The design intelligence agent normally wrote this already. Without it
+    // (a subset run), the page is still designed from the user's own words,
+    // and that call's tokens are this agent's to report. An API-only request
+    // has no page worth a model call, so it gets the spec-derived one.
+    const upstream = input.inputArtifacts[SITE_DESIGN_ARTIFACT] as
+      { siteDesign: SiteDesign } | undefined;
+    const written =
+      upstream || isApiOnlyRequest(input.prompt)
+        ? null
+        : await writeSiteDesign(input.prompt, requirements);
+    const siteDesign = upstream?.siteDesign ?? written?.value ?? deriveSiteDesign(requirements);
 
     const frontend = generateFrontend(
       architecture,
@@ -138,7 +151,7 @@ export const frontendEngineerAgent: Agent<GeneratedFrontend> = {
       // for a module the backend stubbed must know it is a stub.
       { modules: backendMeta.modules, routes: backendMeta.routes },
       entityMetadata,
-      siteDesign.value,
+      siteDesign,
     );
 
     if (frontend.files.length === 0) {
@@ -174,7 +187,9 @@ export const frontendEngineerAgent: Agent<GeneratedFrontend> = {
       error: null,
       failureKind: null,
       durationMs: Date.now() - startedAt,
-      usage: null,
+      // Null only when this agent made no model call: the design came from
+      // upstream, whose usage is reported against that agent.
+      usage: toAgentUsage(written?.usage ?? null, input.context?.tokens ?? 0),
     };
   },
 };

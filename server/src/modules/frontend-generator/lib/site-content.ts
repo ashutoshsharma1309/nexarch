@@ -56,6 +56,36 @@ export interface SiteFaq {
   answer: string;
 }
 
+/**
+ * How a catalog renders.
+ *
+ * One section kind used to mean one layout, so a cafe menu, a course list
+ * and a product range all came out as the same card grid with an
+ * illustration on every item. That is what made every generated site look
+ * like the same site with different words — and for a menu it was actively
+ * wrong, because nine drinks all match the same `coffee` illustration and
+ * the page showed nine identical cups.
+ *
+ * - `menu`: an editorial price list. No per-item art, name and price on one
+ *   line, description beneath. What a menu actually looks like.
+ * - `cards`: the illustrated grid. Right where items are genuinely distinct
+ *   things to browse — products, courses, properties.
+ * - `list`: compact rows with small art. Right for treatments, services and
+ *   plans, where the text matters more than the picture.
+ */
+export const CATALOG_LAYOUTS = ['menu', 'cards', 'list'] as const;
+export type CatalogLayout = (typeof CATALOG_LAYOUTS)[number];
+
+/**
+ * How a hero renders.
+ *
+ * `split` is the software default — copy on the left, illustration on the
+ * right. `centered` is the editorial one: the headline is the image. A cafe
+ * or a portfolio earns the second; a dashboard earns the first.
+ */
+export const HERO_LAYOUTS = ['split', 'centered'] as const;
+export type HeroLayout = (typeof HERO_LAYOUTS)[number];
+
 export interface SiteCatalogItem {
   name: string;
   description: string;
@@ -102,6 +132,7 @@ export type SiteSection =
       badge: string;
       primaryCta: string;
       secondaryCta: string;
+      layout: HeroLayout;
       art: ArtKind;
       artLabel: string;
     }
@@ -119,6 +150,7 @@ export type SiteSection =
       navLabel: string;
       title: string;
       subtitle: string;
+      layout: CatalogLayout;
       items: SiteCatalogItem[];
     }
   | {
@@ -584,8 +616,82 @@ function ctaLabel(value: unknown, fallback: string): string {
   return AUTH_LABEL.test(label) ? fallback : label;
 }
 
+/**
+ * The footer's extra line, minus anything the footer already prints.
+ *
+ * The page renders "(c) <year> <brand>" itself and appends this after it.
+ * Models reliably write their own copyright into the note, so a generated
+ * cafe footer read "(c) 2026 The Brew House - (c) 2026 The Brew House".
+ * Dropping a note that is just the notice again is more dependable than
+ * asking for it not to be written.
+ */
+function footerNote(value: unknown, brand: string): string {
+  const note = text(value, '', 120);
+  if (note === '') return '';
+  const stripped = note.replace(/^(?:\u00a9|\(c\)|copyright)\s*/i, '').trim();
+  const withoutYear = stripped.replace(/\b(?:19|20)\d{2}\b/g, '').trim();
+  const bare = withoutYear.replace(/[\s.,\u00b7-]+$/u, '').toLowerCase();
+  if (bare === '' || bare === brand.toLowerCase()) return '';
+  return note;
+}
+
 function art(value: unknown, fallbackText: string): ArtKind {
   return isArtKind(value) ? value : artForKeywords(fallbackText);
+}
+
+/**
+ * The catalog layout, taken from the model or inferred from the items.
+ *
+ * The inference is deliberately about the *shape of the data* rather than
+ * the domain: a list where nearly every item is priced and described in a
+ * line is a menu, whatever it is selling, and a menu is the one layout that
+ * must not print an illustration per row. Falling back to `cards` keeps the
+ * old behaviour for everything that is genuinely a grid of distinct things.
+ */
+function catalogLayout(value: unknown, items: readonly SiteCatalogItem[]): CatalogLayout {
+  if (items.length === 0) return 'cards';
+
+  const asked =
+    typeof value === 'string' && (CATALOG_LAYOUTS as readonly string[]).includes(value)
+      ? (value as CatalogLayout)
+      : null;
+
+  // Every item resolving to one illustration means an illustrated grid is
+  // one picture repeated. This is checked BEFORE the model's own choice is
+  // honoured, because it is the precise defect these layouts exist to
+  // prevent — a cafe menu rendered as cards printed nine identical cups —
+  // and asking the model not to do it in the prompt is not a guarantee. It
+  // was measured still happening in three of ten evaluation runs with the
+  // guidance in place. The model still chooses freely between the layouts
+  // that cannot reproduce it.
+  const distinctArt = new Set(items.map((item) => item.art)).size;
+  const wouldRepeat = distinctArt === 1 && items.length >= 4;
+  if (wouldRepeat && asked === 'cards') return 'list';
+
+  if (asked !== null) return asked;
+
+  const priced = items.filter((item) => item.price !== '').length / items.length;
+  const terse = items.filter((item) => item.description.length <= 80).length / items.length;
+  // Priced and terse: a price list. Both thresholds matter — a product grid
+  // is priced too, but its descriptions run long.
+  if (priced >= 0.6 && terse >= 0.6) return 'menu';
+  if (wouldRepeat) return 'list';
+
+  return 'cards';
+}
+
+/**
+ * The hero layout, taken from the model or inferred from the theme.
+ *
+ * Warm and neutral subjects — hospitality, galleries, portfolios — read as
+ * editorial, where the headline carries the page. Cool ones are software,
+ * where the illustration beside the copy is doing real work.
+ */
+function heroLayout(value: unknown, temperature: ThemeTemperature): HeroLayout {
+  if (typeof value === 'string' && (HERO_LAYOUTS as readonly string[]).includes(value)) {
+    return value as HeroLayout;
+  }
+  return temperature === 'cool' ? 'split' : 'centered';
 }
 
 function features(value: unknown): SiteFeature[] {
@@ -686,7 +792,11 @@ function faqItems(value: unknown): SiteFaq[] {
  * a testimonials block with no testimonials is worse than no section at all,
  * and dropping it here keeps the page honest without the renderer guessing.
  */
-function buildSection(raw: Record<string, unknown>, index: number): SiteSection | null {
+function buildSection(
+  raw: Record<string, unknown>,
+  index: number,
+  temperature: ThemeTemperature,
+): SiteSection | null {
   const kind = SECTION_KINDS.find((candidate) => candidate === raw.kind);
   if (!kind) return null;
 
@@ -708,6 +818,7 @@ function buildSection(raw: Record<string, unknown>, index: number): SiteSection 
         badge: text(raw.badge, '', 40),
         primaryCta: ctaLabel(raw.primaryCta, 'Get started'),
         secondaryCta: ctaLabel(raw.secondaryCta, ''),
+        layout: heroLayout(raw.layout, temperature),
         art: art(raw.art, `${headline} ${text(raw.subheadline, '', 120)}`),
         artLabel: text(raw.artLabel, headline, 110),
       };
@@ -718,7 +829,16 @@ function buildSection(raw: Record<string, unknown>, index: number): SiteSection 
     }
     case 'catalog': {
       const items = catalogItems(raw.items);
-      return items.length === 0 ? null : { kind, id, navLabel, title, subtitle, items };
+      if (items.length === 0) return null;
+      return {
+        kind,
+        id,
+        navLabel,
+        title,
+        subtitle,
+        layout: catalogLayout(raw.layout, items),
+        items,
+      };
     }
     case 'gallery': {
       const items = galleryItems(raw.items);
@@ -837,6 +957,10 @@ export function deriveSiteDesign(spec: RequirementSpec): SiteDesign {
         ? `Everything ${brand} offers, in one place.`
         : `A ${kind} application with ${capabilities.slice(0, 3).join(', ').toLowerCase() || 'everything you need'}.`,
       badge: sentenceCase(kind),
+      // The derived design is the no-model fallback and describes an
+      // application, so it takes the software hero rather than the
+      // editorial one.
+      layout: 'split',
       primaryCta: 'Get started',
       secondaryCta: 'Learn more',
       art: artForKeywords(subject),
@@ -892,9 +1016,14 @@ export function normalizeSiteDesign(raw: unknown, fallback: SiteDesign): SiteDes
     typeof source.theme === 'object' && source.theme !== null ? source.theme : {}
   ) as Record<string, unknown>;
 
+  // The theme is resolved first: a hero's layout is inferred from the
+  // subject's temperature when the model does not name one, and that is only
+  // knowable once the theme exists.
+  const theme = buildTheme(themeRaw, fallback.theme);
+
   const sections = withUniqueIds(
     records(source.sections, LIMITS.sections)
-      .map((section, index) => buildSection(section, index))
+      .map((section, index) => buildSection(section, index, theme.temperature))
       .filter((section): section is SiteSection => section !== null),
   );
 
@@ -903,9 +1032,9 @@ export function normalizeSiteDesign(raw: unknown, fallback: SiteDesign): SiteDes
   return {
     brand: text(source.brand, fallback.brand, 40),
     tagline: text(source.tagline, fallback.tagline, 60),
-    theme: buildTheme(themeRaw, fallback.theme),
+    theme,
     sections,
-    footerNote: text(source.footerNote, '', 120),
+    footerNote: footerNote(source.footerNote, text(source.brand, fallback.brand, 40)),
     source: 'ai',
   };
 }

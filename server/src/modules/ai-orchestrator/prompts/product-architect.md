@@ -41,5 +41,8 @@ Return exactly one JSON object with these keys and no others:
 - `dependsOn` and `journeys[].modules` must reference names that exist in
   your own `modules` list.
 - Never name a technology, database, framework or protocol.
+- Never invent people, staff names, credentials, years of experience, awards
+  or statistics. If the requirement states none, describe the role or the
+  capability instead.
 
 Return only the JSON object. No prose, no markdown fences.

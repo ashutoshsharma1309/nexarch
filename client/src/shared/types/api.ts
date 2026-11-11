@@ -50,13 +50,20 @@ export interface HealthReport {
   uptimeSeconds: number;
   environment: string;
   version: string;
+  /** Each row is optional because an older server omits it. */
   checks: {
-    database: {
-      status: 'up' | 'down';
-      latencyMs?: number;
-      error?: string;
-    };
+    database: DependencyCheck;
+    aiProvider?: DependencyCheck;
+    agentRuntime?: DependencyCheck;
+    storage?: DependencyCheck;
   };
+}
+
+export interface DependencyCheck {
+  status: 'up' | 'down';
+  latencyMs?: number;
+  error?: string;
+  detail?: string;
 }
 
 /* ── Domain (rendered in Phase 1, served from Phase 2) ───────────────── */
@@ -1710,7 +1717,21 @@ export interface AuthUser {
 /* ── End-to-end pipeline ──────────────────────────────────────────────── */
 
 export type PipelineStageId =
-  'analysis' | 'architecture' | 'database' | 'backend' | 'frontend' | 'security' | 'dependencies';
+  | 'analysis'
+  | 'research'
+  | 'decision'
+  | 'design-intelligence'
+  | 'architecture'
+  | 'database'
+  | 'backend'
+  | 'frontend'
+  | 'security'
+  | 'feature-implementation'
+  | 'dependencies'
+  | 'verification'
+  | 'repair'
+  | 'graph'
+  | 'enhancement';
 
 export type PipelineStageStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
@@ -1719,8 +1740,10 @@ export interface PipelineStage {
   label: string;
   status: PipelineStageStatus;
   engine: 'ai' | 'deterministic';
-  /** The agent that will own this stage in v2. Declarative only. */
+  /** The reporting identity for this stage's work. */
   agentId: string;
+  /** What this stage answers for, in one line. */
+  responsibility?: string;
   startedAt: string | null;
   completedAt: string | null;
   durationMs: number | null;
@@ -1736,7 +1759,18 @@ export interface PipelineAiUsage {
   inputTokens: number;
   outputTokens: number;
   estimatedCostUsd: number;
+  /** Calls left out of the cost because their model has no price. */
+  unpricedCalls?: number;
+  /** Calls whose provider reported no token counts. */
+  unreportedTokenCalls?: number;
 }
+
+/**
+ * What a finished run actually amounts to. `status` stays 'completed' for any
+ * run that reached the end, so this is the field that says whether it works.
+ */
+export type RunOutcome =
+  'verified' | 'verification-failed' | 'verification-blocked' | 'incomplete' | 'unverified';
 
 export interface PipelineRun {
   id: string;
@@ -1750,9 +1784,35 @@ export interface PipelineRun {
   createdAt: string;
   updatedAt: string;
   error: string | null;
+  /** Absent while running and on runs from before outcomes existed. */
+  outcome?: RunOutcome;
+  /** The outcome in one plain sentence, always set beside `outcome`. */
+  outcomeDetail?: string;
+}
+
+/** One thing the request asked for, judged from the project's files. */
+export interface CapabilityCoverage {
+  id: string;
+  title: string;
+  source: string;
+  status: 'implemented' | 'missing';
+  /** Project paths that implement it. Empty when missing. */
+  files: string[];
+  /** Why it counts as missing, in plain words. */
+  gaps: string[];
+}
+
+export interface FeatureImplementationResult {
+  status: 'complete' | 'partial' | 'failed' | 'not-run';
+  capabilities: CapabilityCoverage[];
+  filesChanged: string[];
+  budgetExhausted: boolean;
+  limitations: string[];
 }
 
 export interface PipelineArtifacts {
+  /** Stages whose model really received research evidence and used the answer. */
+  researchAppliedTo?: string[];
   runId: string;
   requirements: RequirementSpec;
   architecture: ArchitecturePlan;
@@ -1769,6 +1829,8 @@ export interface PipelineArtifacts {
    * from the emitted CSS and TSX afterwards would be a guess.
    */
   siteDesign: SiteDesignView;
+  /** Absent on runs from before this stage, and when it was skipped. */
+  featureImplementation?: FeatureImplementationResult;
   files: { path: string; content: string }[];
 }
 
@@ -1788,7 +1850,9 @@ export type EngNodeType =
   | 'MODULE'
   | 'SECURITY_RULE'
   | 'DEPENDENCY'
-  | 'TEST';
+  | 'TEST'
+  /** Something a review agent found, linked to what it concerns by TARGETS. */
+  | 'FINDING';
 
 export type EngRelationship =
   | 'CONTAINS'
@@ -1839,11 +1903,20 @@ export interface EngGraphStats {
 
 export interface EngineeringGraph {
   projectId: string;
-  runId: string;
+  /**
+   * The run this graph describes, or null when its nodes came from several —
+   * which is the ordinary state, since nodes are refreshed per artifact and
+   * an applied edit resyncs only its own slice. Null is not "old": read
+   * freshness off `runIds`, never off this.
+   */
+  runId: string | null;
+  /** Every run represented, so the UI can say the graph spans more than one. */
+  runIds: string[];
   nodes: EngGraphNode[];
   edges: EngGraphEdge[];
   stats: EngGraphStats;
-  generatedAt: string;
+  /** When the graph was last written — not when it was read. Null if empty. */
+  generatedAt: string | null;
 }
 
 /** Which way an edge was walked to make a hop. */
@@ -1853,6 +1926,14 @@ export interface GraphHop {
   relationship: EngRelationship;
   /** `backward` means the edge points the other way; the graph still holds it. */
   direction: HopDirection;
+  /**
+   * The walked edge's own metadata — the import specifier, the foreign key,
+   * the reason the architecture gave. It is the answer to "why are these two
+   * connected", and a hop is the only place a reader of a trace can be shown
+   * it. The chain still renders a hop that arrives without it, because a hop
+   * whose evidence we were not told is not an edge that has none.
+   */
+  metadata: Record<string, unknown>;
 }
 
 /** A chain between two nodes, as the graph actually holds it. */
@@ -1871,7 +1952,16 @@ export interface NodeNeighbourhood {
 export interface ImpactedNode {
   node: EngGraphNode;
   depth: number;
+  /** The relationship on the edge this node was reached by. */
   via: EngRelationship;
+  /** Which way that edge was walked, from the changed node's side. */
+  direction: HopDirection;
+  /**
+   * True when a single edge joins this node to the changed one, so the graph
+   * *states* the relationship. At greater depth it is a chain — an inference
+   * the reader is entitled to see labelled as one.
+   */
+  direct: boolean;
   reason: string;
 }
 
@@ -1879,16 +1969,33 @@ export interface GraphImpactAnalysis {
   origin: EngGraphNode;
   impacted: ImpactedNode[];
   summary: Partial<Record<EngNodeType, number>>;
+  /** How many of `impacted` the graph joins to the origin by one edge. */
+  directCount: number;
+  /** How many were reached through a chain, and are therefore inferred. */
+  indirectCount: number;
   maxDepth: number;
+  /**
+   * True when a result cap stopped one of the walks, so `impacted` is a
+   * prefix of the real answer. A capped impact answer read as a complete one
+   * is how a change ships believing it broke nothing, so the panel says it.
+   */
+  truncated: boolean;
 }
 
 export type EngGraphIssueKind =
   | 'orphan-node'
   | 'dangling-edge'
-  | 'duplicate-edge'
-  | 'invalid-relationship'
-  | 'self-loop'
-  | 'suspicious-cycle';
+  | 'suspicious-cycle'
+  /** A FEATURE names a requirement no REQUIREMENT node matches. */
+  | 'unresolved-requirement-link'
+  /** A review agent named a node this graph does not hold. */
+  | 'unresolved-finding-target'
+  /** A node states a file path that no FILE or TEST node in this graph has. */
+  | 'missing-file-reference'
+  /** Nodes last written by a run other than the project's latest build. */
+  | 'stale-node'
+  /** The file tree hit the builder's cap, so part of the project is not mapped. */
+  | 'truncated-file-tree';
 
 export interface EngGraphIssue {
   kind: EngGraphIssueKind;
@@ -1902,12 +2009,20 @@ export interface EngGraphValidationReport {
   checkedNodes: number;
   checkedEdges: number;
   issues: EngGraphIssue[];
+  /**
+   * Checks that could not run on this input.
+   *
+   * Carried so a report with no issues is not shown as "nothing wrong" when
+   * part of it never ran — `stale-node` lands here when the project has no
+   * completed build to compare against.
+   */
+  skippedChecks: EngGraphIssueKind[];
 }
 
 /* ── Agent orchestrator (Phase 6) ─────────────────────────────────────── */
 
 export type AgentTaskStatus =
-  'PENDING' | 'READY' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'BLOCKED' | 'CANCELLED';
+  'PENDING' | 'READY' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'BLOCKED' | 'CANCELLED' | 'SKIPPED';
 
 export type AgentRunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
@@ -2009,6 +2124,7 @@ export interface ProjectIntelligenceView {
     outputTokens: number;
     contextTokens: number;
     costUsd: number;
+    unpricedCalls?: number;
     byAgent: { agentId: string; name: string; tokens: number; costUsd: number }[];
     efficiency: {
       cacheHits: number;
@@ -2255,6 +2371,8 @@ export interface AgentTask {
   runId: string;
   agentId: string;
   status: AgentTaskStatus;
+  /** Why this agent did not run, when status is SKIPPED. */
+  skipReason?: string;
   priority: 'CRITICAL' | 'HIGH' | 'NORMAL' | 'LOW';
   inputArtifactTypes: string[];
   dependencyTaskIds: string[];
@@ -2272,6 +2390,7 @@ export interface AgentTask {
     outputTokens: number;
     costUsd: number;
     contextTokens: number;
+    unpricedCalls?: number;
   } | null;
   findings: AgentFinding[];
 }
@@ -2293,6 +2412,7 @@ export interface AgentRun {
     outputTokens: number;
     contextTokens: number;
     costUsd: number;
+    unpricedCalls?: number;
   };
 }
 
@@ -2304,6 +2424,8 @@ export interface AgentRunProgress {
   cancelled: number;
   running: number;
   pending: number;
+  /** Absent from servers older than conditional agent selection. */
+  skipped?: number;
 }
 
 export interface AgentRunView {
@@ -2553,7 +2675,9 @@ export type EditJobStatus =
   /** The attempt itself broke. The project is still unchanged. */
   | 'FAILED'
   /** The server restarted mid-edit. Nothing can be assumed about progress. */
-  | 'INTERRUPTED';
+  | 'INTERRUPTED'
+  /** The owner stopped it. */
+  | 'CANCELLED';
 
 export type EditStage = 'queued' | 'rebuilding' | 'validating' | 'deciding' | 'finished';
 
@@ -2569,6 +2693,9 @@ export interface EditJob {
   id: string;
   projectId: string;
   planId: string;
+  /** A plain edit or an enhancement; both share the project's one slot. */
+  kind?: 'EDIT' | 'ENHANCEMENT';
+  cancelRequested?: boolean;
   status: EditJobStatus;
   stage: EditStage;
   stages: EditStageRecord[];

@@ -154,6 +154,7 @@ describe('agent registry', () => {
   it('resolves transitive dependencies nearest-first', () => {
     assert.deepEqual(resolveDependencies('database-architect'), [
       'requirement-analyst',
+      'research-agent',
       'product-architect',
       'architecture-agent',
     ]);

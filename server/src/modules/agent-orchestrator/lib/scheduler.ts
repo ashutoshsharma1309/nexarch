@@ -44,6 +44,18 @@ import { beginReview, findingsForReview, recordFinding } from './finding-store.j
 import { summarizeReview } from './review-summary.js';
 import { summarizeValidation } from './validation-summary.js';
 import { releaseValidationSession } from './validation-session.js';
+import { applyAgentSelection } from './agent-selection.js';
+import { evaluateCompletion } from './completion-criteria.js';
+import {
+  meshStageOf,
+  publishForRun,
+  publishJobSettled,
+  publishJobStarted,
+  publishModelUse,
+  publishResearch,
+} from './execution-publisher.js';
+import { repairAfterValidation } from './post-validation-repair.js';
+import type { ResearchArtifact } from '../../web-research/index.js';
 import type {
   IntegrationResult,
   RuntimeResult,
@@ -82,7 +94,10 @@ export function readiness(
   ) {
     return 'BLOCKED';
   }
-  if (dependencies.some((dependency) => dependency.status !== 'COMPLETED')) return 'PENDING';
+  // A skipped dependency is settled: nothing is coming from it, by decision.
+  if (dependencies.some((dependency) => !['COMPLETED', 'SKIPPED'].includes(dependency.status))) {
+    return 'PENDING';
+  }
 
   const missing = task.inputArtifactTypes.filter((type) => artifacts[type] === undefined);
   if (missing.length > 0) {
@@ -102,7 +117,7 @@ export function readiness(
 export function refreshStatuses(run: AgentRun): void {
   const artifacts = artifactsOf(run.id);
   for (const task of run.tasks) {
-    if (['COMPLETED', 'FAILED', 'CANCELLED', 'RUNNING'].includes(task.status)) continue;
+    if (['COMPLETED', 'FAILED', 'CANCELLED', 'RUNNING', 'SKIPPED'].includes(task.status)) continue;
     task.status = readiness(run, task, artifacts);
   }
 }
@@ -174,8 +189,12 @@ const reviewVersions = new Map<string, number>();
 
 export async function runPlan(run: AgentRun, prompt: string): Promise<void> {
   const signal = signalOf(run.id);
+  const startedAt = Date.now();
   run.status = 'RUNNING';
   touch(run);
+  publishJobStarted(run);
+  // Before anything is scheduled, so a ruled-out agent never reaches READY.
+  applyAgentSelection(run);
 
   if (
     run.tasks.some((task) => REVIEW_AGENTS.has(task.agentId) || VALIDATION_AGENTS.has(task.agentId))
@@ -202,6 +221,7 @@ export async function runPlan(run: AgentRun, prompt: string): Promise<void> {
       touch(run);
       recordEvent(run.id, 'AGENT_CANCELLED', { detail: { ...progressOf(run) } });
       releaseValidationSession(run.id);
+      publishJobSettled(run, 'CANCELLED', Date.now() - startedAt);
       return;
     }
 
@@ -253,6 +273,7 @@ export async function runPlan(run: AgentRun, prompt: string): Promise<void> {
     recordGenerationManifest(run, before);
     await recordEngineeringReview(run);
     await recordValidationSummary(run);
+    await repairVerifiedFailures(run);
   } finally {
     reviewVersions.delete(run.id);
     // Step 13: validation processes never outlive the validation.
@@ -260,11 +281,39 @@ export async function runPlan(run: AgentRun, prompt: string): Promise<void> {
     // Published last: a run reads as finished only once its review and
     // validation summary exist. Setting it first let a poller see COMPLETED
     // and then find "no validation has been run" for the same run.
-    run.status = finalStatus;
+    // Repair and re-validation take minutes and a cancel can land in them.
+    const settledAs = signalOf(run.id).aborted ? 'CANCELLED' : finalStatus;
+    run.status = settledAs;
+    if (settledAs === 'CANCELLED') {
+      recordEvent(run.id, 'AGENT_CANCELLED', { detail: { ...progressOf(run) } });
+    }
+    publishJobSettled(run, settledAs, Date.now() - startedAt);
   }
 
   touch(run);
   logger.info('agent run settled', { runId: run.id, status: run.status, ...progress });
+}
+
+/**
+ * Hands a verified failure to the repair engineer.
+ *
+ * Caught here because the run already has a real result by this point, and a
+ * crash in an optional follow-up must not replace it with an unsettled run.
+ */
+async function repairVerifiedFailures(run: AgentRun): Promise<void> {
+  try {
+    const outcome = await repairAfterValidation({
+      run,
+      reviewVersion: reviewVersions.get(run.id),
+      commit: (task, definition, result) => {
+        commitTask(run, task, definition, result);
+      },
+      resummarize: () => recordValidationSummary(run),
+    });
+    logger.info('post-validation repair settled', { runId: run.id, ...outcome });
+  } catch (error) {
+    logger.warn('post-validation repair failed', { runId: run.id, error });
+  }
 }
 
 /**
@@ -396,7 +445,10 @@ async function recordEngineeringReview(run: AgentRun): Promise<void> {
  * summary at all.
  */
 async function recordValidationSummary(run: AgentRun): Promise<void> {
-  const validationTasks = run.tasks.filter((task) => VALIDATION_AGENTS.has(task.agentId));
+  // A skipped validator never ran; reporting it as failed would be untrue.
+  const validationTasks = run.tasks.filter(
+    (task) => VALIDATION_AGENTS.has(task.agentId) && task.status !== 'SKIPPED',
+  );
   if (validationTasks.length === 0) return;
 
   recordEvent(run.id, 'VALIDATION_STARTED', { detail: { agents: validationTasks.length } });
@@ -603,6 +655,14 @@ async function executeTask(
   run.currentTaskId = task.id;
   touch(run);
   recordEvent(run.id, 'AGENT_STARTED', { taskId: task.id, agentId: task.agentId });
+  publishForRun(run, {
+    type: 'agent.started',
+    status: 'started',
+    stage: meshStageOf(task.agentId),
+    agentId: task.agentId,
+    message: `${definition.name} started.`,
+    data: {},
+  });
 
   /*
    * Agent-result cache (Steps 3, 21). A cacheable agent whose content
@@ -679,6 +739,7 @@ async function executeTask(
   task.durationMs = result.durationMs;
   task.findings = result.findings;
   task.usage = result.usage;
+  publishModelUse(run, task.agentId, result.usage, result.durationMs);
 
   if (result.usage) {
     recordEvent(run.id, 'AI_REQUEST_COMPLETED', {
@@ -695,6 +756,9 @@ async function executeTask(
     run.totals.outputTokens += result.usage.outputTokens;
     run.totals.contextTokens += result.usage.contextTokens;
     run.totals.costUsd = Number((run.totals.costUsd + result.usage.costUsd).toFixed(6));
+    if (result.usage.unpricedCalls) {
+      run.totals.unpricedCalls = (run.totals.unpricedCalls ?? 0) + result.usage.unpricedCalls;
+    }
   }
 
   if (result.status !== 'succeeded') {
@@ -705,6 +769,14 @@ async function executeTask(
       taskId: task.id,
       agentId: task.agentId,
       detail: { kind: result.failureKind, retries: task.retryCount },
+    });
+    publishForRun(run, {
+      type: 'agent.failed',
+      status: 'failed',
+      stage: meshStageOf(task.agentId),
+      agentId: task.agentId,
+      message: `${definition.name} failed: ${result.error ?? 'unknown error'}`,
+      data: { durationMs: result.durationMs, error: result.error ?? 'unknown error' },
     });
     touch(run);
     return null;
@@ -767,11 +839,37 @@ function commitTask(
   task.status = 'COMPLETED';
   task.summary = summarize(result.artifacts);
   task.error = null;
+  task.completion = evaluateCompletion(task.agentId, result.artifacts);
   recordEvent(run.id, 'AGENT_COMPLETED', {
     taskId: task.id,
     agentId: task.agentId,
-    detail: { durationMs: task.durationMs, findings: task.findings.length },
+    detail: {
+      durationMs: task.durationMs,
+      findings: task.findings.length,
+      criteriaMet: task.completion.met.length,
+      criteriaUnmet: task.completion.unmet,
+    },
   });
+  publishForRun(run, {
+    type: 'agent.completed',
+    status: 'succeeded',
+    stage: meshStageOf(task.agentId),
+    agentId: task.agentId,
+    message: task.summary,
+    data: { durationMs: task.durationMs ?? 0, artifacts: Object.keys(result.artifacts) },
+  });
+  if (task.completion.unmet.length > 0) {
+    publishForRun(run, {
+      type: 'note',
+      status: 'info',
+      stage: meshStageOf(task.agentId),
+      agentId: task.agentId,
+      message: `${definition.name} finished without meeting: ${task.completion.unmet.join(', ')}.`,
+    });
+  }
+  if (task.agentId === 'research-agent' && !task.cached) {
+    publishResearch(run, result.artifacts['research-artifact'] as ResearchArtifact);
+  }
   touch(run);
 }
 

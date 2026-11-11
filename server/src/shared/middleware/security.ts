@@ -35,7 +35,7 @@ export function securityMiddleware(): RequestHandler[] {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Last-Event-ID'],
     exposedHeaders: ['X-Request-Id'],
     maxAge: 86_400,
   });

@@ -27,10 +27,13 @@ import { databaseModule, openapiModule } from './database-designer/index.js';
 import { dependencyGraphModule } from './dependency-graph/index.js';
 import { deploymentModule } from './deployment/index.js';
 import { engineeringGraphModule } from './engineering-graph/index.js';
+import { enhancementModule } from './enhancement/index.js';
+import { executionEventsModule } from './execution-events/index.js';
 import { projectEditorModule } from './project-editor/index.js';
 import { frontendGeneratorModule } from './frontend-generator/index.js';
 import { healthModule } from './health/index.js';
 import { insightsModule } from './insights/index.js';
+import { observabilityModule } from './observability/index.js';
 import { pipelineModule } from './pipeline/index.js';
 import { qualityModule } from './quality/index.js';
 import { reviewModule } from './review/index.js';
@@ -52,11 +55,14 @@ export const modules: readonly AppModule[] = [
   securityEngineModule,
   dependencyGraphModule,
   engineeringGraphModule,
+  executionEventsModule,
   projectEditorModule,
+  enhancementModule,
   contextEngineModule,
   agentOrchestratorModule,
   aiOrchestratorModule,
   pipelineModule,
+  observabilityModule,
   workspaceModule,
   deploymentModule,
   qualityModule,

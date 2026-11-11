@@ -1,6 +1,7 @@
 /**
  * POST /api/v1/runner/plan — dry-run: what a run would do (pure, instant).
- * POST /api/v1/runner/sessions — 202 + the new session in `preparing`;
+ * POST /api/v1/runner/sessions — runs a stored generation the caller owns,
+ * never files from the body; 202 + the new session in `preparing`;
  * phases advance server-side (installing → starting → running | failed)
  * while the client polls the session and its logs.
  * GET  /api/v1/runner/sessions — all sessions, newest first.
@@ -23,7 +24,11 @@ import {
   restartSessionHandler,
   stopSessionHandler,
 } from './runner.controller.js';
-import { createSessionValidation, logsValidation } from './runner.validator.js';
+import {
+  createSessionValidation,
+  logsValidation,
+  runSelectionValidation,
+} from './runner.validator.js';
 
 export const runnerRouter: Router = Router();
 
@@ -33,7 +38,7 @@ export const runnerRouter: Router = Router();
 runnerRouter.use(requireAuth);
 
 runnerRouter.post('/plan', validate(createSessionValidation), planHandler);
-runnerRouter.post('/sessions', validate(createSessionValidation), createSessionHandler);
+runnerRouter.post('/sessions', validate(runSelectionValidation), createSessionHandler);
 runnerRouter.get('/sessions', listSessionsHandler);
 runnerRouter.get('/sessions/:id', getSessionHandler);
 runnerRouter.get('/sessions/:id/logs', validate(logsValidation), logsHandler);

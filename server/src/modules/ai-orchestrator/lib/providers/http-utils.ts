@@ -5,7 +5,23 @@
  * decide what to do without each adapter re-implementing the same
  * try/catch/classify logic.
  */
-import type { RetryableErrorKind } from '../../ai-orchestrator.types.js';
+import type { ModelUsage, RetryableErrorKind } from '../../ai-orchestrator.types.js';
+
+/** A provider's token counts, marking whichever it left out rather than calling them zero. */
+export function reportedUsage(
+  input: number | null | undefined,
+  output: number | null | undefined,
+): ModelUsage {
+  const unreported = [
+    ...(typeof input === 'number' ? [] : (['input'] as const)),
+    ...(typeof output === 'number' ? [] : (['output'] as const)),
+  ];
+  return {
+    inputTokens: input ?? 0,
+    outputTokens: output ?? 0,
+    ...(unreported.length === 0 ? {} : { unreported }),
+  };
+}
 
 export class ProviderCallError extends Error {
   readonly kind: RetryableErrorKind;
@@ -52,59 +68,81 @@ export function retryAfterOf(headers: Headers): number | undefined {
   return resets.length > 0 ? Math.max(...resets) : undefined;
 }
 
-const TIMEOUT_MS = 60_000;
+/**
+ * How long one provider call may take, start to finish.
+ *
+ * Measured on this platform's real calls: Groq answers in under 10s, Gemini in
+ * 8-37s, and the slowest call that was worth waiting for was an OpenRouter
+ * free-tier repair at 64s. Past this the failover chain serves the user better.
+ */
+export const DEFAULT_CALL_TIMEOUT_MS = 90_000;
 
+/**
+ * POSTs and reads the whole answer inside one time limit.
+ *
+ * The limit has to cover the body. Providers commit to a 200 and then hold the
+ * connection open while the model works, so a timer stopped at the headers
+ * bounds nothing: calls behind a 60s limit were measured at 137-159s and, once,
+ * 23 minutes, and failover never ran because no call had "failed".
+ */
 export async function postJson(
   url: string,
   headers: Record<string, string>,
   body: unknown,
+  timeoutMs: number = DEFAULT_CALL_TIMEOUT_MS,
 ): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => {
     controller.abort();
-  }, TIMEOUT_MS);
+  }, timeoutMs);
+  const timedOut = (): ProviderCallError =>
+    new ProviderCallError('timeout', `Request to ${url} timed out after ${String(timeoutMs)}ms`);
 
-  let response: Response;
   try {
-    response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...headers },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new ProviderCallError('timeout', `Request to ${url} timed out after ${TIMEOUT_MS}ms`);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') throw timedOut();
+      throw new ProviderCallError(
+        'network',
+        error instanceof Error ? error.message : String(error),
+      );
     }
-    throw new ProviderCallError('network', error instanceof Error ? error.message : String(error));
+
+    if (response.status === 429) {
+      throw new ProviderCallError(
+        'rate-limit',
+        `${url} responded 429 rate limited`,
+        429,
+        retryAfterOf(response.headers),
+      );
+    }
+    if (!response.ok) {
+      const kind: RetryableErrorKind = response.status >= 500 ? 'network' : 'unknown';
+      const text = await response.text().catch(() => '');
+      throw new ProviderCallError(
+        kind,
+        `${url} responded ${response.status}: ${text.slice(0, 500)}`,
+        response.status,
+      );
+    }
+
+    try {
+      return await response.json();
+    } catch (error) {
+      if (controller.signal.aborted) throw timedOut();
+      throw new ProviderCallError(
+        'invalid-json',
+        `${url} returned a non-JSON body: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   } finally {
     clearTimeout(timer);
-  }
-
-  if (response.status === 429) {
-    throw new ProviderCallError(
-      'rate-limit',
-      `${url} responded 429 rate limited`,
-      429,
-      retryAfterOf(response.headers),
-    );
-  }
-  if (!response.ok) {
-    const kind: RetryableErrorKind = response.status >= 500 ? 'network' : 'unknown';
-    const text = await response.text().catch(() => '');
-    throw new ProviderCallError(
-      kind,
-      `${url} responded ${response.status}: ${text.slice(0, 500)}`,
-      response.status,
-    );
-  }
-
-  try {
-    return await response.json();
-  } catch (error) {
-    throw new ProviderCallError(
-      'invalid-json',
-      `${url} returned a non-JSON body: ${error instanceof Error ? error.message : String(error)}`,
-    );
   }
 }

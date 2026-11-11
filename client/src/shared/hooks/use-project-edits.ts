@@ -167,6 +167,7 @@ export function isTerminalEditJob(status: EditJobStatus): boolean {
     status === 'SUCCEEDED' ||
     status === 'REJECTED' ||
     status === 'FAILED' ||
-    status === 'INTERRUPTED'
+    status === 'INTERRUPTED' ||
+    status === 'CANCELLED'
   );
 }

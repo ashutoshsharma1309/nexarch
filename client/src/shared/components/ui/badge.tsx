@@ -12,8 +12,8 @@ const variantClasses: Record<BadgeVariant, string> = {
   neutral: 'border-line text-fg-muted',
   accent: 'border-accent/30 bg-accent-soft text-accent',
   ember: 'border-ember/30 bg-ember-soft text-ember',
-  success: 'border-success/30 text-success',
-  warning: 'border-warning/30 text-warning',
+  success: 'border-success/30 bg-success-soft text-success',
+  warning: 'border-warning/30 bg-warning-soft text-warning',
   danger: 'border-danger/30 bg-danger-soft text-danger',
 };
 
@@ -21,7 +21,7 @@ export function Badge({ variant = 'neutral', className, ...props }: BadgeProps) 
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-mono text-2xs tracking-wide uppercase',
+        'inline-flex items-center gap-1 rounded-sm border px-1.5 py-px text-2xs font-medium',
         variantClasses[variant],
         className,
       )}

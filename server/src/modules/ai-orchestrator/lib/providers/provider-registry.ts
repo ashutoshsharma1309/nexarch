@@ -6,6 +6,7 @@
  * already occupies structurally) never touches call sites.
  */
 import type { ModelProvider, ProviderId } from '../../ai-orchestrator.types.js';
+import { CerebrasProvider } from './cerebras-provider.js';
 import { ClaudeProvider } from './claude-provider.js';
 import { GeminiProvider } from './gemini-provider.js';
 import { GroqProvider } from './groq-provider.js';
@@ -19,6 +20,7 @@ const registry = new Map<ProviderId, ModelProvider>([
   ['openai', new OpenAiProvider()],
   ['gemini', new GeminiProvider()],
   ['openrouter', new OpenRouterProvider()],
+  ['cerebras', new CerebrasProvider()],
   ['mock', new MockProvider()],
 ]);
 

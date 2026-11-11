@@ -59,7 +59,11 @@ export type {
   ImpactedNode,
   NodeNeighbourhood,
   RelatedNode,
+  RequirementTrace,
+  RequirementTraceLink,
+  TraceDirection,
   TraversalDirection,
   TraversalOptions,
+  TraversalResult,
 } from './engineering-graph.js';
 export type { Project, ProjectStatus, Run, RunStatus } from './project.js';

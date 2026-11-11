@@ -86,6 +86,8 @@ export interface EditPlan {
   validationPlan: string[];
   /** The proposed design, already validated and clamped. */
   design: SiteDesign;
+  /** Fields the proposal changed that were held back, because nobody asked. */
+  keptAsTheyWere?: { field: string; reason: string }[];
   status: EditStatus;
   createdAt: string;
 }

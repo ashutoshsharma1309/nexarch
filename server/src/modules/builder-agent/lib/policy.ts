@@ -22,7 +22,7 @@ export interface Decision {
 export const DEFAULT_PLAN = [
   'Create a project for the website',
   'Generate the application and its landing page',
-  'Start a live preview and run the 14-agent review in parallel',
+  'Start a live preview and run the agent review in parallel',
   'Inspect the running website',
   'Report what was built and where to open it',
 ];

@@ -53,6 +53,10 @@ const RING: Record<EngNodeType, number> = {
   FILE: 6,
   TEST: 6,
   DEPENDENCY: 6,
+  // A finding is an observation *about* a node, so it sits one step beyond
+  // whatever it targets. Omitting it put every finding on ring `undefined`,
+  // which sorted to NaN and placed the node at NaN, NaN — off the canvas.
+  FINDING: 7,
 };
 
 /**

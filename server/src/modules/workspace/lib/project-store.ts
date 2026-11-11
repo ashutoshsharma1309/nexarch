@@ -3,7 +3,7 @@
  *
  * Two backends behind one interface, chosen at boot by `config.database.enabled`:
  *
- *   • Prisma/MySQL when a DATABASE_URL is set — the durable store, owner-scoped
+ *   • Prisma/PostgreSQL when a DATABASE_URL is set — the durable store, owner-scoped
  *     so one user's project list can never contain another's, with slugs unique
  *     per owner.
  *   • An in-memory Map when no database is configured — the zero-setup mode.

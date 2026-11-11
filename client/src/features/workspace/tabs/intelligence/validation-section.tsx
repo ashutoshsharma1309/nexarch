@@ -229,8 +229,8 @@ export function ValidationSection() {
 
       {runtime && runtime.commands.length > 0 && (
         <Card>
-          <p className="border-b border-line px-4 py-2 font-mono text-2xs text-fg-subtle">
-            commands ·{' '}
+          <p className="border-b border-line px-4 py-2 text-2xs font-medium text-fg-subtle">
+            Commands ·{' '}
             {runtime.processes
               .map((p) => `${p.kind} ${p.status}${p.port ? ` :${String(p.port)}` : ''}`)
               .join(' · ')}
@@ -245,8 +245,8 @@ export function ValidationSection() {
 
       {integration && (
         <Card>
-          <p className="border-b border-line px-4 py-2 font-mono text-2xs text-fg-subtle">
-            integration · {integration.endpoints.length} endpoints probed live
+          <p className="border-b border-line px-4 py-2 text-2xs font-medium text-fg-subtle">
+            Integration · {integration.endpoints.length} endpoints probed live
           </p>
           <ul className="divide-y divide-line">
             {integration.checks.map((check) => (
@@ -267,8 +267,8 @@ export function ValidationSection() {
 
       {tests && tests.cases.length > 0 && (
         <Card>
-          <p className="border-b border-line px-4 py-2 font-mono text-2xs text-fg-subtle">
-            tests · {summary.tests.passed}/{summary.tests.total} passed · {summary.tests.failed}{' '}
+          <p className="border-b border-line px-4 py-2 text-2xs font-medium text-fg-subtle">
+            Tests · {summary.tests.passed}/{summary.tests.total} passed · {summary.tests.failed}{' '}
             failed · {summary.tests.blocked} blocked
           </p>
           <ul className="divide-y divide-line" aria-label="Test cases">

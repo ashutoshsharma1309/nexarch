@@ -41,22 +41,25 @@ export function Dialog({ open, onClose, title, description, children, className 
       onClick={handleBackdropClick}
       aria-labelledby="dialog-title"
       className={cn(
-        'w-full max-w-md rounded-lg border border-line bg-surface p-0 text-fg shadow-2xl backdrop:bg-canvas/70',
+        // `m-auto`: Tailwind's reset zeroes the UA margin that centres a modal.
+        'm-auto w-full max-w-[calc(100vw-2rem)] rounded-lg border border-line-strong/70 bg-surface p-0 text-fg shadow-overlay backdrop:bg-canvas/75 sm:max-w-md',
         className,
       )}
     >
       <div className="flex items-start justify-between border-b border-line px-5 py-4">
         <div>
-          <h2 id="dialog-title" className="text-sm font-medium text-fg">
+          <h2 id="dialog-title" className="text-base font-semibold tracking-tight text-fg">
             {title}
           </h2>
-          {description && <p className="mt-1 text-xs text-fg-muted">{description}</p>}
+          {description && (
+            <p className="mt-1 type-ui leading-relaxed text-fg-muted">{description}</p>
+          )}
         </div>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close dialog"
-          className="text-fg-muted hover:text-fg"
+          className="-mt-0.5 -mr-1 ml-3 flex size-7 shrink-0 items-center justify-center rounded-sm text-fg-muted transition-colors hover:bg-raised hover:text-fg"
         >
           <X className="size-4" />
         </button>

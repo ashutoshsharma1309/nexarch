@@ -17,7 +17,7 @@ import { AppError } from '../../shared/utils/app-error.js';
 import { getProjectOrThrow } from '../workspace/workspace.service.js';
 import { invalidateProject } from '../context-engine/lib/context-cache.js';
 import { buildGraph } from './lib/graph-builder.js';
-import { computeStats, loadEdges, loadNode, loadNodes, syncGraph } from './lib/graph-repository.js';
+import { computeStats, loadEdges, loadNodes, syncGraph } from './lib/graph-repository.js';
 import type { SyncScope } from './lib/graph-repository.js';
 import {
   dependenciesOf,
@@ -29,6 +29,8 @@ import {
 import type { GraphIndex } from './lib/graph-queries.js';
 import { analyzeImpact } from './lib/impact-analysis.js';
 import { validateGraph } from './lib/graph-validator.js';
+import { lookupOverNodes, nodeByIdentity } from './lib/node-identity.js';
+import { traceDirectionFor, traceRequirements } from './lib/requirement-trace.js';
 import type { PartialArtifacts } from './lib/graph-builder.js';
 import type {
   EngineeringGraph,
@@ -40,9 +42,11 @@ import type {
   ImpactAnalysis,
   NodeNeighbourhood,
   PathDirection,
-  RelatedNode,
+  RequirementTrace,
+  TraceDirection,
   TraversalOptions,
-} from '../../shared/contracts/index.js';
+  TraversalResult,
+} from '../../shared/contracts/engineering-graph.js';
 
 /**
  * Rebuilds this project's graph from a finished run's artifacts.
@@ -140,10 +144,40 @@ export async function getGraph(
   };
 }
 
-async function requireNode(ownerId: string, projectId: string, nodeId: string): Promise<GraphNode> {
-  await getProjectOrThrow(ownerId, projectId);
-  const node = await loadNode(projectId, nodeId);
+/**
+ * One node of this project, named either by its database id or by its
+ * identity.
+ *
+ * The identity form is what makes a change-impact question answerable from a
+ * file path. A node id only exists once the graph has been read, so every
+ * caller that holds one path, canonical name or endpoint — the project
+ * editor, the UI's trace view — had to fetch the whole graph and match it
+ * client-side. `TYPE::canonical-name` or a bare name resolves here instead,
+ * through the same code the builder uses, and a database id is tried first so
+ * the existing shape of every route is unchanged.
+ *
+ * The graph is loaded once and the node found inside it, which is also what
+ * scopes the lookup: `loadFor` resolves ownership and loads this project
+ * only, so another project's id or identity simply is not in the index.
+ */
+async function loadForNode(
+  ownerId: string,
+  projectId: string,
+  ref: string,
+): Promise<{ index: GraphIndex; nodes: GraphNode[]; node: GraphNode }> {
+  const { index, nodes } = await loadFor(ownerId, projectId);
+  const node = index.nodesById.get(ref) ?? nodeByIdentity(lookupOverNodes(nodes), ref);
   if (!node) throw AppError.notFound('That graph node does not exist in this project');
+  return { index, nodes, node };
+}
+
+/** The node a reference names, for a caller that wants the id itself. */
+export async function lookupNode(
+  ownerId: string,
+  projectId: string,
+  ref: string,
+): Promise<GraphNode> {
+  const { node } = await loadForNode(ownerId, projectId, ref);
   return node;
 }
 
@@ -152,9 +186,8 @@ export async function getNode(
   projectId: string,
   nodeId: string,
 ): Promise<NodeNeighbourhood> {
-  const node = await requireNode(ownerId, projectId, nodeId);
-  const [nodes, edges] = await Promise.all([loadNodes(projectId), loadEdges(projectId)]);
-  const neighbourhood = neighbourhoodOf(indexGraph(nodes, edges), node.id);
+  const { index, node } = await loadForNode(ownerId, projectId, nodeId);
+  const neighbourhood = neighbourhoodOf(index, node.id);
   if (!neighbourhood) throw AppError.notFound('That graph node does not exist in this project');
   return neighbourhood;
 }
@@ -164,9 +197,8 @@ export async function getDependencies(
   projectId: string,
   nodeId: string,
   options: TraversalOptions = {},
-): Promise<RelatedNode[]> {
-  const node = await requireNode(ownerId, projectId, nodeId);
-  const { index } = await loadFor(ownerId, projectId);
+): Promise<TraversalResult> {
+  const { index, node } = await loadForNode(ownerId, projectId, nodeId);
   return dependenciesOf(index, node.id, options);
 }
 
@@ -175,9 +207,8 @@ export async function getDependents(
   projectId: string,
   nodeId: string,
   options: TraversalOptions = {},
-): Promise<RelatedNode[]> {
-  const node = await requireNode(ownerId, projectId, nodeId);
-  const { index } = await loadFor(ownerId, projectId);
+): Promise<TraversalResult> {
+  const { index, node } = await loadForNode(ownerId, projectId, nodeId);
   return dependentsOf(index, node.id, options);
 }
 
@@ -187,9 +218,22 @@ export async function getImpact(
   nodeId: string,
   maxDepth = 3,
 ): Promise<ImpactAnalysis> {
-  const node = await requireNode(ownerId, projectId, nodeId);
-  const { index } = await loadFor(ownerId, projectId);
+  const { index, node } = await loadForNode(ownerId, projectId, nodeId);
   return analyzeImpact(index, node, maxDepth);
+}
+
+/**
+ * Where a requirement ends up in the code, or which requirements a file
+ * serves. One function for both, so the two readings cannot drift apart.
+ */
+export async function getTrace(
+  ownerId: string,
+  projectId: string,
+  nodeId: string,
+  direction?: TraceDirection,
+): Promise<RequirementTrace> {
+  const { index, node } = await loadForNode(ownerId, projectId, nodeId);
+  return traceRequirements(index, node, direction ?? traceDirectionFor(node));
 }
 
 export async function getPath(
@@ -202,13 +246,39 @@ export async function getPath(
   // Both endpoints are resolved under this owner's project before anything is
   // traversed, so a node id from another project cannot be reached by asking
   // for a path to it.
-  await requireNode(ownerId, projectId, fromId);
-  await requireNode(ownerId, projectId, toId);
-  const { index } = await loadFor(ownerId, projectId);
-  return findPath(index, fromId, toId, 6, direction);
+  const { index, nodes, node: from } = await loadForNode(ownerId, projectId, fromId);
+  const to = index.nodesById.get(toId) ?? nodeByIdentity(lookupOverNodes(nodes), toId);
+  if (!to) throw AppError.notFound('That graph node does not exist in this project');
+
+  // Structural containers are refused as intermediate hops.
+  //
+  // Every node is CONTAINS-reachable from PROJECT, and files hang off
+  // FOLDER, so an undirected search finds a route between almost any two
+  // nodes by going up to the root and back down. Presented as "how this
+  // requirement reaches that file", that route is a lie dressed as
+  // evidence: it says the two are connected when all it found was that both
+  // belong to the same project.
+  //
+  // They stay allowed as endpoints, so asking for a path *to* a folder
+  // still works.
+  const containers: GraphNodeType[] = ['PROJECT', 'FOLDER'];
+  const excludeNodeTypes = containers.filter((type) => type !== from.type && type !== to.type);
+  return findPath(index, from.id, to.id, 6, direction, { excludeNodeTypes });
 }
 
-export async function validate(ownerId: string, projectId: string): Promise<GraphValidationReport> {
+/**
+ * `latestRunId` is passed in rather than looked up: staleness is measured
+ * against the project's latest completed *build*, which only the run store
+ * knows, and the pipeline already imports this module — importing it back
+ * would close the loop. The controller is the one place that may know both
+ * (the same reasoning as `refreshHandler`). Without it the check is skipped
+ * and the report says so.
+ */
+export async function validate(
+  ownerId: string,
+  projectId: string,
+  latestRunId?: string,
+): Promise<GraphValidationReport> {
   const { nodes, edges } = await loadFor(ownerId, projectId);
-  return validateGraph(nodes, edges);
+  return validateGraph(nodes, edges, latestRunId === undefined ? {} : { latestRunId });
 }

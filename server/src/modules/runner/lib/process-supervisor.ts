@@ -10,8 +10,10 @@ import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { readFile, stat } from 'node:fs/promises';
 
+import { AwakeStopwatch, startAwakeTimer } from './awake-clock.js';
 import { childEnv } from './child-env.js';
 import { forgetChild, noteChild } from './orphan-reaper.js';
+import { logEvent, startTimer } from '../../../shared/logger/events.js';
 import { isPortAnswering } from './port-scanner.js';
 import type { LogBuffer } from './log-buffer.js';
 
@@ -237,7 +239,7 @@ async function repairSkippedNativeBinaries(
     // No --prefer-offline: the cache is the likeliest reason it is missing.
     const code = await spawnToCompletion(
       'npm',
-      ['install', `${name}@${version}`, '--no-save', '--no-audit', '--no-fund'],
+      ['install', `${name}@${version}`, '--no-save', '--ignore-scripts', '--no-audit', '--no-fund'],
       cwd,
       stream,
       logs,
@@ -313,8 +315,13 @@ function spawnToCompletion(
     const child = spawn(command, args, { cwd, shell: false, env: childEnv(env), detached: true });
     track(child);
     wire(child, stream, logs);
+    // Only the command, never `args`: arguments carry workspace paths and
+    // occasionally an inline env assignment, and this line is published.
+    logEvent({ event: 'process.start', command, pid: child.pid ?? null });
+    const elapsed = startTimer();
 
-    const timer = setTimeout(() => {
+    // Awake time: a laptop closing during an install is not the install hanging.
+    const deadline = startAwakeTimer(COMMAND_TIMEOUT_MS, () => {
       logs.append(
         'system',
         `${stream}: ${command} exceeded ${String(COMMAND_TIMEOUT_MS / 60_000)} minutes — terminating`,
@@ -325,8 +332,7 @@ function spawnToCompletion(
       // the install slot it holds is never released and every later run
       // queues behind it. The escalation is what makes the deadline real.
       stopChild(child);
-    }, COMMAND_TIMEOUT_MS);
-    timer.unref();
+    });
 
     const onAbort = (): void => {
       logs.append('system', `${stream}: ${command} cancelled — terminating`);
@@ -334,18 +340,36 @@ function spawnToCompletion(
     };
     signal?.addEventListener('abort', onAbort, { once: true });
 
-    const settle = (code: number): void => {
-      clearTimeout(timer);
+    // `code` is what the event reports and may be null; the promise still
+    // resolves a number because every caller compares it to zero. A child
+    // this supervisor killed on its own deadline exits with a null code and
+    // SIGTERM, and reporting that as "exited 1" reads nothing like "killed
+    // after twenty minutes" — which is the whole reason the event exists.
+    let settled = false;
+    const settle = (code: number | null, signalName: string | null = null): void => {
+      if (settled) return; // 'error' and 'exit' can both fire for one child.
+      settled = true;
+      deadline.stop();
       signal?.removeEventListener('abort', onAbort);
-      resolve(code);
+      logEvent({
+        event: 'process.exit',
+        command,
+        exitCode: code,
+        signal: signalName,
+        durationMs: elapsed(),
+      });
+      resolve(code ?? 1);
     };
 
     child.once('error', (error) => {
       logs.append('system', `${stream}: failed to spawn ${command}: ${error.message}`);
       settle(127);
     });
-    child.once('exit', (code) => {
-      settle(code ?? 1);
+    // The signal is reported as well as the code: a command this supervisor
+    // terminated on its own deadline exits with a null code and SIGTERM, and
+    // "killed after twenty minutes" reads nothing like "exited 1".
+    child.once('exit', (code, signalName) => {
+      settle(code, signalName);
     });
   });
 }
@@ -379,13 +403,33 @@ export function startProcess(
   // boot uses it to stop the process instead of leaving the port bound.
   if (child.pid !== undefined) noteChild(child.pid, cwd, `${command} ${args.join(' ')}`);
 
+  logEvent({ event: 'process.start', command, pid: child.pid ?? null });
+  const elapsed = startTimer();
+
   child.once('error', (error) => {
     if (child.pid !== undefined) forgetChild(child.pid);
     logs.append('system', `${stream}: failed to spawn ${command}: ${error.message}`);
+    logEvent({
+      event: 'process.exit',
+      command,
+      exitCode: 127,
+      signal: null,
+      durationMs: elapsed(),
+    });
     onExit(127);
   });
-  child.once('exit', (code) => {
+  // A dev server is meant to outlive the request that started it, so an exit
+  // here is the event worth having: "the preview died on its own" was
+  // previously only visible as a port that stopped answering.
+  child.once('exit', (code, signalName) => {
     if (child.pid !== undefined) forgetChild(child.pid);
+    logEvent({
+      event: 'process.exit',
+      command,
+      exitCode: code,
+      signal: signalName,
+      durationMs: elapsed(),
+    });
     onExit(code);
   });
 
@@ -397,8 +441,8 @@ export async function waitUntilAnswering(
   port: number,
   isCancelled: () => boolean,
 ): Promise<boolean> {
-  const deadline = Date.now() + READY_TIMEOUT_MS;
-  while (Date.now() < deadline) {
+  const watch = new AwakeStopwatch();
+  while (watch.read() < READY_TIMEOUT_MS) {
     if (isCancelled()) return false;
     if (await isPortAnswering(port)) return true;
     await new Promise((resolve) => setTimeout(resolve, READY_POLL_MS));
@@ -417,8 +461,8 @@ export async function waitUntilHealthy(
   path: string,
   isCancelled: () => boolean,
 ): Promise<boolean> {
-  const deadline = Date.now() + READY_TIMEOUT_MS;
-  while (Date.now() < deadline) {
+  const watch = new AwakeStopwatch();
+  while (watch.read() < READY_TIMEOUT_MS) {
     if (isCancelled()) return false;
     try {
       // `localhost`, not 127.0.0.1 — fetch tries both address families, and

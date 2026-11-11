@@ -152,10 +152,13 @@ export async function buildContext(
   const fitted = fitToProvider(maxContextTokens, budget.maxOutputTokens, compiled.tokens);
   compiled.budget.maxOutputTokens = fitted.maxOutputTokens;
   if (fitted.clamped) {
+    // `usage`, not `contextTokens`/`maxOutputTokens`: the shared redactor
+    // masks any key whose name contains "token" because it cannot tell a
+    // bearer from a count, so these two numbers have only ever been
+    // published as "***". Same rename the operational events already use.
     logger.debug('output allowance clamped to the provider request limit', {
       task: request.taskType,
-      contextTokens: compiled.tokens,
-      maxOutputTokens: fitted.maxOutputTokens,
+      usage: { context: compiled.tokens, maxOutput: fitted.maxOutputTokens },
     });
   }
 
@@ -167,7 +170,7 @@ export async function buildContext(
     mode: compiled.mode,
     nodes: resolution.selected.length,
     excluded: resolution.excluded.length,
-    tokens: compiled.tokens,
+    usage: { context: compiled.tokens },
     budget: maxContextTokens,
     withinBudget: compiled.budget.withinBudget,
     redactions: compiled.trace.sanitization.redactions,

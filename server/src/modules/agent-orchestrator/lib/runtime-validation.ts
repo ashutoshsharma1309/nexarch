@@ -20,7 +20,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { AppError } from '../../../shared/utils/app-error.js';
 import { logger } from '../../../shared/logger/index.js';
+import { logEvent } from '../../../shared/logger/events.js';
 import {
   createSession,
   getLogs,
@@ -41,6 +43,42 @@ export interface RuntimeValidationInput {
   runId: string;
   projectName: string;
   files: { path: string; content: string }[];
+  /** Stops the wait and the project's scripts, and releases the session. */
+  signal?: AbortSignal;
+}
+
+/** Raised when the runner stayed full for the whole admission wait. */
+export class RunCapacityUnavailable extends Error {
+  constructor() {
+    super('The platform had no free run capacity for live checks, so they could not start.');
+    this.name = 'RunCapacityUnavailable';
+  }
+}
+
+/**
+ * Creates the session, waiting a bounded time for room.
+ *
+ * The internal owner is shared by every user's edits and validations, so a
+ * full budget is ordinary traffic. The runner's 409 is worded for one person
+ * looking at their own runs, which would be wrong here.
+ */
+export async function createWhenAdmitted<T>(
+  create: () => T,
+  signal: AbortSignal | undefined,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((done) => setTimeout(done, ms)),
+  now: () => number = Date.now,
+): Promise<T> {
+  const deadline = now() + ADMISSION_WAIT_MS;
+  for (;;) {
+    try {
+      return create();
+    } catch (error) {
+      if (!AppError.isAppError(error) || error.statusCode !== 409) throw error;
+      if (signal?.aborted) throw new Error('Validation cancelled before it started.');
+      if (now() >= deadline) throw new RunCapacityUnavailable();
+      await sleep(ADMISSION_RETRY_MS);
+    }
+  }
 }
 
 /** Values that look like credentials, blunted before output leaves. */
@@ -112,6 +150,7 @@ async function runScript(
   workspaceDir: string,
   area: 'backend' | 'frontend',
   script: string,
+  signal?: AbortSignal,
 ): Promise<CommandResult> {
   const startedAt = Date.now();
   const logs = new LogBuffer();
@@ -121,6 +160,8 @@ async function runScript(
     join(workspaceDir, area),
     area,
     logs,
+    {},
+    signal,
   );
   const tail = logs
     .tail(12)
@@ -139,13 +180,18 @@ async function runScript(
 
 const SESSION_TIMEOUT_MS = 300_000;
 const POLL_MS = 2_000;
+const ADMISSION_WAIT_MS = 120_000;
+const ADMISSION_RETRY_MS = 3_000;
 
-async function waitForSession(sessionId: string): Promise<ReturnType<typeof getSession>> {
+async function waitForSession(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<ReturnType<typeof getSession>> {
   const deadline = Date.now() + SESSION_TIMEOUT_MS;
   for (;;) {
     const session = getSession(sessionId, INTERNAL_RUNNER_OWNER);
     if (['running', 'failed', 'stopped'].includes(session.phase)) return session;
-    if (Date.now() > deadline) return session;
+    if (signal?.aborted || Date.now() > deadline) return session;
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
 }
@@ -179,16 +225,37 @@ export interface RuntimeValidation {
 export async function validateRuntime(input: RuntimeValidationInput): Promise<RuntimeValidation> {
   const startedAt = Date.now();
   const errors: string[] = [];
+  // The opening half of the pair. Published before the install starts,
+  // because this is the slowest thing the mesh does and a validation that
+  // never came back should be visible as a start with no end rather than as
+  // a gap in the timeline.
+  logEvent({ event: 'validation.start', target: `runtime: ${input.projectName}` });
 
-  const session = createSession(
-    {
-      projectName: input.projectName,
-      files: input.files,
-    },
-    INTERNAL_RUNNER_OWNER,
+  const session = await createWhenAdmitted(
+    () =>
+      createSession(
+        {
+          projectName: input.projectName,
+          files: input.files,
+        },
+        INTERNAL_RUNNER_OWNER,
+      ),
+    input.signal,
   );
 
-  const settled = await waitForSession(session.id);
+  // A cancel must free the run slot now, so nothing is reported from here on.
+  const abandonIfCancelled = (): void => {
+    if (!input.signal?.aborted) return;
+    try {
+      stopSession(session.id, INTERNAL_RUNNER_OWNER);
+    } catch (error) {
+      logger.debug('failed to stop cancelled validation session', { sessionId: session.id, error });
+    }
+    throw new Error('Validation cancelled.');
+  };
+
+  const settled = await waitForSession(session.id, input.signal);
+  abandonIfCancelled();
   const started = settled.phase === 'running';
   const workspaceDir = settled.workspaceDir || null;
 
@@ -222,7 +289,8 @@ export async function validateRuntime(input: RuntimeValidationInput): Promise<Ru
       const scripts = scriptsOf(workspaceDir, area);
       for (const script of ['typecheck', 'build', 'lint']) {
         if (!(script in scripts)) continue;
-        commands.push(await runScript(workspaceDir, area, script));
+        commands.push(await runScript(workspaceDir, area, script, input.signal));
+        abandonIfCancelled();
       }
     }
   }
@@ -233,9 +301,12 @@ export async function validateRuntime(input: RuntimeValidationInput): Promise<Ru
     return matching.every((command) => command.status === 'PASS') ? 'PASS' : 'FAIL';
   };
 
-  for (const command of commands.filter((entry) => entry.status === 'FAIL')) {
-    errors.push(`${command.command} (${command.area}) exited ${String(command.exitCode)}`);
-  }
+  // Not added to `errors`: that list explains startup and health, and readers
+  // print it beside the Startup row, which then contradicted its own PASS. The
+  // failed commands are reported by their own build and typecheck statuses.
+  const failedCommands = commands
+    .filter((entry) => entry.status === 'FAIL')
+    .map((entry) => `${entry.command} (${entry.area}) exited ${String(entry.exitCode)}`);
 
   /* ── Logs, scanned rather than read aloud ─────────────────────────── */
 
@@ -269,6 +340,29 @@ export async function validateRuntime(input: RuntimeValidationInput): Promise<Ru
     errors,
     createdAt: new Date().toISOString(),
   };
+
+  // The outcome, from the figures just assembled rather than from a second
+  // measurement. `issues` counts the checks that actually failed, so a
+  // BLOCKED check — one that never got to run — is not reported as a failure
+  // the generated project caused.
+  const failedChecks = [
+    result.buildStatus,
+    result.typeCheckStatus,
+    result.lintStatus,
+    result.startupStatus,
+    result.healthStatus,
+  ].filter((status) => status === 'FAIL').length;
+  logEvent({
+    event: 'validation',
+    target: `runtime: ${input.projectName}`,
+    outcome: failedChecks === 0 && started ? 'passed' : 'failed',
+    issues: failedChecks,
+    durationMs: result.durationMs,
+    blocking: true,
+    ...(errors.length + failedCommands.length === 0
+      ? {}
+      : { reason: errors[0] ?? failedCommands[0] }),
+  });
 
   if (!started) {
     // Nothing downstream can use a dead session; release it now.

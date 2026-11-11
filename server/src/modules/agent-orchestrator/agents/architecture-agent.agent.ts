@@ -12,6 +12,7 @@
  * the project already looks like. Requesting it unconditionally is what
  * makes that work without a special case.
  */
+import { unpriced } from '../lib/agent-usage.js';
 import { planArchitecture } from '../../architecture/architecture.service.js';
 import { designEntityFields } from '../../pipeline/lib/ai-stages.js';
 import { AgentError } from '../lib/executor.js';
@@ -79,6 +80,7 @@ export const architectureAgent: Agent<ArchitecturePlan> = {
             inputTokens: fields.usage.inputTokens,
             outputTokens: fields.usage.outputTokens,
             costUsd: fields.usage.costUsd,
+            ...unpriced(fields.usage.knownCostUsd),
             contextTokens: input.context?.tokens ?? 0,
           }
         : null,

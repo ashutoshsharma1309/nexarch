@@ -31,12 +31,12 @@ function ToastItem({ toastItem }: { toastItem: Toast }) {
   }, [toastItem.id, dismiss]);
 
   return (
-    <li className="flex items-start gap-2.5 rounded-md border border-line bg-surface px-3.5 py-3 shadow-lg">
+    <li className="flex items-start gap-2.5 rounded-md border border-line-strong/70 bg-surface px-3.5 py-3 shadow-overlay">
       <Icon
         className={cn('mt-0.5 size-4 shrink-0', COLOR_BY_VARIANT[toastItem.variant])}
         aria-hidden="true"
       />
-      <p className="flex-1 text-xs text-fg">{toastItem.message}</p>
+      <p className="flex-1 type-ui text-fg">{toastItem.message}</p>
       <button
         type="button"
         onClick={() => {
@@ -59,7 +59,7 @@ export function Toaster() {
     <ul
       aria-live="polite"
       role="status"
-      className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-80 flex-col gap-2"
+      className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-[min(20rem,calc(100vw-2rem))] flex-col gap-2"
     >
       {toasts.map((toastItem) => (
         <div key={toastItem.id} className="pointer-events-auto">

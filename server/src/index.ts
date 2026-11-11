@@ -12,12 +12,19 @@ import { createApp } from './app.js';
 import { config } from './shared/config/index.js';
 import { connectDatabase, disconnectDatabase } from './shared/database/prisma.js';
 import { logger } from './shared/logger/index.js';
+import { safeListenHost } from './modules/auth/lib/auth-mode.js';
+import { closeExecutionStreams } from './modules/execution-events/execution-events.controller.js';
+import { interruptOrphanedJobs } from './modules/execution-events/execution-events.service.js';
+import { pruneExecutionHistory } from './modules/execution-events/lib/event-store.js';
 import {
   pruneRunWorkspaces,
   reapOrphanedRunnerProcesses,
 } from './modules/runner/lib/orphan-reaper.js';
 import { reconcileInterruptedRuns } from './modules/pipeline/lib/run-store.js';
-import { reconcileInterruptedJobs } from './modules/project-editor/lib/edit-job-store.js';
+import {
+  pruneTerminalEditJobs,
+  reconcileInterruptedJobs,
+} from './modules/project-editor/lib/edit-job-store.js';
 
 const SHUTDOWN_GRACE_MS = 10_000;
 
@@ -54,33 +61,69 @@ async function bootstrap(): Promise<void> {
     }
     // Edits outlive their request, so a restart can land in the middle of
     // one. Saying "interrupted" is the only honest answer: nothing here can
-    // know how far it got, and the project keeps its previous files either
-    // way because an edit writes nothing until its checks pass.
+    // know how far it got. Note that it is NOT safe to add "and the project
+    // is unchanged" to that message — an apply persists its run before the
+    // job row is settled, so an edit killed late may well have landed.
+    //
+    // Both sweeps above assume this is the only instance running. A second
+    // instance booting beside a live one would settle the live one's
+    // in-flight work; see docs/SECURITY.md.
     const interruptedEdits = await reconcileInterruptedJobs();
     if (interruptedEdits > 0) {
       logger.warn('edits interrupted by the last shutdown were marked interrupted', {
         count: interruptedEdits,
       });
     }
+
+    // Agent runs live in memory, so their event streams would otherwise never
+    // learn that this restart ended them.
+    const orphaned = await interruptOrphanedJobs();
+    if (orphaned > 0) {
+      logger.warn('agent runs interrupted by the last shutdown were closed', { count: orphaned });
+    }
+
+    // Maintenance, not recovery: finished edit jobs past the retention
+    // window are deleted here because boot is the one moment with no edit of
+    // this instance's own in flight. Bounded to one batch, so a long backlog
+    // drains over several boots rather than delaying this one; a failure is
+    // logged and ignored, because housekeeping must never stop a start-up.
+    const prunedEdits = await pruneTerminalEditJobs();
+    if (prunedEdits.removed > 0 || prunedEdits.error !== null) {
+      logger.info('finished edit jobs pruned at boot', {
+        removed: prunedEdits.removed,
+        more: prunedEdits.more,
+        error: prunedEdits.error,
+      });
+    }
+    await pruneExecutionHistory();
   } catch (error) {
     if (config.isProduction) {
       logger.error('database unreachable at boot — refusing to start', { error });
       process.exit(1);
     }
     // In development the API stays up so the client and health endpoints
-    // keep working while MySQL is still starting; /health reports degraded.
+    // keep working while Postgres is still starting; /health reports degraded.
+    // The platform's own database is PostgreSQL — the datasource, the
+    // migration lock and the DATABASE_URL check all say so. The hint used to
+    // name MySQL, which is the database *generated apps* get, and sent
+    // anyone hitting this line to start the wrong service.
     logger.warn('database unreachable — continuing in degraded mode', {
-      hint: 'start MySQL with: npm run docker:dev',
+      hint: 'start PostgreSQL and check DATABASE_URL, then restart',
     });
   }
 
   const app = createApp();
   const server = http.createServer(app);
 
-  server.listen(config.server.port, () => {
+  // Without login there is no identity to check, so the socket itself is the
+  // boundary: bound to loopback only. requireAuth rejects remote peers too,
+  // but routes that do not use it would otherwise stay reachable.
+  const listenHost = safeListenHost(config.auth.disabled);
+  server.listen(config.server.port, listenHost, () => {
     logger.info(`NexArch API listening on port ${config.server.port}`, {
       environment: config.env,
       apiPrefix: config.server.apiPrefix,
+      host: listenHost ?? 'all interfaces',
     });
   });
 
@@ -97,6 +140,7 @@ async function bootstrap(): Promise<void> {
     }, SHUTDOWN_GRACE_MS);
     forceExit.unref();
 
+    closeExecutionStreams();
     server.close(() => {
       void disconnectDatabase()
         .catch((error: unknown) => {

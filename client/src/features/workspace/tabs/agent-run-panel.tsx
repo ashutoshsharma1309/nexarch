@@ -42,6 +42,7 @@ import {
   useStartAgentRun,
 } from '@/shared/hooks/use-agent-run';
 import { cn } from '@/shared/lib/cn';
+import { formatKnownCost, formatKnownTokens } from '../execution/execution-format';
 import { toast } from '@/shared/store/toast.store';
 import type { AgentFinding, AgentTask, AgentTaskStatus } from '@/shared/types/api';
 
@@ -56,6 +57,7 @@ function TaskIcon({ status }: { status: AgentTaskStatus }) {
     case 'BLOCKED':
       return <Ban className="size-3.5 text-warning" />;
     case 'CANCELLED':
+    case 'SKIPPED':
       return <Minus className="size-3.5 text-fg-subtle" />;
     default:
       return <CircleDashed className="size-3.5 text-fg-subtle" />;
@@ -110,8 +112,8 @@ function TaskDetail({ task, produces }: { task: AgentTask; produces: string[] })
             </dd>
             <dt>model</dt>
             <dd className="text-fg-muted">
-              {task.usage.model} · {task.usage.inputTokens} in / {task.usage.outputTokens} out · $
-              {task.usage.costUsd.toFixed(4)}
+              {task.usage.model} · {task.usage.inputTokens} in / {task.usage.outputTokens} out ·{' '}
+              {formatKnownCost(task.usage.costUsd, 1, task.usage.unpricedCalls)}
             </dd>
           </>
         )}
@@ -169,7 +171,7 @@ function TaskRow({
                   setOpen((value) => !value);
                 }}
                 aria-expanded={open}
-                className="-ml-1 flex items-center gap-1 rounded px-1 text-[0.8125rem] font-medium text-fg hover:bg-raised"
+                className="-ml-1 flex items-center gap-1 rounded px-1 type-ui font-medium text-fg hover:bg-raised"
               >
                 <ChevronRight
                   className={cn('size-3 text-fg-subtle transition-transform', open && 'rotate-90')}
@@ -179,7 +181,7 @@ function TaskRow({
             ) : (
               <p
                 className={cn(
-                  'text-[0.8125rem] font-medium',
+                  'type-ui font-medium',
                   ['PENDING', 'READY', 'CANCELLED'].includes(task.status)
                     ? 'text-fg-subtle'
                     : 'text-fg',
@@ -226,6 +228,9 @@ function TaskRow({
             </p>
           )}
           {task.error && <p className="mt-0.5 text-xs text-danger">{task.error}</p>}
+          {task.status === 'SKIPPED' && task.skipReason && (
+            <p className="mt-0.5 text-xs text-fg-muted">Skipped: {task.skipReason}</p>
+          )}
           {task.status === 'BLOCKED' && !task.error && (
             <p className="mt-0.5 text-xs text-warning">
               Blocked — an upstream agent did not finish
@@ -270,6 +275,7 @@ export function AgentRunPanel({ projectId, prompt }: { projectId: string; prompt
             <span className="font-mono text-2xs text-fg-subtle tabular-nums">
               {view.progress.completed}/{view.progress.total} done
               {view.progress.failed > 0 && ` · ${String(view.progress.failed)} failed`}
+              {(view.progress.skipped ?? 0) > 0 && ` · ${String(view.progress.skipped)} skipped`}
             </span>
           )}
           {live && (
@@ -354,8 +360,16 @@ export function AgentRunPanel({ projectId, prompt }: { projectId: string; prompt
               <p className="font-mono text-2xs text-fg-subtle">
                 {view.run.totals.aiCalls} model call
                 {view.run.totals.aiCalls === 1 ? '' : 's'} ·{' '}
-                {view.run.totals.inputTokens + view.run.totals.outputTokens} tokens · $
-                {view.run.totals.costUsd.toFixed(4)}
+                {formatKnownTokens(
+                  view.run.totals.inputTokens + view.run.totals.outputTokens,
+                  view.run.totals.aiCalls,
+                )}{' '}
+                ·{' '}
+                {formatKnownCost(
+                  view.run.totals.costUsd,
+                  view.run.totals.aiCalls,
+                  view.run.totals.unpricedCalls,
+                )}
                 {view.run.totals.contextTokens > 0 &&
                   ` · ${String(view.run.totals.contextTokens)} context`}
               </p>

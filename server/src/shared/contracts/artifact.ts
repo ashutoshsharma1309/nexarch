@@ -20,6 +20,10 @@
 
 export type ArtifactType =
   | 'requirement-spec'
+  /** What web research found, with sources, limits and what it influenced. */
+  | 'research-artifact'
+  /** The landing page's structure and copy, written by Design Intelligence. */
+  | 'site-design'
   /** What the product should contain, before any technical decision. */
   | 'product-spec'
   | 'architecture-plan'

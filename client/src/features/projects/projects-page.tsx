@@ -1,12 +1,12 @@
-import { FolderGit2, Search, Upload, Sparkles } from 'lucide-react';
+import { FolderGit2, PlayCircle, RefreshCw, Search, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { PageHeader } from '@/shared/components/page-header';
 import { Button } from '@/shared/components/ui/button';
 import { ConfirmDialog } from '@/shared/components/ui/confirm-dialog';
 import { EmptyState } from '@/shared/components/ui/empty-state';
 import { Input } from '@/shared/components/ui/input';
+import { PageTitle } from '@/shared/components/ui/page-title';
 import { Skeleton } from '@/shared/components/ui/skeleton';
 import { useDocumentTitle } from '@/shared/hooks/use-document-title';
 import { useProjects } from '@/shared/hooks/use-projects';
@@ -59,7 +59,8 @@ export function ProjectsPage() {
           if (favoriteNewProjects) {
             updateProject.mutate({ id: project.id, input: { favorite: true } });
           }
-          void navigate(`/projects/${project.id}`);
+          // Straight to Build, as from Home: the next step is describing it.
+          void navigate(`/projects/${project.id}/build`);
         },
         onError: () => {
           toast('Could not create the project', 'error');
@@ -170,15 +171,14 @@ export function ProjectsPage() {
 
   return (
     <>
-      <PageHeader
-        eyebrow="console/projects"
+      <PageTitle
         title="Projects"
         description="Every application in this workspace."
         actions={
           <div className="flex items-center gap-2">
             <Button
               variant="secondary"
-              icon={<Sparkles className="size-3.5" />}
+              icon={<PlayCircle className="size-3.5" />}
               loading={runDemo.isPending}
               onClick={handleDemo}
             >
@@ -218,7 +218,7 @@ export function ProjectsPage() {
         }}
       />
 
-      <div className="relative mb-4 max-w-xs">
+      <div className="relative mb-5 sm:max-w-xs">
         <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-fg-subtle" />
         <Input
           type="search"
@@ -233,11 +233,26 @@ export function ProjectsPage() {
       </div>
 
       {projects.isPending ? (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-busy="true">
           {Array.from({ length: 6 }, (_, index) => (
             <Skeleton key={index} className="h-36 w-full" />
           ))}
         </div>
+      ) : projects.isError ? (
+        <EmptyState
+          icon={<RefreshCw className="size-4" />}
+          title="Your projects could not be loaded"
+          description={projects.error.message}
+          action={
+            <Button
+              onClick={() => {
+                void projects.refetch();
+              }}
+            >
+              Try again
+            </Button>
+          }
+        />
       ) : filtered.length > 0 ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((project) => (
@@ -272,7 +287,7 @@ export function ProjectsPage() {
         <EmptyState
           icon={<FolderGit2 className="size-4" />}
           title="No projects yet"
-          description="A project holds one application — its requirements, architecture, code, security review and preview, all in one workspace."
+          description="A project holds one application: its requirements, architecture, code, review and preview."
           action={
             <Button
               variant="forge"

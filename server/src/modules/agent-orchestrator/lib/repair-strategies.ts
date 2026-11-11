@@ -13,6 +13,7 @@
  * that pass the same authorization and uniqueness gate as everything else.
  * Secrets are scrubbed from anything model-bound (Step 26).
  */
+import { unpriced } from './agent-usage.js';
 import { generateWithContext } from '../../ai-orchestrator/ai-orchestrator.service.js';
 import { logger } from '../../../shared/logger/index.js';
 import { nearestDeclaredPath, normalizeApiPath } from './contract-audit.js';
@@ -222,6 +223,7 @@ async function modelEdit(
         // Null when the model has no published price; it adds nothing to the
         // money total, and the AI analytics counts those calls separately.
         costUsd: response.record.cost.totalCostUsd ?? 0,
+        ...unpriced(response.record.cost.totalCostUsd),
         contextTokens: 0,
       },
       error: edits.length === 0 ? 'The model returned no usable edits.' : null,

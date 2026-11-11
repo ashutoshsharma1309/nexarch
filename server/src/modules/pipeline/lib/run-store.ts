@@ -6,7 +6,7 @@
  *
  *   • Live stage state — seven stages flipping status every few hundred
  *     milliseconds, polled once a second. It belongs in memory. Writing it
- *     to MySQL would mean a row update per stage transition to serve data
+ *     to Postgres would mean a row update per stage transition to serve data
  *     that is worthless thirty seconds later.
  *
  *   • The record that the run happened — which project it belongs to, what
@@ -25,9 +25,10 @@
 import { config } from '../../../shared/config/index.js';
 import { prisma } from '../../../shared/database/prisma.js';
 import { logger } from '../../../shared/logger/index.js';
+import { publishExecutionEvent } from '../../execution-events/execution-events.service.js';
 import type { Run, RunStatus } from '../../../shared/contracts/project.js';
 
-/* In-memory generation log for no-DB mode — the run audit trail without MySQL. */
+/* In-memory generation log for no-DB mode — the run audit trail without a database. */
 interface MemGeneration {
   id: string;
   projectId: string;
@@ -162,8 +163,21 @@ export async function listRunsForProject(projectId: string, limit = 50): Promise
  */
 const NON_TERMINAL: RunStatus[] = ['PENDING', 'ANALYZING', 'PLANNING', 'GENERATING', 'REVIEWING'];
 
+/** Ends the run's event stream: without it a client would wait on a dead job forever. */
+function announceInterrupted(id: string, projectId: string): void {
+  void publishExecutionEvent({
+    projectId,
+    jobKind: 'RUN',
+    jobId: id,
+    type: 'job.interrupted',
+    status: 'failed',
+    message: 'This build was interrupted by a server restart',
+    data: {},
+  });
+}
+
 const INTERRUPTED =
-  'This run was interrupted by a server restart. Its generated files lived in the API process and did not survive, so it cannot be resumed — rebuild the project to produce them again.';
+  'This run was interrupted by a server restart, so it cannot be resumed. Any files it had already stored are kept; rebuild the project to get a finished version.';
 
 export interface ReconcileResult {
   /** Runs moved from a working status to FAILED. */
@@ -204,15 +218,21 @@ export async function reconcileInterruptedRuns(): Promise<ReconcileResult> {
       row.completedAt = new Date();
       row.updatedAt = row.completedAt;
       reconciled += 1;
+      announceInterrupted(row.id, row.projectId);
     }
     return { reconciled, error: null };
   }
 
   try {
-    const { count } = await prisma.generation.updateMany({
+    const stranded = await prisma.generation.findMany({
       where: { status: { in: NON_TERMINAL } },
+      select: { id: true, projectId: true },
+    });
+    const { count } = await prisma.generation.updateMany({
+      where: { id: { in: stranded.map((row) => row.id) } },
       data: { status: 'FAILED', error: INTERRUPTED, completedAt: new Date() },
     });
+    for (const row of stranded) announceInterrupted(row.id, row.projectId);
     return { reconciled: count, error: null };
   } catch (cause) {
     const error = cause instanceof Error ? cause.message : String(cause);

@@ -15,9 +15,12 @@ import {
   getImpact,
   getNode,
   getPath,
+  getTrace,
+  lookupNode,
   synchronize,
   validate,
 } from './engineering-graph.service.js';
+import { identityOf } from './lib/node-identity.js';
 import { loadArtifacts } from '../pipeline/pipeline.service.js';
 import { listRunsForProject } from '../pipeline/lib/run-store.js';
 import { getProjectOrThrow } from '../workspace/workspace.service.js';
@@ -33,8 +36,28 @@ function projectId(req: Request): string {
   return req.params.projectId as string;
 }
 
+/**
+ * The node a route is about. Either a database id or a node identity —
+ * `FILE::backend/src/app.ts`, or a bare name — because a caller holding a
+ * file path should not have to fetch the whole graph to turn it into an id.
+ * The service resolves whichever it is; slashes in an identity have to be
+ * percent-encoded, or `/graph/lookup` answers the same question by query.
+ */
 function nodeId(req: Request): string {
   return req.params.nodeId as string;
+}
+
+/** `?identity=FILE::path`, or `?type=FILE&name=path`, for the lookup route. */
+function identityRef(req: Request): string {
+  const raw = req.query.identity;
+  if (typeof raw === 'string' && raw !== '') return raw;
+
+  const name = req.query.name;
+  if (typeof name !== 'string' || name === '') {
+    throw AppError.badRequest('An `identity`, or a `type` and a `name`, is required');
+  }
+  const type = typeFilter(req);
+  return type === undefined ? name : identityOf(type, name);
 }
 
 /** Optional `?type=ENTITY` filter, rejected rather than ignored when unknown. */
@@ -102,8 +125,41 @@ export async function pathHandler(req: Request, res: Response): Promise<void> {
   sendSuccess(res, path);
 }
 
+/**
+ * The node one identity names, so a caller can go from a file path or a
+ * requirement's text to a node id in one request instead of downloading the
+ * graph and matching it itself.
+ */
+export async function lookupHandler(req: Request, res: Response): Promise<void> {
+  sendSuccess(res, await lookupNode(ownerOf(req), projectId(req), identityRef(req)));
+}
+
+export async function traceHandler(req: Request, res: Response): Promise<void> {
+  const raw = req.query.direction;
+  if (raw !== undefined && raw !== 'to-implementation' && raw !== 'to-requirements') {
+    throw AppError.badRequest('`direction` must be `to-implementation` or `to-requirements`');
+  }
+  // Omitted means "whichever way this node can be traced", which its type
+  // decides: a requirement traces down, everything else traces back up.
+  sendSuccess(res, await getTrace(ownerOf(req), projectId(req), nodeId(req), raw));
+}
+
 export async function validateHandler(req: Request, res: Response): Promise<void> {
-  sendSuccess(res, await validate(ownerOf(req), projectId(req)));
+  const ownerId = ownerOf(req);
+  const id = projectId(req);
+  await getProjectOrThrow(ownerId, id);
+
+  /*
+   * Staleness is a comparison against the project's latest completed build,
+   * and only the run store knows which that is. Resolving it here keeps the
+   * graph service from importing the pipeline it is imported by — the same
+   * reason `refreshHandler` lives in the controller. When there is no
+   * completed run the check is skipped, and the report says which checks did
+   * not run rather than reporting a clean graph.
+   */
+  const runs = await listRunsForProject(id, 20);
+  const latest = runs.find((run) => run.status === 'COMPLETED');
+  sendSuccess(res, await validate(ownerId, id, latest?.id));
 }
 
 /**

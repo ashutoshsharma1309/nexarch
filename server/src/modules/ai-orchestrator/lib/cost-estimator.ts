@@ -29,6 +29,22 @@ export function estimateCost(
   model: string,
   usage: ModelUsage,
 ): CostEstimate {
+  // Multiplying a token count the provider never reported gives $0, which
+  // would read as a free call.
+  if (usage.unreported !== undefined && usage.unreported.length > 0) {
+    return {
+      provider: provider.id,
+      model,
+      inputCostUsd: null,
+      outputCostUsd: null,
+      totalCostUsd: null,
+      pricing: {
+        known: false,
+        reason: `The provider did not report ${usage.unreported.join(' and ')} token usage for this call`,
+      },
+    };
+  }
+
   const price = lookupModelPrice(model);
 
   if (price === null) {
@@ -58,6 +74,35 @@ export function estimateCost(
     outputCostUsd: round(outputCostUsd),
     totalCostUsd: round(inputCostUsd + outputCostUsd),
     pricing: { known: true, source: price.source },
+  };
+}
+
+function sumKnown(values: readonly (number | null)[]): number | null {
+  let total = 0;
+  for (const value of values) {
+    if (value === null) return null;
+    total += value;
+  }
+  return round(total);
+}
+
+/**
+ * The cost of every attempt one generation paid for, labelled by the last.
+ *
+ * Unknown stays unknown: if any attempt had no price, a total would be a
+ * partial sum reading as a whole one.
+ */
+export function sumCosts(estimates: readonly [CostEstimate, ...CostEstimate[]]): CostEstimate {
+  const last = estimates.at(-1) ?? estimates[0];
+  if (estimates.length === 1) return last;
+  const unpriced = estimates.find((estimate) => !estimate.pricing.known);
+  return {
+    provider: last.provider,
+    model: last.model,
+    inputCostUsd: sumKnown(estimates.map((estimate) => estimate.inputCostUsd)),
+    outputCostUsd: sumKnown(estimates.map((estimate) => estimate.outputCostUsd)),
+    totalCostUsd: sumKnown(estimates.map((estimate) => estimate.totalCostUsd)),
+    pricing: unpriced?.pricing ?? last.pricing,
   };
 }
 

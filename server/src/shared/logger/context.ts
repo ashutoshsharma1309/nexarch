@@ -26,6 +26,14 @@ export interface LogContext {
   userId?: string | undefined;
   projectId?: string | undefined;
   runId?: string | undefined;
+  /** An edit job, which outlives its request and has no run id until it ends. */
+  jobId?: string | undefined;
+  /** A preview session, whose processes outlive the request that started them. */
+  sessionId?: string | undefined;
+  /** The stage of the job now working, so a model call can be charged to it. */
+  stage?: string | undefined;
+  /** The agent doing that work. */
+  agentId?: string | undefined;
 }
 
 const storage = new AsyncLocalStorage<LogContext>();

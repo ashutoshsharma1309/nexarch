@@ -19,10 +19,10 @@ export function RouteError() {
   if (error) console.error('Route error boundary caught:', error);
 
   return (
-    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 text-center">
+    <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 bg-canvas px-6 text-center">
       <AlertTriangle className="size-8 text-warning" aria-hidden />
       <div>
-        <h1 className="text-lg font-semibold text-fg">Something went wrong on this screen</h1>
+        <h1 className="text-title text-fg">Something went wrong on this screen</h1>
         <p className="mt-1 max-w-md text-sm text-fg-muted">
           The rest of NexArch is unaffected. Reload this view, or head back to your projects.
         </p>
@@ -33,13 +33,13 @@ export function RouteError() {
           onClick={() => {
             window.location.reload();
           }}
-          className="rounded border border-line px-3 py-1.5 text-xs text-fg-muted hover:border-line-strong hover:text-fg"
+          className="rounded-md border border-line-strong/70 px-3 py-1.5 text-xs text-fg hover:border-line-strong hover:bg-raised"
         >
           Reload
         </button>
         <Link
           to="/projects"
-          className="rounded border border-line px-3 py-1.5 text-xs text-fg-muted hover:border-line-strong hover:text-fg"
+          className="rounded-md border border-line-strong/70 px-3 py-1.5 text-xs text-fg hover:border-line-strong hover:bg-raised"
         >
           Go to Projects
         </Link>

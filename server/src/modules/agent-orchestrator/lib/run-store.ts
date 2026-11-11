@@ -17,6 +17,7 @@ import type {
   RunProgress,
 } from '../agent-orchestrator.types.js';
 import type { AgentId, ArtifactType } from '../../../shared/contracts/index.js';
+import { bridgeAgentEvent } from './operational-bridge.js';
 
 interface RunState {
   run: AgentRun;
@@ -101,6 +102,11 @@ export function recordEvent(
   state.nextSeq += 1;
 
   if (state.events.length > MAX_EVENTS_PER_RUN) state.events.shift();
+
+  // Also published to the operational log, so this stream is not invisible
+  // to anyone who is not holding the console open. Bridged here rather than
+  // at the twenty-two call sites, so the two cannot drift apart.
+  bridgeAgentEvent(type, options);
 }
 
 export function eventsOf(runId: string, after = 0): AgentEvent[] {
@@ -136,6 +142,7 @@ export function progressOf(run: AgentRun): RunProgress {
     failed: count('FAILED'),
     blocked: count('BLOCKED'),
     cancelled: count('CANCELLED'),
+    skipped: count('SKIPPED'),
     running: count('RUNNING'),
     pending: count('PENDING') + count('READY'),
   };

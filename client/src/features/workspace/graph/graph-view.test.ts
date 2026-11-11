@@ -13,6 +13,7 @@ import { layoutGraph } from './layouts';
 import { applyView, neighboursOf, viewMode } from './view-modes';
 import { FAMILY_OF, densityTier } from './node-style';
 import { artifactTarget } from './artifact-links';
+import { edgeEvidence } from './edge-evidence';
 import type { EngGraphEdge, EngGraphNode, EngNodeType } from '@/shared/types/api';
 
 function node(id: string, type: EngNodeType, name = id): EngGraphNode {
@@ -72,6 +73,12 @@ describe('view modes', () => {
     const ids = new Set(view.nodes.map((n) => n.id));
     expect(view.edges.every((e) => ids.has(e.sourceNodeId) && ids.has(e.targetNodeId))).toBe(true);
     expect(view.edges.map((e) => e.id)).not.toContain('e3');
+  });
+
+  it('the security view shows the findings its description promises', () => {
+    const finding = node('n6', 'FINDING', 'Order total is not validated');
+    const view = applyView([...NODES, finding], EDGES, { mode: 'security' });
+    expect(view.nodes.map((n) => n.type)).toContain('FINDING');
   });
 
   it('the everything view hides nothing', () => {
@@ -150,6 +157,17 @@ describe('layouts', () => {
     expect(layoutGraph([], [], 'hierarchical').size).toBe(0);
   });
 
+  it('places a finding somewhere real rather than at NaN', () => {
+    // FINDING had no ring, so it bucketed under `undefined`, the ring sort
+    // produced NaN and the node came out at NaN, NaN — nowhere on the
+    // canvas, for the one node type a review puts there.
+    const finding = node('n6', 'FINDING', 'Order total is not validated');
+    const positions = layoutGraph([...NODES, finding], EDGES, 'radial');
+    const point = positions.get('n6');
+    expect(Number.isFinite(point?.x)).toBe(true);
+    expect(Number.isFinite(point?.y)).toBe(true);
+  });
+
   it('separates hierarchical layers vertically', () => {
     const positions = layoutGraph(NODES, EDGES, 'hierarchical');
     const project = positions.get('n1');
@@ -174,6 +192,8 @@ describe('node styling', () => {
       'SECURITY_RULE',
       'DEPENDENCY',
       'TEST',
+      'FOLDER',
+      'FINDING',
     ];
     for (const type of types) expect(FAMILY_OF[type]).toBeDefined();
   });
@@ -185,11 +205,37 @@ describe('node styling', () => {
   });
 });
 
+describe('edge evidence', () => {
+  it('phrases the evidence the builder actually records', () => {
+    expect(edgeEvidence({ evidence: 'import-statement', specifier: './order.service' })).toBe(
+      'imports ./order.service',
+    );
+    expect(edgeEvidence({ foreignKey: 'user_id', onDelete: 'cascade' })).toBe(
+      'foreign key user_id, on delete cascade',
+    );
+    expect(edgeEvidence({ reason: 'checkout reads stock levels' })).toBe(
+      'checkout reads stock levels',
+    );
+  });
+
+  it('shows an unrecognised annotation rather than dropping it', () => {
+    // Losing evidence silently is how the UI came to render none of it.
+    expect(edgeEvidence({ endpoint: 'POST /orders' })).toBe('endpoint: POST /orders');
+  });
+
+  it('distinguishes an edge with nothing recorded from one it was not shown', () => {
+    expect(edgeEvidence({})).toBeNull();
+    expect(edgeEvidence(undefined)).toBeNull();
+  });
+});
+
 describe('artifact links', () => {
   it('routes each artifact type to a real workspace tab', () => {
     expect(artifactTarget('p1', 'requirement-spec')?.href).toBe('/projects/p1/requirements');
     expect(artifactTarget('p1', 'database-design')?.href).toBe('/projects/p1/database');
     expect(artifactTarget('p1', 'backend-source')?.href).toBe('/projects/p1/code');
+    // A FINDING's source artifact: the review section is where it is written.
+    expect(artifactTarget('p1', 'engineering-review')?.href).toBe('/projects/p1/intelligence');
   });
 
   it('returns null rather than a dead link when there is no destination', () => {

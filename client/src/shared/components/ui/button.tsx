@@ -20,21 +20,31 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  * starting generation work. Everything else stays cool and quiet.
  */
 const variantClasses: Record<ButtonVariant, string> = {
-  forge: 'bg-ember text-[#0b0c0e] font-medium hover:bg-ember-hover active:bg-ember',
-  primary: 'bg-fg text-canvas font-medium hover:opacity-90',
-  secondary: 'border border-line bg-raised text-fg hover:border-line-strong hover:bg-inset',
+  forge: 'bg-ember font-medium text-on-ember hover:bg-ember-hover active:bg-ember',
+  primary: 'bg-fg font-medium text-canvas hover:bg-fg/85',
+  secondary:
+    'border border-line-strong/70 bg-surface text-fg hover:border-line-strong hover:bg-raised',
   ghost: 'text-fg-muted hover:bg-raised hover:text-fg',
   danger: 'border border-danger/40 bg-danger-soft text-danger hover:border-danger',
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
-  sm: 'h-7 px-2.5 text-xs gap-1.5 rounded-sm',
-  md: 'h-8 px-3 text-[0.8125rem] gap-2 rounded-md',
-  lg: 'h-10 px-4 text-sm gap-2 rounded-md',
+  sm: 'h-7 gap-1.5 rounded-sm px-2.5 text-xs pointer-coarse:h-9',
+  md: 'h-8 gap-2 rounded-md px-3 type-ui pointer-coarse:h-10',
+  lg: 'h-10 gap-2 rounded-md px-4 text-sm',
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { variant = 'secondary', size = 'md', loading = false, icon, className, children, ...props },
+  {
+    variant = 'secondary',
+    size = 'md',
+    loading = false,
+    icon,
+    className,
+    children,
+    disabled,
+    ...props
+  },
   ref,
 ) {
   return (
@@ -42,7 +52,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ref={ref}
       type={props.type ?? 'button'}
       data-variant={variant}
-      disabled={loading || props.disabled}
+      disabled={loading || disabled}
       className={cn(
         'inline-flex items-center justify-center whitespace-nowrap transition-colors duration-100 select-none',
         'disabled:pointer-events-none disabled:opacity-50',

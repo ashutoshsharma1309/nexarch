@@ -8,12 +8,10 @@ export function NotFoundPage() {
   const navigate = useNavigate();
 
   return (
-    <div className="flex flex-col items-center justify-center py-24 text-center">
-      <p className="font-mono text-2xs tracking-widest text-fg-subtle uppercase">error/not-found</p>
-      <h1 className="mt-3 font-mono text-6xl font-semibold tracking-tight text-fg">404</h1>
-      <p className="mt-4 max-w-sm text-[0.8125rem] text-fg-muted">
-        This route doesn&apos;t exist. If a link brought you here, it&apos;s pointing at something
-        that moved or was never forged.
+    <div className="flex flex-col items-start py-16 md:py-24">
+      <h1 className="text-display text-fg">Page not found</h1>
+      <p className="mt-4 max-w-sm text-sm text-fg-muted">
+        Nothing lives at this address. The link may be out of date, or the page may have moved.
       </p>
       <div className="mt-8 flex gap-2">
         <Button

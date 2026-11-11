@@ -93,6 +93,56 @@ export async function saveRunArtifacts(
  * never written, pruned away, or written by a build whose shape this one does
  * not recognise. The caller's job is to say so, not to guess.
  */
+/**
+ * The stored bundle for a run, only if the run belongs to this project.
+ *
+ * For reads where the caller has proved ownership of a project rather than of
+ * a run: a run id on its own says nothing about who may see it.
+ */
+export async function loadRunArtifactsForProject(
+  runId: string,
+  projectId: string,
+): Promise<PipelineArtifacts | null> {
+  if (!useDatabase()) return null;
+
+  try {
+    const row = await prisma.runArtifact.findFirst({
+      where: { runId, projectId },
+      select: { runId: true },
+    });
+    return row ? await loadRunArtifacts(runId) : null;
+  } catch (error) {
+    logger.warn('run artifacts could not be read', {
+      runId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+/**
+ * Whether this user's project holds the run's stored output.
+ *
+ * Fails closed: if ownership cannot be established the answer is no, because
+ * this guards a read of someone else's generated code.
+ */
+export async function runArtifactsBelongTo(runId: string, ownerId: string): Promise<boolean> {
+  if (!useDatabase()) return false;
+  try {
+    const row = await prisma.runArtifact.findFirst({
+      where: { runId, project: { ownerId } },
+      select: { runId: true },
+    });
+    return row !== null;
+  } catch (error) {
+    logger.warn('run artifact ownership could not be checked', {
+      runId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
 export async function loadRunArtifacts(runId: string): Promise<PipelineArtifacts | null> {
   if (!useDatabase()) return null;
 

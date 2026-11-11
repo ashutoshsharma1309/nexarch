@@ -29,28 +29,65 @@ const SENSITIVE_KEY =
  * sanitizer's, so a `SOMETHING_KEY=value` line is scrubbed in a log exactly
  * as it is scrubbed before the model.
  */
-const SECRET_VALUE_PATTERNS: RegExp[] = [
-  /(?:gsk|sk|pk|rk)_[A-Za-z0-9]{12,}/g, // provider keys, boundary-agnostic
-  /\bBearer\s+[A-Za-z0-9._~+/-]{12,}=*/gi, // bearer tokens
-  /\beyJ[A-Za-z0-9._-]{16,}\b/g, // JWTs
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
-  /\b[a-z][a-z0-9+.-]*:\/\/[^:\s'"]+:[^@\s'"]{3,}@/gi, // credentials in a URL
-  // `SECRET=…`, `API_KEY: '…'`, `password="…"` — the assignment form.
-  /\b([A-Za-z0-9_]*(?:secret|password|passwd|token|api[_-]?key|apikey|credential|private[_-]?key)[A-Za-z0-9_]*)(\s*[:=]\s*)(["']?)([^\s"',;}]{6,})\3/gi,
-];
+interface SecretPattern {
+  pattern: RegExp;
+  /**
+   * How the match is rewritten. The default replaces the whole match, which
+   * is right for a bare secret; a pattern that captures the name the secret
+   * was given keeps that name, because "which credential leaked" is the one
+   * useful thing in a redacted line.
+   */
+  replace?: (...groups: string[]) => string;
+}
 
-/** The assignment pattern keeps its key and mask, dropping only the value. */
-const ASSIGNMENT_INDEX = SECRET_VALUE_PATTERNS.length - 1;
+/**
+ * Each pattern carries its own replacement.
+ *
+ * This used to be a bare array plus an index constant pointing at the last
+ * entry, which was the "keep the key, mask the value" one. Appending a
+ * pattern after it silently moved that behaviour onto the wrong entry — so
+ * the rule now travels with the pattern it belongs to.
+ */
+const SECRET_VALUE_PATTERNS: SecretPattern[] = [
+  { pattern: /(?:gsk|sk|pk|rk)_[A-Za-z0-9]{12,}/g }, // provider keys, boundary-agnostic
+  // Hyphenated keys (`sk-or-v1-…`, `sk-ant-…`, `sk-proj-…`). This one does need
+  // a boundary before it: "task-management-dashboard" contains `sk-` too.
+  { pattern: /(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{16,}/g },
+  // Google API keys. `AIza` plus 35 characters, and the Gemini adapter puts
+  // one in a URL query parameter (see gemini-provider.ts), where none of the
+  // patterns below would have caught it: the parameter is named `key`, which
+  // the assignment form does not treat as sensitive on its own. A 429 from
+  // that endpoint carries the whole URL in its message.
+  { pattern: /\bAIza[A-Za-z0-9_-]{30,}/g },
+  { pattern: /\bBearer\s+[A-Za-z0-9._~+/-]{12,}=*/gi }, // bearer tokens
+  { pattern: /\beyJ[A-Za-z0-9._-]{16,}\b/g }, // JWTs
+  { pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g },
+  { pattern: /\b[a-z][a-z0-9+.-]*:\/\/[^:\s'"]+:[^@\s'"]{3,}@/gi }, // credentials in a URL
+  {
+    // `SECRET=…`, `API_KEY: '…'`, `password="…"` — the assignment form.
+    pattern:
+      /\b([A-Za-z0-9_]*(?:secret|password|passwd|token|api[_-]?key|apikey|credential|private[_-]?key)[A-Za-z0-9_]*)(\s*[:=]\s*)(["']?)([^\s"',;}]{6,})\3/gi,
+    replace: (_match, key, separator) => `${key}${separator}***`,
+  },
+  {
+    // A credential carried as a URL query parameter. `key` counts here and
+    // not in the assignment form above, because in a query string it is a
+    // credential by convention while in prose it is an ordinary word.
+    pattern:
+      /([?&](?:key|token|secret|password|auth|credential|api[_-]?key|apikey|access[_-]?token|refresh[_-]?token)=)[^&\s"'<>]{6,}/gi,
+    replace: (_match, prefix) => `${prefix}***`,
+  },
+];
 
 /** Redacts secret-shaped substrings inside a string. */
 export function redactString(value: string): string {
   let out = value;
-  SECRET_VALUE_PATTERNS.forEach((pattern, index) => {
+  for (const { pattern, replace } of SECRET_VALUE_PATTERNS) {
     out =
-      index === ASSIGNMENT_INDEX
-        ? out.replace(pattern, (_match, key: string, sep: string) => `${key}${sep}***`)
-        : out.replace(pattern, '***');
-  });
+      replace === undefined
+        ? out.replace(pattern, '***')
+        : out.replace(pattern, (...groups: string[]) => replace(...groups));
+  }
   return out;
 }
 

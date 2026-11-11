@@ -11,22 +11,31 @@ export interface EmptyStateProps {
   className?: string;
 }
 
+/**
+ * An empty region, drawn as a blank sheet: the drafting grid behind it, the
+ * title, what would be here, and the one thing to do next.
+ */
 export function EmptyState({ icon, title, description, action, className }: EmptyStateProps) {
   return (
     <div
       className={cn(
-        'flex flex-col items-center justify-center rounded-lg border border-dashed border-line px-6 py-14 text-center',
+        'relative isolate flex flex-col items-center justify-center overflow-hidden rounded-lg border border-line px-6 py-16 text-center',
         className,
       )}
     >
+      <div
+        aria-hidden="true"
+        // Clear behind the words, grid only towards the edges of the sheet.
+        className="absolute inset-0 -z-10 sheet-grid [mask-image:radial-gradient(ellipse_at_center,transparent_35%,black_100%)]"
+      />
       {icon && (
-        <div className="mb-4 flex size-10 items-center justify-center rounded-md border border-line bg-raised text-fg-subtle">
+        <div className="mb-4 flex size-10 items-center justify-center rounded-md border border-line-strong/70 bg-surface text-fg-muted">
           {icon}
         </div>
       )}
-      <h3 className="text-sm font-medium text-fg">{title}</h3>
+      <h3 className="text-base font-semibold tracking-tight text-fg">{title}</h3>
       {description && (
-        <p className="mt-1 max-w-sm text-xs leading-relaxed text-fg-muted">{description}</p>
+        <p className="mt-1.5 max-w-md type-ui leading-relaxed text-fg-muted">{description}</p>
       )}
       {action && <div className="mt-5">{action}</div>}
     </div>

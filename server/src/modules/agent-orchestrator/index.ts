@@ -22,10 +22,12 @@ import { backendEngineerAgent } from './agents/backend-engineer.agent.js';
 import { codeQualityEngineerAgent } from './agents/code-quality-engineer.agent.js';
 import { dependencyEngineerAgent } from './agents/dependency-engineer.agent.js';
 import { databaseArchitectAgent } from './agents/database-architect.agent.js';
+import { designIntelligenceAgent } from './agents/design-intelligence.agent.js';
 import { frontendEngineerAgent } from './agents/frontend-engineer.agent.js';
 import { productArchitectAgent } from './agents/product-architect.agent.js';
 import { repairEngineerAgent } from './agents/repair-engineer.agent.js';
 import { requirementAnalystAgent } from './agents/requirement-analyst.agent.js';
+import { researchAgent } from './agents/research-agent.agent.js';
 import { integrationEngineerAgent } from './agents/integration-engineer.agent.js';
 import { runtimeEngineerAgent } from './agents/runtime-engineer.agent.js';
 import { securityEngineerAgent } from './agents/security-engineer.agent.js';
@@ -37,12 +39,14 @@ import { registerAgent } from './lib/registry.js';
 // from the declarations — but reading it in execution order makes the mesh
 // obvious at a glance.
 registerAgent(requirementAnalystAgent);
+registerAgent(researchAgent);
 registerAgent(productArchitectAgent);
 registerAgent(architectureAgent);
 registerAgent(databaseArchitectAgent);
 registerAgent(apiArchitectAgent);
 
 registerAgent(backendEngineerAgent);
+registerAgent(designIntelligenceAgent);
 registerAgent(frontendEngineerAgent);
 registerAgent(uxUiEngineerAgent);
 
@@ -59,7 +63,7 @@ registerAgent(integrationEngineerAgent);
 registerAgent(testEngineerAgent);
 
 // The repair engineer never joins a generation run's DAG (enabled: false);
-// it is registered so the repair engine can attribute and invoke it.
+// it runs after validation verifies a failure, through the same executor.
 registerAgent(repairEngineerAgent);
 
 export {

@@ -10,11 +10,13 @@
  * answers a question the next one depends on.
  *
  *   Requirement Analyst  — what was asked for?
+ *   Research Agent       — what does the evidence say about this domain?
  *   Product Architect    — what should the product contain?
  *   Architecture Agent   — how will it be built?
  *   Database Architect   — what does the data look like?
  *   API Architect        — what is the contract between the parts?
  *   Backend Engineer     — what implements that contract?
+ *   Design Intelligence  — what should the site say and look like?
  *   Frontend Engineer    — what does a person use?
  *   UX/UI Engineer       — is what they use any good?
  *   Security Engineer    — can it be attacked?
@@ -28,12 +30,20 @@
  * the frontend it is reviewing, so it can never run first and can never be
  * mistaken for a second frontend agent.
  *
+ * Not every agent runs on every product: `lib/agent-selection.ts` skips the
+ * ones the product decision rules out, and a skip is recorded with its
+ * reason rather than dressed up as a completed task.
+ *
  * Timeouts and retries reflect what each agent actually does. An agent
  * talking to a provider over a network gets two retries; deterministic
  * code gets none, because a generator that threw will throw again on
  * identical input and retrying only delays the report.
  */
 import type { AgentDefinition, RetryPolicy } from './agent.js';
+import type { ArtifactType } from './artifact.js';
+
+/** The site design as an agent artifact. */
+export const SITE_DESIGN_ARTIFACT: ArtifactType = 'site-design';
 
 const NETWORK_RETRY: RetryPolicy = {
   maxRetries: 2,
@@ -73,6 +83,27 @@ export const AGENT_DEFINITIONS: readonly AgentDefinition[] = [
     enabled: true,
   },
   {
+    id: 'research-agent',
+    name: 'Research Agent',
+    role: 'Gathers real evidence about the product domain before anything is designed',
+    description:
+      'Runs the same web research engine the create path uses and records what was read, what a search engine only summarised, and what could not be done. Never invents a source: with no provider or no results it says so.',
+    version: '1.0.0',
+    requires: ['requirement-spec'],
+    produces: ['research-artifact'],
+    dependencies: ['requirement-analyst'],
+    requiredContext: null,
+    executionMode: 'ai',
+    // Search, extraction and two model calls, each with its own deadline
+    // inside the engine; this is the ceiling over all of them.
+    timeoutMs: 300_000,
+    // The engine already degrades provider by provider. Retrying the whole
+    // agent would re-spend metered search quota to reach the same answer.
+    retryPolicy: NO_RETRY,
+    mutates: [],
+    enabled: true,
+  },
+  {
     id: 'product-architect',
     name: 'Product Architect',
     role: 'Decides what the product should contain',
@@ -81,7 +112,8 @@ export const AGENT_DEFINITIONS: readonly AgentDefinition[] = [
     version: '1.0.0',
     requires: ['requirement-spec'],
     produces: ['product-spec'],
-    dependencies: ['requirement-analyst'],
+    // Both, so a skipped research agent leaves the first edge in place.
+    dependencies: ['requirement-analyst', 'research-agent'],
     requiredContext: 'PRODUCT_PLANNING',
     executionMode: 'ai',
     timeoutMs: 90_000,
@@ -163,6 +195,26 @@ export const AGENT_DEFINITIONS: readonly AgentDefinition[] = [
     enabled: true,
   },
   {
+    id: 'design-intelligence',
+    name: 'Design Intelligence',
+    role: 'Writes the site design: theme, sections and copy, checked against the request',
+    description:
+      'Calls the same site-design and domain-relevance services as the create path, retries once with the missing items named, and keeps the better attempt. Falls back to a spec-derived page and says so.',
+    version: '1.0.0',
+    requires: ['requirement-spec'],
+    produces: [SITE_DESIGN_ARTIFACT],
+    dependencies: ['product-architect'],
+    requiredContext: null,
+    executionMode: 'ai',
+    // Up to two model calls, which is why the ceiling is above a single one.
+    timeoutMs: 180_000,
+    // The service degrades instead of throwing; the retry for missing
+    // content is the targeted one inside the agent, not a blind re-run.
+    retryPolicy: NO_RETRY,
+    mutates: [],
+    enabled: true,
+  },
+  {
     id: 'frontend-engineer',
     name: 'Frontend Engineer',
     role: 'Builds the interface against the real API contract',
@@ -177,7 +229,7 @@ export const AGENT_DEFINITIONS: readonly AgentDefinition[] = [
       'backend-metadata',
     ],
     produces: ['frontend-source', 'frontend-config', 'frontend-metadata'],
-    dependencies: ['backend-engineer'],
+    dependencies: ['backend-engineer', 'design-intelligence'],
     requiredContext: 'FRONTEND_GENERATION',
     executionMode: 'deterministic',
     timeoutMs: 90_000,
@@ -210,10 +262,13 @@ export const AGENT_DEFINITIONS: readonly AgentDefinition[] = [
   /*
    * The review mesh.
    *
-   * All three depend on the frontend engineer and on nothing else, which
-   * makes them one wave of the DAG rather than a chain. That is the point:
-   * they read the same generated project and write nothing back to it, so
-   * there is no order between them to get right.
+   * All three depend on the frontend engineer and the UX engineer and on
+   * nothing else, which makes them one wave of the DAG rather than a chain.
+   * The UX edge is the important one: the UX engineer rewrites the frontend,
+   * and a reviewer scheduled alongside it reports on files that no longer
+   * exist by the time anyone reads the finding. Between themselves they read
+   * the same project and write nothing back, so there is no order to get
+   * right.
    *
    * `mutates: []` is the declaration that says so, and the scheduler reads
    * it — an agent that mutates nothing is safe to run alongside its peers.
@@ -238,7 +293,7 @@ export const AGENT_DEFINITIONS: readonly AgentDefinition[] = [
       'frontend-metadata',
     ],
     produces: ['security-report'],
-    dependencies: ['frontend-engineer'],
+    dependencies: ['frontend-engineer', 'ux-ui-engineer'],
     requiredContext: 'SECURITY_REVIEW',
     executionMode: 'deterministic',
     timeoutMs: 60_000,
@@ -256,7 +311,7 @@ export const AGENT_DEFINITIONS: readonly AgentDefinition[] = [
     version: '1.0.0',
     requires: ['backend-config', 'backend-source', 'frontend-config', 'frontend-source'],
     produces: ['dependency-report'],
-    dependencies: ['frontend-engineer'],
+    dependencies: ['frontend-engineer', 'ux-ui-engineer'],
     requiredContext: 'DEPENDENCY_REVIEW',
     executionMode: 'deterministic',
     timeoutMs: 45_000,
@@ -280,7 +335,7 @@ export const AGENT_DEFINITIONS: readonly AgentDefinition[] = [
       'frontend-source',
     ],
     produces: ['quality-report'],
-    dependencies: ['frontend-engineer'],
+    dependencies: ['frontend-engineer', 'ux-ui-engineer'],
     requiredContext: 'QUALITY_REVIEW',
     executionMode: 'deterministic',
     timeoutMs: 60_000,
@@ -370,10 +425,11 @@ export const AGENT_DEFINITIONS: readonly AgentDefinition[] = [
    * The repair engineer.
    *
    * Declared but never part of a generation run's DAG — `enabled: false`
-   * is what keeps it out. Repair is not a pipeline stage: it runs after
-   * validation, per finding, under a budget, driven by the repair engine
-   * — which invokes this agent through the same executor every other
-   * agent uses, so timeouts, retries and output validation still apply.
+   * is what keeps it out. Repair is not a planned stage: it runs when
+   * validation has verified a failure (`lib/post-validation-repair.ts`), per
+   * finding, under a budget, driven by the repair engine — which invokes
+   * this agent through the same executor every other agent uses, so
+   * timeouts and output validation still apply.
    *
    * `mutates` names FILE deliberately. This is the one agent whose whole
    * purpose is changing project files, and the declaration keeps it out

@@ -47,12 +47,7 @@ export function PageHeader({
           {title}
         </Heading>
         {description && (
-          <p
-            className={cn(
-              'max-w-xl text-fg-muted',
-              section ? 'mt-1 text-xs' : 'mt-1.5 text-[0.8125rem]',
-            )}
-          >
+          <p className={cn('max-w-xl text-fg-muted', section ? 'mt-1 text-xs' : 'mt-1.5 type-ui')}>
             {description}
           </p>
         )}

@@ -22,6 +22,7 @@
  * opinion has none, which is precisely why acting on one would mean
  * rewriting the file and calling it an improvement.
  */
+import { unpriced } from '../lib/agent-usage.js';
 import { generateWithContext } from '../../ai-orchestrator/ai-orchestrator.service.js';
 import { getAgentDefinition } from '../../../shared/contracts/index.js';
 import { logger } from '../../../shared/logger/index.js';
@@ -191,6 +192,7 @@ export const uxUiEngineerAgent: Agent<{ review: UxReview; improvements: UxImprov
         // Null when the model has no published price; it adds nothing to the
         // money total, and the AI analytics counts those calls separately.
         costUsd: response.record.cost.totalCostUsd ?? 0,
+        ...unpriced(response.record.cost.totalCostUsd),
         contextTokens: input.context?.tokens ?? 0,
       };
     } catch (error) {

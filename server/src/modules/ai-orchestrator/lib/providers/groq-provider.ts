@@ -15,7 +15,7 @@ import type {
   ModelCallResult,
   ModelProvider,
 } from '../../ai-orchestrator.types.js';
-import { postJson } from './http-utils.js';
+import { postJson, reportedUsage } from './http-utils.js';
 
 const API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
@@ -28,7 +28,11 @@ interface GroqResponse {
 
 /** `GROQ_API_KEY` wins; `AI_API_KEY` is the provider-neutral fallback. */
 function apiKey(): string | undefined {
-  return process.env.GROQ_API_KEY ?? process.env.AI_API_KEY;
+  // Empty counts as unset: compose passes `GROQ_API_KEY=` through when it is
+  // not configured, and that must not hide a real AI_API_KEY.
+  const own = process.env.GROQ_API_KEY?.trim();
+  if (own !== undefined && own !== '') return own;
+  return process.env.AI_API_KEY;
 }
 
 export class GroqProvider implements ModelProvider {
@@ -57,21 +61,25 @@ export class GroqProvider implements ModelProvider {
       // JSON mode makes "the model returned prose" a non-failure-mode rather
       // than something the response validator has to catch after the fact.
       ...(options.json ? { response_format: { type: 'json_object' } } : {}),
+      // gpt-oss reasons before it answers, out of this same budget. Saying
+      // "low" for work that needs no deliberation is the difference between
+      // a 1,070-token answer and a 342-token one.
+      ...(options.reasoningEffort === undefined
+        ? {}
+        : { reasoning_effort: options.reasoningEffort }),
     };
 
     const json = (await postJson(
       API_URL,
       { Authorization: `Bearer ${key}` },
       body,
+      options.timeoutMs,
     )) as GroqResponse;
     const choice = json.choices[0];
 
     return {
       content: choice?.message.content ?? '',
-      usage: {
-        inputTokens: json.usage?.prompt_tokens ?? 0,
-        outputTokens: json.usage?.completion_tokens ?? 0,
-      },
+      usage: reportedUsage(json.usage?.prompt_tokens, json.usage?.completion_tokens),
       model: json.model,
       provider: 'groq',
       stopReason: choice?.finish_reason ?? 'unknown',

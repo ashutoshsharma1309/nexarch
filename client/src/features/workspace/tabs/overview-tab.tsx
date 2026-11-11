@@ -38,6 +38,7 @@ import { EmptyState } from '@/shared/components/ui/empty-state';
 import { Spinner } from '@/shared/components/ui/spinner';
 import { useProjectIntelligence } from '@/shared/hooks/use-engineering-review';
 import { cn } from '@/shared/lib/cn';
+import { formatKnownCost } from '../execution/execution-format';
 import { useWorkspace } from '../workspace-context';
 import type {
   HealthEntry,
@@ -145,8 +146,8 @@ function MetricsStrip({ metrics }: { metrics: ProjectIntelligenceView['metrics']
 function AgentActivity({ agents }: { agents: NonNullable<ProjectIntelligenceView['agents']> }) {
   return (
     <Card>
-      <p className="border-b border-line px-4 py-2 font-mono text-2xs text-fg-subtle">
-        agent activity · latest run
+      <p className="border-b border-line px-4 py-2 text-2xs font-medium text-fg-subtle">
+        Agent activity · latest run
       </p>
       <ul className="divide-y divide-line" aria-label="Agent activity">
         {agents.map((agent) => (
@@ -182,8 +183,8 @@ function Timeline({ timeline }: { timeline: ProjectIntelligenceView['timeline'] 
   if (timeline.length === 0) return null;
   return (
     <Card>
-      <p className="flex items-center gap-1.5 border-b border-line px-4 py-2 font-mono text-2xs text-fg-subtle">
-        <Clock className="size-3" aria-hidden /> timeline
+      <p className="flex items-center gap-1.5 border-b border-line px-4 py-2 text-2xs font-medium text-fg-subtle">
+        <Clock className="size-3" aria-hidden /> Timeline
       </p>
       <ol className="divide-y divide-line" aria-label="Engineering timeline">
         {timeline.map((event) => (
@@ -286,8 +287,8 @@ function RunHistory({ runs }: { runs: RunHistoryEntry[] }) {
   return (
     <section aria-label="Run history">
       <Card>
-        <p className="border-b border-line px-4 py-2 font-mono text-2xs text-fg-subtle">
-          run history · select two to compare
+        <p className="border-b border-line px-4 py-2 text-2xs font-medium text-fg-subtle">
+          Run history · select two to compare
         </p>
         <ul className="divide-y divide-line">
           {runs.map((run) => (
@@ -556,8 +557,12 @@ export function OverviewTab() {
             <SummaryCard title="ai efficiency" icon={Coins} to={`${base}/build`}>
               <p className="font-mono text-2xs text-fg-muted tabular-nums">
                 {view.tokens.aiCalls} AI calls · {view.tokens.inputTokens}↓{' '}
-                {view.tokens.outputTokens}↑ · {view.tokens.contextTokens} context · $
-                {view.tokens.costUsd.toFixed(4)}
+                {view.tokens.outputTokens}↑ · {view.tokens.contextTokens} context ·{' '}
+                {formatKnownCost(
+                  view.tokens.costUsd,
+                  view.tokens.aiCalls,
+                  view.tokens.unpricedCalls,
+                )}
               </p>
               {/* Cache accounting (Step 31): shown only when it did something. */}
               {view.tokens.efficiency && view.tokens.efficiency.cacheHits > 0 && (

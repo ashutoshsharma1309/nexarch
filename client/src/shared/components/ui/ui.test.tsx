@@ -37,6 +37,27 @@ describe('Button', () => {
   });
 });
 
+describe('Button classes', () => {
+  // tailwind-merge reads an unrecognised `text-*` as a colour. A size token it
+  // does not know removes the variant's text colour without any error, and the
+  // label renders the same colour as its own background.
+  it.each([
+    ['forge', 'text-on-ember'],
+    ['primary', 'text-canvas'],
+    ['danger', 'text-danger'],
+  ] as const)('keeps the %s text colour at every size', (variant, colour) => {
+    for (const size of ['sm', 'md', 'lg'] as const) {
+      const { unmount } = render(
+        <Button variant={variant} size={size}>
+          Label
+        </Button>,
+      );
+      expect(screen.getByRole('button', { name: 'Label' })).toHaveClass(colour);
+      unmount();
+    }
+  });
+});
+
 describe('Badge', () => {
   it('applies the semantic variant class', () => {
     render(<Badge variant="danger">failed</Badge>);

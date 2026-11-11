@@ -110,6 +110,7 @@ export interface ProjectIntelligence {
     outputTokens: number;
     contextTokens: number;
     costUsd: number;
+    unpricedCalls?: number;
     byAgent: { agentId: string; name: string; tokens: number; costUsd: number }[];
     /** Agent-result cache accounting for the latest run (Steps 28, 31). */
     efficiency: {
@@ -543,6 +544,9 @@ export function assembleIntelligence(
             outputTokens: latestRun.totals.outputTokens,
             contextTokens: latestRun.totals.contextTokens,
             costUsd: latestRun.totals.costUsd,
+            ...(latestRun.totals.unpricedCalls
+              ? { unpricedCalls: latestRun.totals.unpricedCalls }
+              : {}),
             byAgent: tokensByAgent,
             efficiency: latestRun.totals.cache
               ? {

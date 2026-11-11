@@ -20,6 +20,9 @@ import {
   generateFrontend,
   normalizeSiteContent,
 } from './frontend-generator.service.js';
+import { emitLanding } from './lib/emit-landing.js';
+import { normalizeSiteDesign } from './lib/site-content.js';
+import type { SiteDesign } from './lib/site-content.js';
 import type { BackendManifest, GeneratedFrontend } from './frontend-generator.types.js';
 
 const DOMAIN_PROMPTS: readonly [string, string][] = [
@@ -477,6 +480,17 @@ describe('landing page', () => {
     assert.match(html, /<link rel="icon" href="data:image\/svg\+xml,/);
   });
 
+  it('keeps a website with no application from linking to an empty dashboard', () => {
+    const [, page] = emitLanding(normalizeSiteContent({ brand: 'Corner Clinic' }, derived), false);
+    const source = page?.content ?? '';
+    assert.equal(source.includes('/dashboard'), false);
+    assert.equal(source.includes('Open app'), false);
+    assert.equal(source.includes('react-router-dom'), false);
+    assert.match(source, /<a href=\{actionHref\}/);
+    assert.match(source, /const actionHref = `#\$\{/);
+    assert.match(source, /kind === 'contact'/);
+  });
+
   it('emits a public landing page at / and moves the dashboard to /dashboard', () => {
     const { plan } = planArchitecture(spec);
     const bundle = designDatabase(plan, spec);
@@ -531,5 +545,228 @@ describe('landing page', () => {
     assert.equal(siteModule.includes('"source"'), false);
     // The theme is applied, not shipped as data for the page to read.
     assert.equal(siteModule.includes('"theme"'), false);
+  });
+});
+
+/**
+ * One section kind used to mean one layout.
+ *
+ * Every generated site was assembled from the same kit, so the only thing
+ * telling a cafe apart from a dashboard was its colour, its font and the
+ * order of its sections — which is why they all read as the same site with
+ * different words. Worse, a catalog always rendered as an illustrated grid,
+ * and the illustration vocabulary resolves by keyword: every drink on a
+ * cafe menu matched the same 'coffee' shape, so the page printed nine
+ * identical cups.
+ *
+ * The layout is chosen by the model where it says so, and inferred from the
+ * shape of the items where it does not. These tests pin the inference,
+ * because it is what runs when the model stays quiet.
+ */
+describe('section layouts vary by what the section actually holds', () => {
+  const fallback: SiteDesign = {
+    brand: 'Fallback',
+    tagline: 'tagline',
+    theme: {
+      mode: 'light',
+      temperature: 'cool',
+      corners: 'soft',
+      fontId: 'inter',
+      palette: {} as SiteDesign['theme']['palette'],
+    },
+    sections: [],
+    footerNote: '',
+    source: 'derived',
+  };
+
+  const design = (temperature: string, items: Record<string, unknown>[]): SiteDesign =>
+    normalizeSiteDesign(
+      {
+        brand: 'Brand',
+        theme: { temperature },
+        sections: [
+          { kind: 'hero', id: 'top', navLabel: 'Home', headline: 'A headline goes here' },
+          { kind: 'catalog', id: 'c', navLabel: 'C', title: 'Title', subtitle: '', items },
+        ],
+      },
+      fallback,
+    );
+
+  const layoutsOf = (d: SiteDesign): { hero: string; catalog: string } => {
+    const hero = d.sections.find((s) => s.kind === 'hero');
+    const catalog = d.sections.find((s) => s.kind === 'catalog');
+    assert.ok(hero?.kind === 'hero' && catalog?.kind === 'catalog');
+    return { hero: hero.layout, catalog: catalog.layout };
+  };
+
+  it('reads a priced, terse list as a menu — the case that printed nine cups', () => {
+    const { hero, catalog } = layoutsOf(
+      design('warm', [
+        { name: 'Espresso', description: 'Bold and aromatic shot', price: '$3.00' },
+        { name: 'Latte', description: 'Smooth milk with espresso', price: '$4.50' },
+        { name: 'Cappuccino', description: 'Espresso with foam', price: '$4.00' },
+        { name: 'Americano', description: 'Espresso with hot water', price: '$3.50' },
+      ]),
+    );
+    assert.equal(catalog, 'menu');
+    // And a warm subject takes the editorial hero, not the software one.
+    assert.equal(hero, 'centered');
+  });
+
+  it('keeps a product range as cards: priced, but the copy earns the space', () => {
+    const { hero, catalog } = layoutsOf(
+      design('cool', [
+        {
+          name: 'Trail Runner 3',
+          description:
+            'A cushioned road-to-trail shoe with a rock plate, grippy lugs and a breathable upper for long summer miles.',
+          price: '$140',
+          art: 'commerce',
+        },
+        {
+          name: 'Alpine Shell',
+          description:
+            'A three-layer waterproof shell with taped seams, pit zips and a helmet-compatible hood for winter ridgelines.',
+          price: '$320',
+          art: 'storefront',
+        },
+      ]),
+    );
+    assert.equal(catalog, 'cards');
+    assert.equal(hero, 'split');
+  });
+
+  it('drops to a row list when every item would draw the same picture', () => {
+    const { catalog } = layoutsOf(
+      design('cool', [
+        { name: 'Revenue', description: 'Track revenue by channel', art: 'analytics' },
+        { name: 'Retention', description: 'Cohort curves and churn', art: 'analytics' },
+        { name: 'Funnels', description: 'Step conversion and drop-off', art: 'analytics' },
+        { name: 'Alerts', description: 'Threshold alerts by email', art: 'analytics' },
+      ]),
+    );
+    // Four rows, one illustration between them: the grid would be four
+    // copies of the same image.
+    assert.equal(catalog, 'list');
+  });
+
+  it('lets the model overrule the inference', () => {
+    const d = normalizeSiteDesign(
+      {
+        brand: 'Brand',
+        theme: { temperature: 'warm' },
+        sections: [
+          {
+            kind: 'hero',
+            id: 'top',
+            navLabel: 'Home',
+            headline: 'A headline goes here',
+            layout: 'split',
+          },
+          {
+            kind: 'catalog',
+            id: 'c',
+            navLabel: 'C',
+            title: 'T',
+            subtitle: '',
+            layout: 'cards',
+            items: [{ name: 'Flat white', description: 'Short', price: '$4' }],
+          },
+        ],
+      },
+      fallback,
+    );
+    const { hero, catalog } = layoutsOf(d);
+    assert.equal(hero, 'split', 'the model asked for split against a warm inference');
+    assert.equal(catalog, 'cards', 'and for cards against a menu inference');
+  });
+
+  it('refuses a cards grid that would be one picture repeated, even when asked', () => {
+    // Measured: with the prompt explicitly telling the model to avoid this,
+    // three of ten evaluation runs still asked for cards over items that all
+    // resolved to the same illustration. Guidance is not a guarantee, and
+    // this is the exact defect the layouts exist to prevent.
+    const d = normalizeSiteDesign(
+      {
+        brand: 'Brand',
+        theme: { temperature: 'cool' },
+        sections: [
+          { kind: 'hero', id: 'top', navLabel: 'Home', headline: 'A headline goes here' },
+          {
+            kind: 'catalog',
+            id: 'c',
+            navLabel: 'C',
+            title: 'T',
+            subtitle: '',
+            layout: 'cards',
+            items: [
+              { name: 'Revenue', description: 'Track revenue by channel', art: 'analytics' },
+              { name: 'Retention', description: 'Cohort curves', art: 'analytics' },
+              { name: 'Funnels', description: 'Step conversion', art: 'analytics' },
+              { name: 'Alerts', description: 'Threshold alerts', art: 'analytics' },
+            ],
+          },
+        ],
+      },
+      fallback,
+    );
+    assert.equal(layoutsOf(d).catalog, 'list', 'overruled, because cards would repeat one image');
+  });
+
+  it('still honours cards when the pictures genuinely differ', () => {
+    const d = normalizeSiteDesign(
+      {
+        brand: 'Brand',
+        theme: { temperature: 'cool' },
+        sections: [
+          { kind: 'hero', id: 'top', navLabel: 'Home', headline: 'A headline goes here' },
+          {
+            kind: 'catalog',
+            id: 'c',
+            navLabel: 'C',
+            title: 'T',
+            subtitle: '',
+            layout: 'cards',
+            items: [
+              { name: 'Coffee', description: 'Beans', art: 'coffee' },
+              { name: 'Pastry', description: 'Baked', art: 'pastry' },
+              { name: 'Shop', description: 'Retail', art: 'storefront' },
+              { name: 'Events', description: 'Bookings', art: 'calendar' },
+            ],
+          },
+        ],
+      },
+      fallback,
+    );
+    assert.equal(layoutsOf(d).catalog, 'cards', 'four different illustrations earn a grid');
+  });
+
+  it('drops a footer note that repeats the copyright the page already prints', () => {
+    // Observed on a generated cafe: the footer read
+    // "(c) 2026 The Brew House - (c) 2026 The Brew House", because the page
+    // renders the notice itself and the model wrote one into the note too.
+    const note = (value: string): string =>
+      normalizeSiteDesign(
+        {
+          brand: 'The Brew House',
+          theme: {},
+          footerNote: value,
+          sections: [{ kind: 'hero', id: 't', navLabel: 'H', headline: 'A headline here' }],
+        },
+        fallback,
+      ).footerNote;
+
+    assert.equal(note('\u00a9 2026 The Brew House'), '');
+    assert.equal(note('(c) 2026 The Brew House'), '');
+    assert.equal(note('Copyright 2026 The Brew House'), '');
+    // Anything with something of its own to say survives.
+    assert.equal(note('Open daily 7am - 6pm'), 'Open daily 7am - 6pm');
+  });
+
+  it('ignores a layout it does not recognise rather than emitting it', () => {
+    const { catalog } = layoutsOf(
+      design('warm', [{ name: 'X', description: 'Short', price: '$1', layout: 'carousel' }]),
+    );
+    assert.ok(['menu', 'cards', 'list'].includes(catalog));
   });
 });

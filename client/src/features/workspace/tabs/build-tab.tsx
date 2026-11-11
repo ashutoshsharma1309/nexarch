@@ -22,6 +22,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { publishArtifacts } from '@/features/pipeline/publish-artifacts';
 import { StageList } from '@/features/pipeline/stage-list';
 import { AgentRunPanel } from './agent-run-panel';
+import { FeatureCoverage, RunOutcomeNote } from './build-outcome';
 import { EditPanel } from './edit/edit-panel';
 import { PROMPT_MAX_LENGTH } from '@/features/prompt/forge-schema';
 import { Badge } from '@/shared/components/ui/badge';
@@ -36,6 +37,8 @@ import {
   useStartRun,
 } from '@/shared/hooks/use-pipeline';
 import { cn } from '@/shared/lib/cn';
+import { formatKnownCost, formatKnownTokens } from '../execution/execution-format';
+import type { PipelineRun, PipelineStage } from '@/shared/types/api';
 import { PROMPT_EXAMPLES } from '@/shared/lib/prompt-examples';
 import { toast } from '@/shared/store/toast.store';
 import { z } from 'zod';
@@ -58,8 +61,38 @@ const STAGE_TAB: Record<string, string> = {
   backend: 'code',
   frontend: 'code',
   security: 'intelligence',
+  'feature-implementation': 'code',
   dependencies: 'intelligence',
 };
+
+/** Verification failed and no repair made it pass, or it could not be judged. */
+function didNotPassVerification(stages: readonly PipelineStage[]): boolean {
+  const verification = stages.find((stage) => stage.id === 'verification');
+  const repair = stages.find((stage) => stage.id === 'repair');
+  return verification?.status === 'failed' && repair?.status !== 'completed';
+}
+
+/** The heading over a run. Runs from before outcomes existed fall back on the stages. */
+function runHeading(run: PipelineRun): string {
+  if (run.status === 'running') return 'Building';
+  if (run.status === 'failed') return 'Build failed';
+  switch (run.outcome) {
+    case 'verified':
+      return 'Build complete';
+    case 'verification-failed':
+      return 'Built, but it did not pass verification';
+    case 'verification-blocked':
+      return 'Built, but verification could not finish';
+    case 'incomplete':
+      return 'Built, but not everything requested was delivered';
+    case 'unverified':
+      return 'Built, but not verified';
+    case undefined:
+      return didNotPassVerification(run.stages)
+        ? 'Built, but it did not pass verification'
+        : 'Build complete';
+  }
+}
 
 export function BuildTab() {
   const workspace = useWorkspace();
@@ -119,6 +152,7 @@ export function BuildTab() {
 
   const busy = start.isPending || retry.isPending || liveRun?.status === 'running';
   const failed = liveRun?.status === 'failed';
+  const featureResult = (artifacts.data ?? workspace.artifacts)?.featureImplementation;
 
   return (
     <div className="space-y-6">
@@ -211,17 +245,21 @@ export function BuildTab() {
       {liveRun && (
         <section aria-label="Build progress" aria-live="polite">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-medium text-fg">
-              {liveRun.status === 'running'
-                ? 'Building'
-                : liveRun.status === 'failed'
-                  ? 'Build failed'
-                  : 'Build complete'}
-            </h2>
+            <h2 className="text-sm font-medium text-fg">{runHeading(liveRun)}</h2>
             {liveRun.ai.calls > 0 && (
               <p className="font-mono text-2xs text-fg-subtle">
-                {liveRun.ai.model} · {liveRun.ai.inputTokens + liveRun.ai.outputTokens} tokens · $
-                {liveRun.ai.estimatedCostUsd.toFixed(4)}
+                {liveRun.ai.model} ·{' '}
+                {formatKnownTokens(
+                  liveRun.ai.inputTokens + liveRun.ai.outputTokens,
+                  liveRun.ai.calls,
+                  liveRun.ai.unreportedTokenCalls,
+                )}{' '}
+                ·{' '}
+                {formatKnownCost(
+                  liveRun.ai.estimatedCostUsd,
+                  liveRun.ai.calls,
+                  liveRun.ai.unpricedCalls,
+                )}
               </p>
             )}
           </div>
@@ -229,6 +267,9 @@ export function BuildTab() {
           <Card>
             <StageList stages={liveRun.stages} />
           </Card>
+
+          <RunOutcomeNote run={liveRun} />
+          {featureResult && <FeatureCoverage result={featureResult} />}
 
           {failed && (
             <Card className="mt-3 border-danger/40">

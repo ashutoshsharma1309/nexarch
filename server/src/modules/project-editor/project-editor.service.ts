@@ -29,7 +29,7 @@ import { randomUUID } from 'node:crypto';
 import { generate } from '../ai-orchestrator/ai-orchestrator.service.js';
 import { diffLines } from '../agent-orchestrator/lib/line-diff.js';
 import { validateRuntime } from '../agent-orchestrator/lib/runtime-validation.js';
-import { stopSession } from '../runner/runner.service.js';
+import { INTERNAL_RUNNER_OWNER, stopSession } from '../runner/runner.service.js';
 import {
   generateFrontend,
   normalizeSiteDesign,
@@ -43,9 +43,15 @@ import { canonicalizePath } from '../engineering-graph/lib/canonical.js';
 import { getProjectOrThrow } from '../workspace/workspace.service.js';
 import { AppError } from '../../shared/utils/app-error.js';
 import { logger } from '../../shared/logger/index.js';
+import { withLogContext } from '../../shared/logger/context.js';
+import { logEvent, startTimer } from '../../shared/logger/events.js';
 import { redactString } from '../../shared/security/redact.js';
 import type { PipelineArtifacts, PipelineStage } from '../pipeline/pipeline.types.js';
 import type { SiteDesign } from '../frontend-generator/frontend-generator.service.js';
+import type { EnhancementOverlay } from '../enhancement/enhancement.types.js';
+import { enforceDesignScope } from './lib/design-scope.js';
+import { EditTimeline, editCallFrom } from './lib/edit-timeline.js';
+import type { EditModelCall } from './lib/edit-timeline.js';
 import type { AcceptedImage } from './lib/image-input.js';
 import {
   ActiveEditExists,
@@ -73,10 +79,18 @@ import type {
 
 /** Plans are short-lived working state, like a pipeline run's artifacts. */
 const MAX_PLANS = 40;
-const plans = new Map<string, { plan: EditPlan; ownerId: string; artifacts: PipelineArtifacts }>();
+const plans = new Map<
+  string,
+  { plan: EditPlan; ownerId: string; artifacts: PipelineArtifacts; usage: EditModelCall[] }
+>();
 
-function remember(plan: EditPlan, ownerId: string, artifacts: PipelineArtifacts): void {
-  plans.set(plan.id, { plan, ownerId, artifacts });
+function remember(
+  plan: EditPlan,
+  ownerId: string,
+  artifacts: PipelineArtifacts,
+  usage: EditModelCall[],
+): void {
+  plans.set(plan.id, { plan, ownerId, artifacts, usage });
   while (plans.size > MAX_PLANS) {
     const oldest = plans.keys().next().value;
     if (oldest === undefined) break;
@@ -102,7 +116,7 @@ function planOrThrow(planId: string, ownerId: string) {
  * but whose artifacts did not cannot be edited, and saying so is better than
  * editing something reconstructed from guesses.
  */
-async function baselineOf(
+export async function baselineOf(
   projectId: string,
 ): Promise<{ runId: string; artifacts: PipelineArtifacts }> {
   const runs = await listRunsForProject(projectId, 20);
@@ -120,6 +134,25 @@ async function baselineOf(
   }
   return { runId: latest.id, artifacts };
 }
+
+/**
+ * The id of the project's newest completed run, or null if it has none.
+ *
+ * What a stale-baseline check compares against. A plan is only good for the
+ * files it was made from: applying one made before a later edit or rebuild
+ * would quietly undo that later work.
+ */
+export async function latestCompletedRunId(projectId: string): Promise<string | null> {
+  const runs = await listRunsForProject(projectId, 20);
+  return runs.find((run) => run.status === 'COMPLETED')?.id ?? null;
+}
+
+/**
+ * Planning an edit never takes a cached answer. The cache can only answer a
+ * request already made against these exact files and not applied since, so a
+ * person planning again would be handed the answer that just failed.
+ */
+const FRESH_ANSWER = { forceRefresh: true } as const;
 
 const UNREAD: Omit<VisualReading, 'available' | 'unavailableReason' | 'model'> = {
   layout: '',
@@ -150,15 +183,23 @@ function list(value: unknown, max: number, itemMax: number): string[] {
  * edit still goes ahead on the instruction alone — but it will never claim to
  * have looked at a picture it could not read.
  */
-async function readImage(image: AcceptedImage, instruction: string): Promise<VisualReading> {
+async function readImage(
+  image: AcceptedImage,
+  instruction: string,
+  usage: EditModelCall[],
+): Promise<VisualReading> {
   try {
-    const response = await generate({
-      promptId: 'edit-vision',
-      variables: { INSTRUCTION: instruction, IMAGE_KIND: image.kind },
-      complexity: 'vision-analysis',
-      schema: 'generic-json',
-      images: [{ dataUrl: image.dataUrl, label: `${image.kind} image (${image.name})` }],
-    });
+    const response = await generate(
+      {
+        promptId: 'edit-vision',
+        variables: { INSTRUCTION: instruction, IMAGE_KIND: image.kind },
+        complexity: 'vision-analysis',
+        schema: 'generic-json',
+        images: [{ dataUrl: image.dataUrl, label: `${image.kind} image (${image.name})` }],
+      },
+      FRESH_ANSWER,
+    );
+    usage.push(editCallFrom(response));
     const raw = JSON.parse(response.content) as Record<string, unknown>;
     return {
       available: true,
@@ -201,6 +242,7 @@ async function proposeDesign(
   artifacts: PipelineArtifacts,
   instruction: string,
   reading: VisualReading,
+  usage: EditModelCall[],
 ): Promise<SiteDesign> {
   const current = artifacts.siteDesign;
   const response = await generate(
@@ -238,8 +280,9 @@ async function proposeDesign(
       complexity: 'large-planning',
       schema: 'generic-json',
     },
-    { maxOutputTokens: 6_144 },
+    { maxOutputTokens: 6_144, ...FRESH_ANSWER },
   );
+  usage.push(editCallFrom(response));
   return normalizeSiteDesign(JSON.parse(response.content), current);
 }
 
@@ -251,6 +294,13 @@ async function proposeDesign(
  * input that differs is the design — and so the only output that can differ
  * is what the design feeds.
  */
+/** A stored verdict describes one set of files, so an edit must not inherit it. */
+function withoutVerification(artifacts: PipelineArtifacts): PipelineArtifacts {
+  const carried = { ...artifacts };
+  delete carried.verification;
+  return carried;
+}
+
 function rebuildFiles(
   artifacts: PipelineArtifacts,
   design: SiteDesign,
@@ -266,11 +316,37 @@ function rebuildFiles(
   );
   return {
     frontend,
-    files: [
+    files: withEnhancements(artifacts, [
       ...overlayFiles(artifacts.backend.files, artifacts.security.backendFiles, 'backend'),
       ...overlayFiles(frontend.files, artifacts.security.frontendFiles, 'frontend'),
-    ],
+    ]),
   };
+}
+
+/**
+ * Keeps what enhancements changed when the generators run again.
+ *
+ * The generators know nothing about hand-applied file changes, so without this
+ * a design edit would quietly restore the generated originals: authentication
+ * added last week would vanish because someone changed a colour.
+ */
+function withEnhancements(
+  artifacts: PipelineArtifacts,
+  rebuilt: { path: string; content: string }[],
+): { path: string; content: string }[] {
+  const overlay = (artifacts as PipelineArtifacts & { enhancement?: EnhancementOverlay })
+    .enhancement;
+  if (!overlay) return rebuilt;
+  const current = new Map(artifacts.files.map((file) => [file.path, file.content]));
+  const removed = new Set(overlay.removedPaths);
+  const merged = new Map(
+    rebuilt.filter((file) => !removed.has(file.path)).map((file) => [file.path, file.content]),
+  );
+  for (const path of overlay.overriddenPaths) {
+    const content = current.get(path);
+    if (content !== undefined) merged.set(path, content);
+  }
+  return [...merged.entries()].map(([path, content]) => ({ path, content }));
 }
 
 /**
@@ -308,7 +384,7 @@ export function changedFilesBetween(
  * report says the graph was unavailable rather than quietly returning an
  * empty impact that reads like "nothing depends on this".
  */
-async function impactOf(
+export async function impactOf(
   ownerId: string,
   projectId: string,
   changedPaths: readonly string[],
@@ -444,16 +520,30 @@ export async function planEdit(input: PlanEditInput): Promise<EditPlan> {
   await getProjectOrThrow(input.ownerId, input.projectId);
   const { runId, artifacts } = await baselineOf(input.projectId);
 
+  const usage: EditModelCall[] = [];
   const reading = input.image
-    ? await readImage(input.image, input.instruction)
+    ? await readImage(input.image, input.instruction, usage)
     : { ...UNREAD, available: false, unavailableReason: 'No image was attached.', model: null };
 
-  const design = await proposeDesign(artifacts, input.instruction, reading);
+  const proposed = await proposeDesign(artifacts, input.instruction, reading, usage);
+  const {
+    design,
+    kept: keptAsTheyWere,
+    limitUnenforced,
+  } = enforceDesignScope(input.instruction, artifacts.siteDesign, proposed);
   const { files } = rebuildFiles(artifacts, design);
   const changed = changedFilesBetween(artifacts.files, files);
   const changedPaths = changed.map((file) => file.path);
 
   const { summary, risks } = describeChange(artifacts.siteDesign, design);
+  for (const entry of keptAsTheyWere) {
+    risks.push(`${entry.field} was kept as it was, because ${entry.reason}.`);
+  }
+  if (limitUnenforced) {
+    risks.push(
+      'The instruction limits what may change, but names nothing that could be matched to a part of the site, so that limit could not be enforced. Check the changes below.',
+    );
+  }
 
   // The edit must not cost the project its subject: a cafe that stops
   // mentioning coffee has been replaced, not edited.
@@ -502,11 +592,12 @@ export async function planEdit(input: PlanEditInput): Promise<EditPlan> {
       'Start it and check it answers',
     ],
     design,
+    ...(keptAsTheyWere.length > 0 ? { keptAsTheyWere } : {}),
     status: 'planned',
     createdAt: new Date().toISOString(),
   };
 
-  remember(plan, input.ownerId, artifacts);
+  remember(plan, input.ownerId, artifacts, usage);
   return plan;
 }
 
@@ -538,8 +629,10 @@ export interface EditDeps {
 
 const DEFAULT_DEPS: EditDeps = {
   validate: validateRuntime,
+  // The owner `validateRuntime` created the session under. Stopping it as
+  // anyone else is refused, which left every validation preview running.
   stop: (sessionId) => {
-    stopSession(sessionId, INTERNAL_EDIT_OWNER);
+    stopSession(sessionId, INTERNAL_RUNNER_OWNER);
   },
 };
 
@@ -618,7 +711,33 @@ export async function applyEdit(
   await onStage('rebuilding');
   const { files, frontend } = rebuildFiles(artifacts, plan.design);
   const changedFiles = changedFilesBetween(artifacts.files, files);
+
+  // The plan listed these files and told the person the rest were preserved.
+  // Checked rather than assumed, before anything is built or stored.
+  const plannedPaths = new Set(plan.changes.map((change) => change.path));
+  const outsidePlan = changedFiles.filter((file) => !plannedPaths.has(file.path));
+  if (outsidePlan.length > 0) {
+    plan.status = 'rejected';
+    return {
+      planId: plan.id,
+      projectId: plan.projectId,
+      status: 'rejected',
+      runId: null,
+      changedFiles,
+      unchangedFileCount: files.length - changedFiles.length,
+      validation: { checks: [], startedUp: false, frontendUrl: null, backendUrl: null },
+      outcome: `Applying this would also have changed files the plan said it would preserve (${outsidePlan
+        .slice(0, 5)
+        .map((file) => file.path)
+        .join(', ')}), so it was discarded and the project keeps its previous files.`,
+      rolledBack: true,
+      completedAt: new Date().toISOString(),
+    };
+  }
+
   await onStage('validating', `${String(changedFiles.length)} files rebuilt`);
+  logEvent({ event: 'validation.start', target: 'edited project' });
+  const validationElapsed = startTimer();
 
   const project = await getProjectOrThrow(ownerId, plan.projectId);
   const runIdForValidation = randomUUID();
@@ -663,12 +782,19 @@ export async function applyEdit(
         {
           name: 'Startup',
           status: result.startupStatus,
-          detail: result.errors.join('; ') || 'the edited application started',
+          // A failed health probe is the Health row's to report; it says nothing
+          // about whether the application started.
+          detail:
+            result.errors.filter((entry) => !entry.startsWith('Health probe:')).join('; ') ||
+            'the edited application started',
         },
         {
           name: 'Health',
           status: result.healthStatus,
-          detail: result.processes.map((proc) => `${proc.kind} ${proc.status}`).join(', '),
+          detail: [
+            ...result.errors.filter((entry) => entry.startsWith('Health probe:')),
+            result.processes.map((proc) => `${proc.kind} ${proc.status}`).join(', '),
+          ].join('; '),
         },
       ],
       startedUp: result.startupStatus === 'PASS',
@@ -684,6 +810,19 @@ export async function applyEdit(
       backendUrl: null,
     };
   } finally {
+    // The measurement is taken here so it covers both the normal path and
+    // the one where validation itself threw — "validation took five
+    // minutes and then blew up" is the case worth seeing.
+    const failed = validation.checks.filter((check) => check.status === 'FAIL').length;
+    logEvent({
+      event: 'validation',
+      target: 'edited project',
+      outcome: failed === 0 && validation.checks.length > 0 ? 'passed' : 'failed',
+      issues: failed,
+      durationMs: validationElapsed(),
+      // Blocking: these checks decide whether the edit is kept at all.
+      blocking: true,
+    });
     // The validation preview has served its purpose; holding a run slot for
     // it would block the user's own preview of the result.
     if (sessionId !== null) {
@@ -714,6 +853,25 @@ export async function applyEdit(
     };
   }
 
+  // Checked again at the last moment: validation takes minutes and a rebuild
+  // can finish during them, which would be overwritten by this older baseline.
+  if ((await latestCompletedRunId(plan.projectId)) !== plan.basedOnRunId) {
+    plan.status = 'rejected';
+    return {
+      planId: plan.id,
+      projectId: plan.projectId,
+      status: 'rejected',
+      runId: null,
+      changedFiles,
+      unchangedFileCount: files.length - changedFiles.length,
+      validation,
+      outcome:
+        'The project changed while this edit was running, so it was discarded rather than overwriting the newer version. Plan the edit again.',
+      rolledBack: true,
+      completedAt: new Date().toISOString(),
+    };
+  }
+
   // One stage, because one thing ran. Listing the eight generation stages an
   // edit never performed would be inventing evidence.
   const stages: PipelineStage[] = [
@@ -737,7 +895,7 @@ export async function applyEdit(
     projectName: project.name,
     ownerId,
     prompt: plan.instruction,
-    artifacts: { ...artifacts, siteDesign: plan.design, frontend, files },
+    artifacts: { ...withoutVerification(artifacts), siteDesign: plan.design, frontend, files },
     stages,
     ai: {
       calls: 0,
@@ -796,9 +954,6 @@ export async function applyEdit(
   };
 }
 
-/** The runner owner the edit's own validation session belongs to. */
-const INTERNAL_EDIT_OWNER = 'internal:project-editor';
-
 export function resetEditPlansForTests(): void {
   plans.clear();
 }
@@ -840,6 +995,12 @@ export async function startEditJob(
     );
   }
 
+  if ((await latestCompletedRunId(plan.projectId)) !== plan.basedOnRunId) {
+    throw AppError.conflict(
+      'The project has changed since this edit was planned. Plan the edit again so it starts from the current files.',
+    );
+  }
+
   let job: EditJob;
   try {
     job = await createJob({
@@ -860,7 +1021,14 @@ export async function startEditJob(
   // Deliberately not awaited: the point is that this outlives the request.
   // Every path inside writes a terminal state, so a job cannot be left
   // claiming to run after the work stops.
-  void runEditJob(job.id, planId, ownerId, deps);
+  //
+  // Forked with the job's own id so the minutes of work that follow are
+  // grouped under the job rather than under a request that has already been
+  // answered — which is the only way "why did this edit roll back" is one
+  // lookup instead of a scan.
+  withLogContext({ jobId: job.id, projectId: plan.projectId }, () => {
+    void runEditJob(job.id, planId, ownerId, deps);
+  });
   return job;
 }
 
@@ -912,10 +1080,25 @@ async function runEditJob(
   }, HEARTBEAT_MS);
   pulse.unref();
 
+  const entry = plans.get(planId);
+  const timeline = entry ? new EditTimeline(entry.plan.projectId, jobId) : null;
+  if (entry && timeline) {
+    timeline.emit('job.started', 'Edit started', 'started', {
+      data: { title: entry.plan.instruction.slice(0, 120) },
+    });
+    // Charged once: a plan that stays `planned` can be applied again.
+    timeline.replayPlanning(entry.usage.splice(0), entry.plan.createdAt);
+  }
+
   try {
     const result = await applyEdit(planId, ownerId, deps, async (stage, detail) => {
+      timeline?.enterStage(stage, detail);
       await advanceStage(jobId, stage, detail ?? null);
     });
+    timeline?.filesChanged(result.changedFiles);
+    timeline?.checks(result.validation);
+    if (result.status === 'applied') timeline?.closeStage(result.outcome);
+    else timeline?.failStage(result.outcome);
 
     await finishJob(jobId, {
       status: result.status === 'applied' ? 'SUCCEEDED' : 'REJECTED',
@@ -924,6 +1107,15 @@ async function runEditJob(
       detail: result.outcome,
     });
     settled = true;
+    if (result.status === 'applied') {
+      timeline?.emit('job.completed', result.outcome, 'succeeded', {
+        data: { runId: result.runId, durationMs: Date.now() - startedAt },
+      });
+    } else {
+      timeline?.emit('job.failed', result.outcome, 'failed', {
+        data: { error: result.outcome, durationMs: Date.now() - startedAt },
+      });
+    }
     logger.info('edit job finished', {
       jobId,
       status: result.status,
@@ -951,6 +1143,11 @@ async function runEditJob(
       error: `${reason} The project was not changed.`,
       detail: 'the edit could not be completed',
     });
+    const stage = timeline?.failStage(reason);
+    timeline?.emit('job.failed', `${reason} The project was not changed.`, 'failed', {
+      ...(stage ? { stage } : {}),
+      data: { error: reason },
+    });
   } finally {
     clearInterval(pulse);
   }
@@ -971,7 +1168,9 @@ export async function getEditJob(jobId: string, ownerId: string): Promise<EditJo
  */
 export async function currentEditJob(projectId: string, ownerId: string): Promise<EditJob | null> {
   await getProjectOrThrow(ownerId, projectId);
+  // Edits only: an enhancement's result is a different shape, and it has its
+  // own `/enhancements/jobs/current` for the screen that understands it.
   const active = await activeJobFor(projectId);
-  if (active?.ownerId === ownerId) return active;
-  return latestJobFor(projectId, ownerId);
+  if (active?.ownerId === ownerId && active.kind === 'EDIT') return active;
+  return latestJobFor(projectId, ownerId, 'EDIT');
 }

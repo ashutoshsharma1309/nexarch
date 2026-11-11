@@ -20,9 +20,7 @@ export function Logo({ className }: { className?: string }) {
   return (
     <span className={cn('flex items-center gap-2.5', className)}>
       <LogoMark />
-      <span className="font-mono text-[0.8125rem] font-semibold tracking-tight text-fg">
-        nexarch
-      </span>
+      <span className="font-mono type-ui font-semibold tracking-tight text-fg">nexarch</span>
     </span>
   );
 }

@@ -13,6 +13,8 @@ export interface RetryOptions {
   maxDelayMs?: number;
   /** Smallest wait after a 429 the provider gave no retry-after for. */
   rateLimitFloorMs?: number;
+  /** True when another attempt cannot help, so the error should surface now. */
+  shouldGiveUp?: (error: unknown) => boolean;
 }
 
 /**
@@ -66,7 +68,7 @@ export async function withRetry<T>(
       if (error instanceof NonRetryableError) throw error;
 
       const { kind, message } = classify(error);
-      const isLastAttempt = attempt === maxAttempts;
+      const isLastAttempt = attempt === maxAttempts || options.shouldGiveUp?.(error) === true;
       const exponential = Math.min(maxDelayMs, baseDelayMs * 2 ** (attempt - 1));
       const backoffDelay =
         kind === 'rate-limit'

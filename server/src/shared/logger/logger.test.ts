@@ -19,6 +19,7 @@ import type { Request, Response } from 'express';
 
 import { logger } from './index.js';
 import { logEvent, startTimer } from './events.js';
+import { clearTimelines, getTimeline, listTimelines, summarize } from './timeline.js';
 import {
   currentLogContext,
   currentRequestId,
@@ -323,5 +324,345 @@ describe('operational events', () => {
   it('measures a duration that cannot come out negative', () => {
     const elapsed = startTimer()();
     assert.ok(elapsed >= 0);
+  });
+});
+
+/**
+ * The execution timeline.
+ *
+ * Two kinds of mistake are worth a test here. The first is grouping: an
+ * event filed under the wrong correlation is worse than no event, because
+ * it attributes one user's failure to another run. The second is the honesty
+ * rule the summary exists to keep — a question nothing measured must come
+ * back null, never zero, because a reader cannot tell a measured zero from
+ * a placeholder and the placeholder is the one that misleads.
+ */
+describe('execution timeline', () => {
+  const OWNER = 'user-timeline';
+
+  /** Emits under a fresh context and returns the timeline it produced. */
+  function underContext(
+    context: { runId?: string; jobId?: string; sessionId?: string; requestId?: string },
+    emit: () => void,
+  ): ReturnType<typeof getTimeline> {
+    clearTimelines();
+    let key = '';
+    runWithLogContext({ ...context, userId: OWNER }, () => {
+      key = context.runId ?? context.jobId ?? context.sessionId ?? context.requestId ?? '';
+      emit();
+    });
+    return getTimeline(key, OWNER);
+  }
+
+  it('groups events under the run, which is the unit a reader thinks in', () => {
+    const timeline = underContext({ runId: 'run-1', requestId: 'req-1' }, () => {
+      logEvent({ event: 'stage.start', stage: 'analysis' });
+      logEvent({ event: 'stage.end', stage: 'analysis', outcome: 'completed', durationMs: 120 });
+    });
+
+    assert.equal(timeline?.key, 'run-1', 'the run id wins over the request id');
+    assert.equal(timeline.entries.length, 2);
+    assert.deepEqual(
+      timeline.entries.map((entry) => entry.event.event),
+      ['stage.start', 'stage.end'],
+    );
+  });
+
+  it('groups an edit under its job, which has no run id while it runs', () => {
+    const timeline = underContext({ jobId: 'job-9', requestId: 'req-2' }, () => {
+      logEvent({ event: 'job.transition', jobId: 'job-9', from: 'QUEUED', to: 'RUNNING' });
+    });
+    assert.equal(timeline?.key, 'job-9');
+  });
+
+  it('keeps events the request detached and left running', async () => {
+    clearTimelines();
+    // The shape that matters: the caller returns, the work carries on, and
+    // its events must still land under the run it belongs to.
+    await new Promise<void>((resolve) => {
+      runWithLogContext({ runId: 'run-detached', userId: OWNER }, () => {
+        void (async () => {
+          await new Promise((tick) => setTimeout(tick, 5));
+          logEvent({ event: 'stage.start', stage: 'backend' });
+          resolve();
+        })();
+      });
+    });
+    assert.equal(getTimeline('run-detached', OWNER)?.entries.length, 1);
+  });
+
+  it('answers the questions a post-mortem actually asks', () => {
+    const timeline = underContext({ runId: 'run-2' }, () => {
+      logEvent({ event: 'run.start', trigger: 'prompt', stages: 8 });
+      logEvent({ event: 'stage.end', stage: 'analysis', outcome: 'completed', durationMs: 400 });
+      logEvent({ event: 'stage.end', stage: 'backend', outcome: 'completed', durationMs: 9_000 });
+      logEvent({ event: 'stage.end', stage: 'frontend', outcome: 'completed', durationMs: 1_200 });
+      logEvent({ event: 'agent.start', agentId: 'backend-engineer' });
+      logEvent({
+        event: 'agent.end',
+        agentId: 'backend-engineer',
+        outcome: 'failed',
+        durationMs: 300,
+        reason: 'provider unreachable',
+      });
+      logEvent({ event: 'retry', target: 'backend-engineer', attempt: 1, reason: 'transient' });
+      logEvent({ event: 'retry', target: 'backend-engineer', attempt: 2, reason: 'transient' });
+      logEvent({
+        event: 'model.call',
+        provider: 'groq',
+        model: 'openai/gpt-oss-20b',
+        outcome: 'success',
+        durationMs: 800,
+        retries: 1,
+        costUsd: 0.0002,
+      });
+      logEvent({
+        event: 'model.call',
+        provider: 'groq',
+        model: 'openai/gpt-oss-20b',
+        outcome: 'cached',
+        durationMs: 2,
+      });
+      logEvent({
+        event: 'validation',
+        target: 'build',
+        outcome: 'passed',
+        issues: 0,
+        durationMs: 5_000,
+      });
+      logEvent({
+        event: 'validation',
+        target: 'lint',
+        outcome: 'failed',
+        issues: 3,
+        durationMs: 1_000,
+      });
+      logEvent({
+        event: 'repair.attempt',
+        attempt: 1,
+        target: 'finding f1',
+        outcome: 'fixed',
+        durationMs: 700,
+      });
+      logEvent({
+        event: 'rollback',
+        target: 'project p1',
+        outcome: 'restored',
+        reason: 'validation failed',
+      });
+      logEvent({
+        event: 'process.exit',
+        command: 'npm',
+        exitCode: 1,
+        signal: null,
+        durationMs: 60,
+      });
+      logEvent({
+        event: 'run.end',
+        outcome: 'failed',
+        durationMs: 20_000,
+        completed: 6,
+        skipped: 1,
+        failed: 1,
+      });
+    });
+
+    const summary = timeline?.summary;
+    assert.ok(summary);
+    // Which stage took the longest?
+    assert.deepEqual(summary.slowestStage, { stage: 'backend', durationMs: 9_000 });
+    assert.equal(summary.totalStageMs, 10_600);
+    // Which agent failed?
+    assert.deepEqual(summary.failedAgents, ['backend-engineer']);
+    // How many model calls, and how many were free?
+    assert.equal(summary.modelCalls, 2);
+    assert.equal(summary.cachedModelCalls, 1);
+    // How many retries were needed?
+    assert.equal(summary.retries, 2);
+    assert.equal(summary.modelRetries, 1);
+    // How long did validation take, and what failed?
+    assert.equal(summary.validationMs, 6_000);
+    assert.equal(summary.validationsPassed, 1);
+    assert.equal(summary.validationsFailed, 1);
+    // Which repair attempts succeeded?
+    assert.equal(summary.repairAttempts, 1);
+    assert.equal(summary.repairsFixed, 1);
+    // Did anything roll back, or exit unexpectedly?
+    assert.equal(summary.rollbacks, 1);
+    assert.equal(summary.unexpectedProcessExits, 1);
+    // And the reason the first thing went wrong, which is usually the cause.
+    assert.equal(summary.firstFailureReason, 'provider unreachable');
+    assert.equal(summary.costUsd, 0.0002);
+  });
+
+  it('reports what nothing measured as null rather than zero', () => {
+    const timeline = underContext({ runId: 'run-3' }, () => {
+      logEvent({ event: 'stage.start', stage: 'analysis' });
+      logEvent({
+        event: 'model.call',
+        provider: 'groq',
+        model: 'openai/gpt-oss-20b',
+        outcome: 'cached',
+        durationMs: 2,
+      });
+    });
+
+    const summary = timeline?.summary;
+    assert.ok(summary);
+    assert.equal(summary.slowestStage, null, 'no stage ended, so there is no slowest one');
+    assert.equal(summary.totalStageMs, null);
+    assert.equal(summary.validationMs, null, 'nothing validated — not "validated in 0ms"');
+    // A cache hit paid nobody and reported no retry count. Neither becomes a
+    // measured zero.
+    assert.equal(summary.costUsd, null);
+    assert.equal(summary.modelRetries, null);
+    assert.equal(summary.firstFailureReason, null);
+    // Counts of things that did happen are still counts.
+    assert.equal(summary.modelCalls, 1);
+  });
+
+  it('does not hand one user another user’s timeline', () => {
+    underContext({ runId: 'run-4' }, () => {
+      logEvent({ event: 'stage.start', stage: 'analysis' });
+    });
+    assert.ok(getTimeline('run-4', OWNER), 'the owner can read it');
+    assert.equal(getTimeline('run-4', 'someone-else'), null, 'not yours reads as not found');
+    assert.deepEqual(listTimelines('someone-else'), []);
+  });
+
+  it('drops events outside a context instead of inventing a key', () => {
+    clearTimelines();
+    logEvent({ event: 'stage.start', stage: 'analysis' });
+    assert.deepEqual(listTimelines(OWNER), [], 'a startup path has nothing to group by');
+  });
+
+  it('says so when it stopped recording rather than looking complete', () => {
+    clearTimelines();
+    runWithLogContext({ runId: 'run-flood', userId: OWNER }, () => {
+      // Past the per-correlation entry cap, which exists so a runaway
+      // emitter cannot grow the process.
+      for (let i = 0; i < 520; i += 1) logEvent({ event: 'stage.start', stage: `s${String(i)}` });
+    });
+    const timeline = getTimeline('run-flood', OWNER);
+    assert.equal(timeline?.truncated, true);
+    assert.ok(timeline.entries.length < 520, 'it stopped collecting');
+  });
+
+  it('masks a credential a failure reason dragged in', () => {
+    // The log line is redacted by the logger's format chain, which runs on
+    // the way to the transports and never touches the timeline's copy.
+    // Several kinds build their reason from an error message, and a Prisma
+    // connection error carries the credential URL in its text — so this copy
+    // has to be redacted on the way in. Without it the log file masked the
+    // password and the timeline API served it.
+    const timeline = underContext({ runId: 'run-secret' }, () => {
+      logEvent({
+        event: 'stage.end',
+        stage: 'database',
+        outcome: 'failed',
+        durationMs: 10,
+        reason: 'P1001: cannot reach postgresql://admin:SuperSecret123@db.host:5432/nexarch',
+      });
+    });
+
+    const served = JSON.stringify(timeline);
+    assert.ok(!served.includes('SuperSecret123'), 'the password never reaches a reader');
+    assert.ok(!served.includes('admin'), 'nor the user it belonged to');
+    // And the diagnosis survives, because a redacted line still has to be
+    // worth reading.
+    assert.match(served, /P1001/);
+    assert.match(served, /db\.host/);
+  });
+
+  it('admits a timeline that was evicted and came back', () => {
+    clearTimelines();
+    // A long run's bucket dropped mid-flight used to reappear with a fresh
+    // start time and truncated:false, so a half-missing timeline asserted it
+    // was complete — and its "slowest stage" was whichever stage survived.
+    runWithLogContext({ runId: 'run-long', userId: OWNER }, () => {
+      logEvent({ event: 'stage.start', stage: 'analysis' });
+    });
+    // Push it out with more correlations than the buffer keeps.
+    for (let i = 0; i < 60; i += 1) {
+      runWithLogContext({ runId: `filler-${String(i)}`, userId: OWNER }, () => {
+        logEvent({ event: 'stage.start', stage: 'analysis' });
+      });
+    }
+    assert.equal(getTimeline('run-long', OWNER), null, 'it was evicted');
+
+    runWithLogContext({ runId: 'run-long', userId: OWNER }, () => {
+      logEvent({ event: 'stage.end', stage: 'backend', outcome: 'completed', durationMs: 5 });
+    });
+    assert.equal(
+      getTimeline('run-long', OWNER)?.truncated,
+      true,
+      'the timeline says it is missing events rather than looking complete',
+    );
+  });
+
+  it('does not let two accounts share a bucket through one request id', () => {
+    clearTimelines();
+    // A request may supply its own X-Request-Id, and a plain request with no
+    // run, job or session groups under it. Keying on that alone meant two
+    // accounts sending the same header shared a bucket, and whichever
+    // created it could read the other's events.
+    runWithLogContext({ requestId: 'shared-trace', userId: 'user-a' }, () => {
+      logEvent({ event: 'cleanup', target: 'a-only', outcome: 'removed' });
+    });
+    runWithLogContext({ requestId: 'shared-trace', userId: 'user-b' }, () => {
+      logEvent({ event: 'cleanup', target: 'b-only', outcome: 'removed' });
+    });
+
+    const a = getTimeline('shared-trace', 'user-a');
+    const b = getTimeline('shared-trace', 'user-b');
+    assert.equal(a?.entries.length, 1);
+    assert.equal(b?.entries.length, 1);
+    assert.ok(!JSON.stringify(a).includes('b-only'), 'A cannot see B’s event');
+    assert.ok(!JSON.stringify(b).includes('a-only'), 'nor B A’s');
+  });
+
+  it('serves the token figures rather than masking its own counts', () => {
+    // The redactor masks any key containing "token", so storing the raw
+    // event meant the timeline API served "***" where the log line
+    // published real numbers.
+    const timeline = underContext({ runId: 'run-usage' }, () => {
+      logEvent({
+        event: 'model.call',
+        provider: 'groq',
+        model: 'openai/gpt-oss-20b',
+        outcome: 'success',
+        durationMs: 900,
+        tokens: { inputTokens: 1200, outputTokens: 800 },
+      });
+    });
+    const served = JSON.stringify(timeline);
+    assert.ok(!served.includes('***'), 'nothing here is a secret');
+    assert.match(served, /"input":1200/);
+    assert.match(served, /"output":800/);
+  });
+
+  it('keeps one project’s executions separate from another’s', () => {
+    clearTimelines();
+    runWithLogContext({ runId: 'run-p1', userId: OWNER, projectId: 'project-1' }, () => {
+      logEvent({ event: 'stage.start', stage: 'analysis' });
+    });
+    runWithLogContext({ runId: 'run-p2', userId: OWNER, projectId: 'project-2' }, () => {
+      logEvent({ event: 'stage.start', stage: 'analysis' });
+    });
+
+    assert.deepEqual(
+      listTimelines(OWNER, 'project-1').map((timeline) => timeline.key),
+      ['run-p1'],
+    );
+    assert.equal(listTimelines(OWNER).length, 2, 'unfiltered still lists both');
+  });
+
+  it('summarizes an empty timeline without inventing anything', () => {
+    const summary = summarize([]);
+    assert.equal(summary.slowestStage, null);
+    assert.equal(summary.modelCalls, 0);
+    assert.equal(summary.retries, 0);
+    assert.equal(summary.costUsd, null);
+    assert.deepEqual(summary.failedAgents, []);
   });
 });

@@ -33,7 +33,11 @@ export function wireRunRecorder(): void {
       return;
     }
 
-    void closeRun(run.id, run.status === 'completed' ? 'COMPLETED' : 'FAILED', run.error).catch(
+    // A finished run that did not pass still records why, or a restart would
+    // bring it back with nothing to show that it fell short.
+    const closingNote =
+      run.error ?? (run.outcome === 'verified' ? null : (run.outcomeDetail ?? null));
+    void closeRun(run.id, run.status === 'completed' ? 'COMPLETED' : 'FAILED', closingNote).catch(
       (error: unknown) => {
         logger.warn('run record could not be closed', { runId: run.id, error });
       },

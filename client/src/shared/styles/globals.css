@@ -1,66 +1,84 @@
 /**
  * NexArch design tokens and global styles.
  *
- * The system is dark-first: `:root` carries the dark palette and removing
- * the `dark` class on <html> switches to light. Components consume only the
- * semantic utilities Tailwind derives from `@theme inline` (bg-canvas,
- * text-fg-muted, border-line, …) — raw hex values never appear in TSX.
+ * The visual idea is a working drawing set. Dark is a cyanotype: Prussian
+ * ground, chalk lines. Light is drafting film: cool grey-blue, Prussian ink.
+ * Components consume only the semantic utilities Tailwind derives from
+ * `@theme inline` (bg-canvas, text-fg-muted, border-line, …), so raw hex never
+ * appears in TSX and both themes stay correct by construction.
  *
- * One deliberate accent rule: the interface is uniformly cool graphite;
- * the single warm color (`ember`) is reserved for the Forge action and
- * generation activity. If something glows warm, the platform is making
- * something.
+ * Colour has one job each:
+ *  - accent: where you are and what you can act on. Selection, focus, links.
+ *  - ember: the platform is making something. The start-work action and live
+ *    generation activity only, never decoration and never navigation.
+ *  - success, warning, danger: status, always paired with a word or an icon.
+ *
+ * Every text colour here clears 4.5:1 on every background token in both themes.
  */
 @import 'tailwindcss';
-@import '@fontsource-variable/inter';
+/* The `opsz` build carries Inter Display, so large headings get the tighter
+   cut automatically instead of a blown-up text face. */
+@import '@fontsource-variable/inter/opsz.css';
 @import '@fontsource-variable/jetbrains-mono';
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ── Light palette (default when `dark` class is absent) ─────────────── */
+/* ── Light: drafting film (default when the `dark` class is absent) ─────── */
 :root {
-  --palette-canvas: #f6f6f7;
-  --palette-surface: #ffffff;
+  --palette-canvas: #e9eef2;
+  --palette-surface: #f8fafb;
   --palette-raised: #ffffff;
-  --palette-inset: #eeeef0;
-  --palette-line: #e2e3e6;
-  --palette-line-strong: #cbccd1;
-  --palette-fg: #191b1f;
-  --palette-fg-muted: #5c5f66;
-  --palette-fg-subtle: #8b8e96;
-  --palette-accent: #4f5cc4;
-  --palette-accent-hover: #4350b6;
-  --palette-accent-soft: #4f5cc41a;
-  --palette-ember: #c26a3c;
-  --palette-ember-hover: #b05e33;
-  --palette-ember-soft: #c26a3c1a;
-  --palette-success: #2f8a62;
-  --palette-warning: #b07d28;
-  --palette-danger: #c04747;
-  --palette-danger-soft: #c047471a;
+  --palette-inset: #e3e9ee;
+  --palette-line: #cdd7df;
+  --palette-line-strong: #a9b8c4;
+  --palette-grid: #0d22310f;
+  --palette-shadow: #0d223133;
+  --palette-fg: #0d2231;
+  --palette-fg-muted: #3e5464;
+  --palette-fg-subtle: #516675;
+  --palette-accent: #0f5f90;
+  --palette-accent-hover: #0b4e78;
+  --palette-accent-soft: #0f5f901a;
+  --palette-on-accent: #ffffff;
+  --palette-ember: #a94614;
+  --palette-ember-hover: #923b0f;
+  --palette-ember-soft: #a946141a;
+  --palette-on-ember: #ffffff;
+  --palette-success: #146f49;
+  --palette-success-soft: #146f491a;
+  --palette-warning: #7d5700;
+  --palette-warning-soft: #7d57001a;
+  --palette-danger: #a82b2a;
+  --palette-danger-soft: #a82b2a1a;
 }
 
-/* ── Dark palette (the primary appearance) ───────────────────────────── */
+/* ── Dark: cyanotype (the primary appearance) ───────────────────────────── */
 .dark {
-  --palette-canvas: #0b0c0e;
-  --palette-surface: #101114;
-  --palette-raised: #16181c;
-  --palette-inset: #0e0f11;
-  --palette-line: #24262b;
-  --palette-line-strong: #34373e;
-  --palette-fg: #edeef0;
-  --palette-fg-muted: #a2a5ab;
-  --palette-fg-subtle: #6c6f76;
-  --palette-accent: #7d8ae8;
-  --palette-accent-hover: #929ded;
-  --palette-accent-soft: #7d8ae824;
-  --palette-ember: #d97e4a;
-  --palette-ember-hover: #e08c5b;
-  --palette-ember-soft: #d97e4a24;
-  --palette-success: #55b083;
-  --palette-warning: #d0a04a;
-  --palette-danger: #d96a6a;
-  --palette-danger-soft: #d96a6a24;
+  --palette-canvas: #0b1720;
+  --palette-surface: #101e2a;
+  --palette-raised: #172836;
+  --palette-inset: #08121a;
+  --palette-line: #233747;
+  --palette-line-strong: #3a5266;
+  --palette-grid: #8bcbea12;
+  --palette-shadow: #02080d99;
+  --palette-fg: #e6edf2;
+  --palette-fg-muted: #a7b8c5;
+  --palette-fg-subtle: #8295a5;
+  --palette-accent: #8bcbea;
+  --palette-accent-hover: #a8d9f1;
+  --palette-accent-soft: #8bcbea21;
+  --palette-on-accent: #0b1720;
+  --palette-ember: #ec8a50;
+  --palette-ember-hover: #f29c69;
+  --palette-ember-soft: #ec8a5024;
+  --palette-on-ember: #0b1720;
+  --palette-success: #62c295;
+  --palette-success-soft: #62c29521;
+  --palette-warning: #e4b75a;
+  --palette-warning-soft: #e4b75a21;
+  --palette-danger: #f08585;
+  --palette-danger-soft: #f0858524;
 }
 
 @theme inline {
@@ -76,29 +94,69 @@
   --color-accent: var(--palette-accent);
   --color-accent-hover: var(--palette-accent-hover);
   --color-accent-soft: var(--palette-accent-soft);
+  --color-on-accent: var(--palette-on-accent);
   --color-ember: var(--palette-ember);
   --color-ember-hover: var(--palette-ember-hover);
   --color-ember-soft: var(--palette-ember-soft);
+  --color-on-ember: var(--palette-on-ember);
   --color-success: var(--palette-success);
+  --color-success-soft: var(--palette-success-soft);
   --color-warning: var(--palette-warning);
+  --color-warning-soft: var(--palette-warning-soft);
   --color-danger: var(--palette-danger);
   --color-danger-soft: var(--palette-danger-soft);
+  --shadow-overlay: 0 16px 40px -12px var(--palette-shadow);
 }
 
 @theme {
   --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', monospace;
 
-  /* Type scale — small, tight, tool-like. */
+  /* Type scale. `ui` is the interface's body size; mono is for code, paths,
+     ids and figures only, not for labels. */
   --text-2xs: 0.6875rem;
   --text-2xs--line-height: 1rem;
+  --type-ui: 0.8125rem;
+  --type-ui--line-height: 1.25rem;
+  --text-title: 1.625rem;
+  --text-title--line-height: 2rem;
+  --text-title--letter-spacing: -0.024em;
+  --text-title--font-weight: 560;
+  --text-display: clamp(2.375rem, 1.75rem + 2.5vw, 3.75rem);
+  --text-display--line-height: 1.04;
+  --text-display--letter-spacing: -0.038em;
+  --text-display--font-weight: 480;
 
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
+  /* Corners are tight: a drawing has square corners and a tool is not a toy. */
+  --radius-sm: 0.1875rem;
+  --radius-md: 0.3125rem;
+  --radius-lg: 0.5rem;
 }
 
-/* ── Base ────────────────────────────────────────────────────────────── */
+/* The interface's 13px body size. A utility rather than a `--text-*` token on
+   purpose: tailwind-merge reads an unknown `text-foo` as a colour, so it would
+   silently drop the real text colour from any `cn()` call that also set it. */
+@utility type-ui {
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+}
+
+/* The drafting grid. Ten-unit squares with a heavier line every fifth, used
+   behind the Home drawing and empty states, and nowhere else. */
+@utility sheet-grid {
+  background-image:
+    linear-gradient(var(--palette-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--palette-grid) 1px, transparent 1px),
+    linear-gradient(var(--palette-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--palette-grid) 1px, transparent 1px);
+  background-size:
+    100px 100px,
+    100px 100px,
+    20px 20px,
+    20px 20px;
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────── */
 html {
   color-scheme: dark;
 }
@@ -107,7 +165,8 @@ html:not(.dark) {
 }
 
 body {
-  @apply bg-canvas font-sans text-[0.875rem] text-fg antialiased;
+  @apply bg-canvas font-sans type-ui text-fg antialiased;
+  font-optical-sizing: auto;
   font-feature-settings:
     'cv05' 1,
     'ss01' 1;

@@ -6,7 +6,11 @@
  * maps one to the other, so "View source" lands somewhere real.
  *
  * A type with no destination returns null and the UI says so, rather than
- * offering a link that goes nowhere.
+ * offering a link that goes nowhere. That is a different statement from a
+ * node having no source artifact at all, and the details panel distinguishes
+ * them: `product-spec` is derived from something real that this workspace
+ * has no page for, and reporting it as "no source artifact" was simply
+ * untrue.
  */
 export interface ArtifactTarget {
   /** Path relative to the project workspace root. */
@@ -24,6 +28,9 @@ const TARGETS: Record<string, ArtifactTarget> = {
   'frontend-source': { path: 'code', label: 'Code' },
   'project-files': { path: 'code', label: 'Code' },
   'security-report': { path: 'intelligence', label: 'Security' },
+  // FINDING nodes are stamped with this, and the review section is where the
+  // findings themselves are written out.
+  'engineering-review': { path: 'intelligence', label: 'Review' },
   'dependency-graph': { path: 'intelligence/dependencies', label: 'Dependencies' },
 };
 

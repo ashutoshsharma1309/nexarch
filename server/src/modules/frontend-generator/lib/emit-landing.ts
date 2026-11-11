@@ -102,6 +102,7 @@ export type SiteSection =
       badge: string;
       primaryCta: string;
       secondaryCta: string;
+      layout: 'split' | 'centered';
       art: ArtKind;
       artLabel: string;
     }
@@ -119,6 +120,7 @@ export type SiteSection =
       navLabel: string;
       title: string;
       subtitle: string;
+      layout: 'menu' | 'cards' | 'list';
       items: SiteCatalogItem[];
     }
   | {
@@ -226,7 +228,53 @@ function SectionHeading({ title, subtitle }: { title: string; subtitle?: string 
   );
 }
 
+const CTA_FILLER = new Set(['your', 'with', 'from', 'more', 'this', 'that', 'learn', 'started', 'about', 'here']);
+
+/**
+ * The section a button's own words point at, if the page has one.
+ *
+ * Every call to action used to go to the app, even one naming something on
+ * this very page. A label that names a section on this page goes to it.
+ */
+function anchorFor(label: string): string | null {
+  const words = label.toLowerCase().split(/[^a-z]+/).filter((word) => word.length > 3 && !CTA_FILLER.has(word));
+  const match = site.sections.find(
+    (section) =>
+      section.kind !== 'hero' &&
+      words.some((word) =>
+        [section.id, section.navLabel, 'title' in section ? section.title : ''].join(' ').toLowerCase().includes(word),
+      ),
+  );
+  return match ? \`#\${match.id}\` : null;
+}
+
+function CtaLink({ label, className, children }: { label: string; className: string; children: React.ReactNode }) {
+  const anchor = anchorFor(label);
+  if (anchor !== null) {
+    return (
+      <a href={anchor} className={className}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <Link to="/dashboard" className={className}>
+      {children}
+    </Link>
+  );
+}
+
+/**
+ * The hero, in one of two shapes.
+ *
+ * 'split' is the software hero: copy on the left, illustration on the
+ * right. 'centered' is the editorial one, where the headline is the image
+ * and the art becomes a wide band beneath it. A cafe or a portfolio reads
+ * wrong in the first and right in the second, and until there was a choice
+ * every generated site got the first.
+ */
 function Hero({ section }: { section: Extract<SiteSection, { kind: 'hero' }> }) {
+  if (section.layout === 'centered') return <HeroCentered section={section} />;
   return (
     <section id={section.id} className="relative overflow-hidden border-b border-line">
       <div className="pointer-events-none absolute -top-32 right-0 h-96 w-96 rounded-full bg-accent-soft blur-3xl" />
@@ -244,16 +292,16 @@ function Hero({ section }: { section: Extract<SiteSection, { kind: 'hero' }> }) 
             <p className="mt-5 max-w-xl text-pretty text-lg text-fg-muted">{section.subheadline}</p>
           ) : null}
           <div className="mt-8 flex flex-wrap gap-3">
-            <Link
-              to="/dashboard"
+            <CtaLink
+              label={section.primaryCta}
               className="inline-flex items-center gap-2 rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover"
             >
               {section.primaryCta}
               <ArrowRight className="size-4" />
-            </Link>
+            </CtaLink>
             {section.secondaryCta ? (
               <a
-                href={\`#\${site.sections[1]?.id ?? 'top'}\`}
+                href={anchorFor(section.secondaryCta) ?? \`#\${site.sections[1]?.id ?? 'top'}\`}
                 className="inline-flex items-center rounded-md border border-line bg-surface px-5 py-2.5 text-sm font-medium transition-colors hover:border-line-strong"
               >
                 {section.secondaryCta}
@@ -294,6 +342,8 @@ function Features({ section }: { section: Extract<SiteSection, { kind: 'features
 }
 
 function Catalog({ section }: { section: Extract<SiteSection, { kind: 'catalog' }> }) {
+  if (section.layout === 'menu') return <CatalogMenu section={section} />;
+  if (section.layout === 'list') return <CatalogList section={section} />;
   return (
     <section id={section.id} className="border-b border-line py-20">
       <Container>
@@ -528,6 +578,136 @@ function Cta({ section }: { section: Extract<SiteSection, { kind: 'cta' }> }) {
   );
 }
 
+function HeroCentered({ section }: { section: Extract<SiteSection, { kind: 'hero' }> }) {
+  return (
+    <section id={section.id} className="relative overflow-hidden border-b border-line">
+      <div className="pointer-events-none absolute -top-40 left-1/2 h-96 w-[36rem] -translate-x-1/2 rounded-full bg-accent-soft blur-3xl" />
+      <Container className="relative py-20 text-center sm:py-28">
+        {section.badge ? (
+          <span className="inline-flex items-center rounded-full border border-line bg-surface px-3 py-1 text-xs font-medium text-fg-muted">
+            {section.badge}
+          </span>
+        ) : null}
+        <h1 className="mx-auto mt-6 max-w-4xl text-balance text-5xl font-semibold leading-[1.05] tracking-tight sm:text-6xl lg:text-7xl">
+          {section.headline}
+        </h1>
+        {section.subheadline ? (
+          <p className="mx-auto mt-6 max-w-2xl text-pretty text-lg text-fg-muted">
+            {section.subheadline}
+          </p>
+        ) : null}
+        <div className="mt-9 flex flex-wrap justify-center gap-3">
+          <CtaLink
+            label={section.primaryCta}
+            className="inline-flex items-center gap-2 rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover"
+          >
+            {section.primaryCta}
+            <ArrowRight className="size-4" />
+          </CtaLink>
+          {section.secondaryCta ? (
+            <a
+              href={anchorFor(section.secondaryCta) ?? \`#\${site.sections[1]?.id ?? 'top'}\`}
+              className="inline-flex items-center rounded-md border border-line bg-surface px-5 py-2.5 text-sm font-medium transition-colors hover:border-line-strong"
+            >
+              {section.secondaryCta}
+            </a>
+          ) : null}
+        </div>
+        <div className="mt-14 overflow-hidden rounded-xl border border-line bg-surface text-accent shadow-sm">
+          <Art kind={section.art} label={section.artLabel} className="h-56 w-full sm:h-72 lg:h-80" />
+        </div>
+      </Container>
+    </section>
+  );
+}
+
+/**
+ * A menu: a priced list, not a grid of pictures.
+ *
+ * Deliberately prints no per-item illustration. The art vocabulary resolves
+ * by keyword, so every drink on a cafe menu matches the same 'coffee'
+ * shape and the card grid rendered nine identical cups. A price list has no
+ * room for that mistake and is what a menu looks like anyway — name and
+ * price on one line, description beneath, in two columns once there is room.
+ */
+function CatalogMenu({ section }: { section: Extract<SiteSection, { kind: 'catalog' }> }) {
+  return (
+    <section id={section.id} className="border-b border-line py-20">
+      <Container>
+        <SectionHeading title={section.title} subtitle={section.subtitle} />
+        <ul className="grid gap-x-12 gap-y-7 md:grid-cols-2">
+          {section.items.map((item) => (
+            <li key={item.name} className="border-b border-line pb-5 last:border-b-0">
+              <div className="flex items-baseline gap-3">
+                <h3 className="font-medium">{item.name}</h3>
+                {/* The leader is what makes a list read as a menu. It is
+                    decorative, so it is hidden from assistive technology
+                    rather than announced as a run of dots. */}
+                <span aria-hidden className="min-w-6 flex-1 border-b border-dashed border-line" />
+                {item.price ? (
+                  <span className="shrink-0 font-medium text-accent tabular-nums">{item.price}</span>
+                ) : null}
+              </div>
+              {item.description ? (
+                <p className="mt-1.5 text-sm leading-relaxed text-fg-muted">{item.description}</p>
+              ) : null}
+              {item.tag ? (
+                <span className="mt-2 inline-flex rounded-full border border-line px-2 py-0.5 text-2xs uppercase tracking-wide text-fg-subtle">
+                  {item.tag}
+                </span>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      </Container>
+    </section>
+  );
+}
+
+/**
+ * A compact row list: small art, text carrying the weight.
+ *
+ * For catalogs where the items are distinct but the illustration is not —
+ * services, treatments, plans — the full card grid gives a picture more
+ * space than it has earned.
+ */
+function CatalogList({ section }: { section: Extract<SiteSection, { kind: 'catalog' }> }) {
+  return (
+    <section id={section.id} className="border-b border-line py-20">
+      <Container>
+        <SectionHeading title={section.title} subtitle={section.subtitle} />
+        <ul className="divide-y divide-line border-y border-line">
+          {section.items.map((item) => (
+            <li key={item.name} className="flex items-start gap-4 py-5 sm:gap-6">
+              <div className="size-14 shrink-0 overflow-hidden rounded-md bg-inset text-accent sm:size-16">
+                <Art kind={item.art} label={item.artLabel} className="h-full w-full" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                  <h3 className="font-medium">{item.name}</h3>
+                  {item.price ? (
+                    <span className="text-sm font-semibold text-accent tabular-nums">
+                      {item.price}
+                    </span>
+                  ) : null}
+                </div>
+                {item.description ? (
+                  <p className="mt-1 text-sm leading-relaxed text-fg-muted">{item.description}</p>
+                ) : null}
+                {item.tag ? (
+                  <span className="mt-2 inline-flex rounded-full border border-line px-2 py-0.5 text-2xs uppercase tracking-wide text-fg-subtle">
+                    {item.tag}
+                  </span>
+                ) : null}
+              </div>
+            </li>
+          ))}
+        </ul>
+      </Container>
+    </section>
+  );
+}
+
 function Section({ section }: { section: SiteSection }) {
   switch (section.kind) {
     case 'hero':
@@ -644,9 +824,40 @@ export function LandingPage() {
 }
 `;
 
-export function emitLanding(design: SiteDesign): GeneratedFile[] {
+const CONTACT_ANCHOR = `
+const actionHref = \`#\${
+  (site.sections.find((section) => section.kind === 'contact') ??
+    site.sections.find((section) => section.kind !== 'hero' && section.kind !== 'cta'))?.id ?? 'top'
+}\`;
+`;
+
+/**
+ * The same page for a website with no application behind it.
+ *
+ * A site that stores nothing has an empty /dashboard, so every button that
+ * would have gone there points at the page's own contact details instead, and
+ * "Open app" goes away because there is no app to open.
+ */
+function withoutAppLinks(source: string): string {
+  const relinked = source.replace(
+    /<Link\s+to="\/dashboard"([\s\S]*?)<\/Link>/g,
+    (_match, rest: string) => (rest.includes('Open app') ? '' : `<a href={actionHref}${rest}</a>`),
+  );
+  return relinked
+    .replace(/import \{ Link \} from 'react-router-dom';\n/, '')
+    .replace(
+      /\nexport function LandingPage\(\) \{/,
+      `${CONTACT_ANCHOR}\nexport function LandingPage() {`,
+    );
+}
+
+export function emitLanding(design: SiteDesign, hasAppArea = true): GeneratedFile[] {
   return [
     file('src/content/site.ts', 'typescript', contentFile(design)),
-    file('src/features/landing/LandingPage.tsx', 'typescriptreact', landingPage),
+    file(
+      'src/features/landing/LandingPage.tsx',
+      'typescriptreact',
+      hasAppArea ? landingPage : withoutAppLinks(landingPage),
+    ),
   ];
 }

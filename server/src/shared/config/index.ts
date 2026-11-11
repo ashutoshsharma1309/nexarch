@@ -36,6 +36,11 @@ export const config = {
     max: env.RATE_LIMIT_MAX,
   },
 
+  editJobs: {
+    retentionDays: env.EDIT_JOB_RETENTION_DAYS,
+    eventRetentionDays: env.EXECUTION_EVENT_RETENTION_DAYS,
+  },
+
   auth: {
     /** When true, every request is auto-authenticated as the built-in local user. */
     disabled: env.AUTH_DISABLED,

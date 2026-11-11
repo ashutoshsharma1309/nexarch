@@ -25,7 +25,8 @@ import type {
   RelatedNode,
   TraversalDirection,
   TraversalOptions,
-} from '../../../shared/contracts/index.js';
+  TraversalResult,
+} from '../../../shared/contracts/engineering-graph.js';
 
 export interface GraphIndex {
   nodesById: Map<string, GraphNode>;
@@ -69,25 +70,32 @@ function otherEnd(edge: GraphEdge, from: string): string {
 }
 
 /**
- * Breadth-first walk from one node.
+ * Breadth-first walk from one node, saying whether the cap cut it short.
  *
  * Visited-tracking is by node id and happens on enqueue, so a node reached
  * by two paths is reported once, at the shorter depth — which is the depth
  * that matters when the number is being read as "how closely related".
+ *
+ * `truncated` is decided by finding one more node than the cap allows, not
+ * by comparing the result count to the cap. Those differ in the case that
+ * matters: a graph holding exactly `limit` related nodes is a *complete*
+ * answer, and reporting it as truncated would send a caller hunting for
+ * results that do not exist.
  */
-export function traverse(
+export function traverseBounded(
   index: GraphIndex,
   startId: string,
   direction: TraversalDirection,
   options: TraversalOptions = {},
-): RelatedNode[] {
+): TraversalResult {
   const maxDepth = options.maxDepth ?? DEFAULT_DEPTH;
   const limit = options.limit ?? DEFAULT_LIMIT;
   const allowedRelationships = options.relationships ? new Set(options.relationships) : null;
   const allowedTypes = options.nodeTypes ? new Set(options.nodeTypes) : null;
+  const excludedTypes = options.excludeNodeTypes ? new Set(options.excludeNodeTypes) : null;
 
   const visited = new Set<string>([startId]);
-  const results: RelatedNode[] = [];
+  const related: RelatedNode[] = [];
   let frontier: { id: string; via: GraphRelationship }[] = [{ id: startId, via: 'CONTAINS' }];
 
   for (let depth = 1; depth <= maxDepth && frontier.length > 0; depth += 1) {
@@ -103,18 +111,29 @@ export function traverse(
 
         const node = index.nodesById.get(neighbourId);
         if (!node) continue;
+        if (excludedTypes?.has(node.type)) continue;
 
         next.push({ id: neighbourId, via: edge.relationship });
         if (allowedTypes && !allowedTypes.has(node.type)) continue;
 
-        results.push({ node, depth, via: edge.relationship });
-        if (results.length >= limit) return results;
+        if (related.length >= limit) return { related, truncated: true, limit };
+        related.push({ node, depth, via: edge.relationship });
       }
     }
     frontier = next;
   }
 
-  return results;
+  return { related, truncated: false, limit };
+}
+
+/** The same walk, for the callers that want only the nodes it reached. */
+export function traverse(
+  index: GraphIndex,
+  startId: string,
+  direction: TraversalDirection,
+  options: TraversalOptions = {},
+): RelatedNode[] {
+  return traverseBounded(index, startId, direction, options).related;
 }
 
 /** What this node needs: one hop out. */
@@ -122,8 +141,8 @@ export function dependenciesOf(
   index: GraphIndex,
   nodeId: string,
   options: TraversalOptions = {},
-): RelatedNode[] {
-  return traverse(index, nodeId, 'outgoing', { maxDepth: 1, ...options });
+): TraversalResult {
+  return traverseBounded(index, nodeId, 'outgoing', { maxDepth: 1, ...options });
 }
 
 /** What needs this node: one hop in. */
@@ -131,18 +150,18 @@ export function dependentsOf(
   index: GraphIndex,
   nodeId: string,
   options: TraversalOptions = {},
-): RelatedNode[] {
-  return traverse(index, nodeId, 'incoming', { maxDepth: 1, ...options });
+): TraversalResult {
+  return traverseBounded(index, nodeId, 'incoming', { maxDepth: 1, ...options });
 }
 
 /** Nodes this one CONTAINS. */
-export function childrenOf(index: GraphIndex, nodeId: string): RelatedNode[] {
-  return traverse(index, nodeId, 'outgoing', { maxDepth: 1, relationships: ['CONTAINS'] });
+export function childrenOf(index: GraphIndex, nodeId: string): TraversalResult {
+  return traverseBounded(index, nodeId, 'outgoing', { maxDepth: 1, relationships: ['CONTAINS'] });
 }
 
 /** Nodes that CONTAIN this one. */
-export function parentsOf(index: GraphIndex, nodeId: string): RelatedNode[] {
-  return traverse(index, nodeId, 'incoming', { maxDepth: 1, relationships: ['CONTAINS'] });
+export function parentsOf(index: GraphIndex, nodeId: string): TraversalResult {
+  return traverseBounded(index, nodeId, 'incoming', { maxDepth: 1, relationships: ['CONTAINS'] });
 }
 
 /** Everything one hop away in either direction, with the edges themselves. */
@@ -188,6 +207,15 @@ export function nodesByType(index: GraphIndex, type: GraphNodeType): GraphNode[]
  * hop went. That is still evidence the graph holds: an edge traversed
  * backwards is a real edge, and the reader is told it was backwards rather
  * than being shown a direction that does not exist.
+ *
+ * Each hop also carries the edge's metadata, so a reader of the path can be
+ * shown *why* two nodes are joined — the import specifier, the foreign key —
+ * rather than only that they are.
+ *
+ * `excludeNodeTypes` prunes types the path may not run through, for the same
+ * reason `TraversalOptions` has it: the shortest route between almost any two
+ * nodes is "up to the project root and back down", and that is true without
+ * being an explanation of anything.
  */
 export function findPath(
   index: GraphIndex,
@@ -195,6 +223,7 @@ export function findPath(
   toId: string,
   maxDepth = 6,
   direction: PathDirection = 'outgoing',
+  options: { excludeNodeTypes?: readonly GraphNodeType[] } = {},
 ): GraphPath | null {
   if (fromId === toId) {
     const node = index.nodesById.get(fromId);
@@ -208,6 +237,7 @@ export function findPath(
     hops: GraphHop[];
   }
 
+  const excludedTypes = options.excludeNodeTypes ? new Set(options.excludeNodeTypes) : null;
   const visited = new Set<string>([fromId]);
   let frontier: Step[] = [{ id: fromId, nodes: [fromId], relationships: [], hops: [] }];
 
@@ -230,11 +260,17 @@ export function findPath(
           : [];
 
       for (const { edge, neighbourId, way } of [...forward, ...backward]) {
+        const neighbour = index.nodesById.get(neighbourId);
+        if (excludedTypes && (!neighbour || excludedTypes.has(neighbour.type))) continue;
+
         const step: Step = {
           id: neighbourId,
           nodes: [...current.nodes, neighbourId],
           relationships: [...current.relationships, edge.relationship],
-          hops: [...current.hops, { relationship: edge.relationship, direction: way }],
+          hops: [
+            ...current.hops,
+            { relationship: edge.relationship, direction: way, metadata: edge.metadata },
+          ],
         };
 
         if (neighbourId === toId) {

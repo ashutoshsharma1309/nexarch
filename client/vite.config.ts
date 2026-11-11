@@ -13,6 +13,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    // The workspace flows drive real user-event sequences that take 4-5s on a
+    // loaded laptop; the 5s default made them fail at random.
+    testTimeout: 20_000,
     css: false,
     // Coverage measures the shipped sources only: the test files, the jsdom
     // setup and the entry point would otherwise report as covered and inflate

@@ -218,6 +218,16 @@ export interface TraversalOptions {
   relationships?: GraphRelationship[];
   /** Restrict results to these node types; omit for all. */
   nodeTypes?: GraphNodeType[];
+  /**
+   * Node types the walk may not pass *through*, and never reports.
+   *
+   * `nodeTypes` filters what comes back but still expands what it filters
+   * out, which is right for most questions and wrong for one: the project
+   * root CONTAINS everything, so any walk allowed through it reaches the
+   * whole graph in two hops and a trace from a requirement "reaches" every
+   * file in the project. Pruning the frontier is the only way to say that.
+   */
+  excludeNodeTypes?: GraphNodeType[];
   /** How many hops to walk. Bounded so a query cannot pull the whole graph. */
   maxDepth?: number;
   limit?: number;
@@ -229,6 +239,23 @@ export interface RelatedNode {
   depth: number;
   /** The relationship on the edge that reached this node. */
   via: GraphRelationship;
+}
+
+/**
+ * A bounded walk's results, and whether the bound cut them short.
+ *
+ * The list alone cannot say this: 200 results because the graph holds 200
+ * and 200 results because the cap stopped the walk look identical, and the
+ * second one read as the first is a partial answer presented as a complete
+ * one. So the flag travels with the list rather than being inferable from
+ * its length.
+ */
+export interface TraversalResult {
+  related: RelatedNode[];
+  /** True when the cap stopped the walk, so `related` is a prefix of the answer. */
+  truncated: boolean;
+  /** The cap that was in force, so a caller can ask again with a larger one. */
+  limit: number;
 }
 
 export interface NodeNeighbourhood {
@@ -252,6 +279,14 @@ export interface GraphHop {
    * direction is part of what the relationship means.
    */
   direction: HopDirection;
+  /**
+   * The edge's own metadata, carried through rather than dropped: the import
+   * specifier that was parsed, the foreign key column, the reason the
+   * architecture gave for a dependency. It is the answer to "why are these
+   * two connected", and the hop is the only place a reader of a trace can
+   * be shown it.
+   */
+  metadata: Record<string, unknown>;
 }
 
 /** A chain of nodes, e.g. Component → API → Service → Entity. */
@@ -268,7 +303,20 @@ export interface GraphPath {
 export interface ImpactedNode {
   node: GraphNode;
   depth: number;
+  /**
+   * The relationship on the edge this node was reached by — the evidence for
+   * the claim that it is affected at all. Read with `direction`, it states
+   * which end of that edge this node sits at.
+   */
   via: GraphRelationship;
+  /** Which way the arriving edge was walked, from the changed node's side. */
+  direction: HopDirection;
+  /**
+   * True when a single edge joins this node to the changed one. Then the
+   * graph *states* the relationship; at greater depth it is a chain, which
+   * is an inference the reader is entitled to see labelled as one.
+   */
+  direct: boolean;
   /** Why this node is affected, in one line. */
   reason: string;
 }
@@ -278,18 +326,73 @@ export interface ImpactAnalysis {
   impacted: ImpactedNode[];
   /** Counts by type, so "what does this touch?" is answerable at a glance. */
   summary: Partial<Record<GraphNodeType, number>>;
+  /** How many of `impacted` the graph joins to the origin by one edge. */
+  directCount: number;
+  /** How many were reached through a chain, and are therefore inferred. */
+  indirectCount: number;
   maxDepth: number;
+  /**
+   * True when a result cap stopped one of the walks, so `impacted` is a
+   * prefix of the real answer. A capped impact answer read as a complete one
+   * is how a change ships believing it broke nothing.
+   */
+  truncated: boolean;
+}
+
+/* ── Requirement tracing ──────────────────────────────────────────────── */
+
+/**
+ * Which way a trace runs: down from a requirement into the code that
+ * implements it, or back up from a file to the requirements it serves.
+ */
+export type TraceDirection = 'to-implementation' | 'to-requirements';
+
+export interface RequirementTraceLink {
+  node: GraphNode;
+  depth: number;
+  /** True when one edge joins this node to the origin; see `ImpactedNode.direct`. */
+  direct: boolean;
+  /** The chain of real edges that connects it, each hop carrying its evidence. */
+  path: GraphPath;
+}
+
+export interface RequirementTrace {
+  origin: GraphNode;
+  direction: TraceDirection;
+  /** What the origin reaches, nearest first. */
+  links: RequirementTraceLink[];
+  maxDepth: number;
+  /** True when the result cap stopped the walk; see `TraversalResult`. */
+  truncated: boolean;
 }
 
 /* ── Validation ───────────────────────────────────────────────────────── */
 
+/**
+ * What a report can say.
+ *
+ * Every kind here is something this system can actually produce. Three
+ * earlier kinds were not: `duplicate-edge` needed two rows the unique index
+ * on `(source, target, relationship)` forbids, `invalid-relationship` needed
+ * a value outside the enum the column is typed as, and `self-loop` needed an
+ * edge the builder refuses to draft. Advertising a check that cannot fire
+ * makes a clean report mean less than it appears to, so they are gone rather
+ * than kept as reassurance.
+ */
 export type GraphIssueKind =
   | 'orphan-node'
   | 'dangling-edge'
-  | 'duplicate-edge'
-  | 'invalid-relationship'
-  | 'self-loop'
-  | 'suspicious-cycle';
+  | 'suspicious-cycle'
+  /** A FEATURE names a requirement no REQUIREMENT node matches. */
+  | 'unresolved-requirement-link'
+  /** A review agent named a node this graph does not hold. */
+  | 'unresolved-finding-target'
+  /** A node states a file path that no FILE or TEST node in this graph has. */
+  | 'missing-file-reference'
+  /** Nodes last written by an earlier run than the project's latest build. */
+  | 'stale-node'
+  /** The file tree hit the builder's cap, so part of the project is not mapped. */
+  | 'truncated-file-tree';
 
 export type GraphIssueSeverity = 'error' | 'warning' | 'info';
 
@@ -306,4 +409,10 @@ export interface GraphValidationReport {
   checkedNodes: number;
   checkedEdges: number;
   issues: GraphIssue[];
+  /**
+   * Checks that could not run on this input, so a clean report is not read
+   * as "everything was checked". `stale-node` lands here when the caller
+   * could not say which run is the project's latest.
+   */
+  skippedChecks: GraphIssueKind[];
 }

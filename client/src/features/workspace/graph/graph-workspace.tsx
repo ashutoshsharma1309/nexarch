@@ -20,7 +20,12 @@ import { Button } from '@/shared/components/ui/button';
 import { Card, CardContent } from '@/shared/components/ui/card';
 import { EmptyState } from '@/shared/components/ui/empty-state';
 import { Skeleton } from '@/shared/components/ui/skeleton';
-import { useGraphValidation, useProjectGraph, useRefreshGraph } from '@/shared/hooks/use-graph';
+import {
+  useGraphImpact,
+  useGraphValidation,
+  useProjectGraph,
+  useRefreshGraph,
+} from '@/shared/hooks/use-graph';
 import { cn } from '@/shared/lib/cn';
 import { formatRelativeTime } from '@/shared/lib/format';
 import { toast } from '@/shared/store/toast.store';
@@ -50,13 +55,23 @@ export function GraphWorkspace({
   const validation = useGraphValidation(projectId);
   const refresh = useRefreshGraph(projectId);
 
-  // A graph built from an earlier run is not this project as it stands now.
-  // Saying so is the whole difference between a map and a stale map.
+  /*
+   * A graph built from an earlier run is not this project as it stands now,
+   * and saying so is the whole difference between a map and a stale map.
+   *
+   * The test is whether the latest run is *in* the graph, not whether one id
+   * matches it. `runId` is null whenever the loaded nodes disagree, which is
+   * the ordinary state after an applied edit — the edit resyncs its own
+   * slice with its own run id while everything it did not touch keeps the
+   * old one — so comparing it against the latest run flagged every edited
+   * project as stale. `runIds` holds every run represented, which is the
+   * thing the question is actually about.
+   */
   const stale =
     latestRunId !== undefined &&
     graph.data !== undefined &&
-    graph.data.runId !== '' &&
-    graph.data.runId !== latestRunId;
+    graph.data.runIds.length > 0 &&
+    !graph.data.runIds.includes(latestRunId);
 
   // Shareable, back-button-friendly view state.
   const [params, setParams] = useSearchParams();
@@ -104,7 +119,21 @@ export function GraphWorkspace({
     [validation.data],
   );
 
-  const impactedIds = useMemo(() => new Set<string>(), []);
+  /*
+   * The canvas emphasises an impact result over a plain selection, and was
+   * handed a set that was permanently empty — so that branch could never
+   * run, however loudly the panel beside it listed what a change would
+   * reach. Both read the same query: React Query serves them from one
+   * request rather than asking the server twice for the same traversal.
+   */
+  const impact = useGraphImpact(projectId, impactOpen ? selectedId : null);
+
+  const impactedIds = useMemo(() => {
+    if (impact.data === undefined) return new Set<string>();
+    // The origin stays bright. An impact highlight that dims the node you
+    // asked about reads as though the selection had been lost.
+    return new Set([impact.data.origin.id, ...impact.data.impacted.map((entry) => entry.node.id)]);
+  }, [impact.data]);
 
   const select = useCallback(
     (nodeId: string | null) => {
@@ -182,8 +211,15 @@ export function GraphWorkspace({
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-fg-subtle">
-          Mapped from this project&rsquo;s generated files · analysed{' '}
-          {formatRelativeTime(graph.data.generatedAt)}
+          Mapped from this project&rsquo;s generated files ·{' '}
+          {graph.data.generatedAt === null
+            ? 'not analysed yet'
+            : `analysed ${formatRelativeTime(graph.data.generatedAt)}`}
+          {/* Several runs in one graph is normal, not a fault — it is what an
+              applied edit leaves behind — so it is stated here rather than
+              warned about. */}
+          {graph.data.runIds.length > 1 &&
+            ` · spans ${String(graph.data.runIds.length)} builds of this project`}
         </p>
         <Button
           size="sm"
@@ -209,8 +245,8 @@ export function GraphWorkspace({
           <div className="flex flex-wrap items-center gap-2 p-3 text-sm">
             <AlertTriangle className="size-4 shrink-0 text-warning" />
             <span className="text-fg-muted">
-              This graph was built from an earlier build of the project. Refresh it to map the
-              latest one.
+              This graph does not include the project&rsquo;s latest build. Refresh it to map the
+              one that is there now.
             </span>
           </div>
         </Card>

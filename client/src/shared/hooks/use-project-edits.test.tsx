@@ -13,9 +13,8 @@
  * could choose and counts what happened, so retuning the backoff stays a free
  * change and breaking the behaviour does not.
  */
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -23,11 +22,13 @@ import {
   fetchCurrentEditJob,
   fetchEditJob,
 } from '@/shared/services/project-editor.service';
+import { createTestQueryClient, wrapperFor } from '@/test/utils';
 import {
   isTerminalEditJob,
   useApplyEdit,
   useCurrentEditJob,
   useEditJob,
+  useRefreshOnAppliedEdit,
 } from './use-project-edits';
 import type { EditJob, EditJobStatus } from '@/shared/types/api';
 
@@ -73,16 +74,9 @@ function job(overrides: Partial<EditJob> = {}): EditJob {
   };
 }
 
+/** The suite's shared no-retry client; see `src/test/utils.tsx`. */
 function createClient(): QueryClient {
-  return new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-}
-
-function wrapperFor(client: QueryClient) {
-  return function Wrapper({ children }: { children: ReactNode }) {
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-  };
+  return createTestQueryClient();
 }
 
 /**
@@ -275,5 +269,100 @@ describe('useApplyEdit', () => {
     // it already — the user sees "Queued", not an empty panel.
     const watcher = renderHook(() => useEditJob('project-1', 'job-1'), { wrapper });
     expect(watcher.result.current.data?.status).toBe('QUEUED');
+  });
+});
+
+/**
+ * This hook is the only thing that tells the rest of the workspace an edit
+ * landed. If it stops firing, nothing breaks loudly: the run list and the
+ * graph keep serving their cached pre-edit answers, so the project the user
+ * is shown is the one they just changed away from — and the obvious reading
+ * of that screen is "the edit did nothing".
+ */
+describe('useRefreshOnAppliedEdit', () => {
+  it('refreshes the run history and the graph once the edit has landed', async () => {
+    const client = createClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+
+    renderHook(
+      () => {
+        useRefreshOnAppliedEdit(
+          'project-1',
+          job({ status: 'SUCCEEDED', stage: 'finished', runId: 'run-7' }),
+        );
+      },
+      { wrapper: wrapperFor(client) },
+    );
+    await tick();
+
+    // Both, not either: the Code tab reads the run list and the Graph tab
+    // reads the graph, and an edit has moved both of them.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['project', 'project-1', 'runs'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['graph', 'project-1'] });
+  });
+
+  it('leaves the cache alone while the edit is still running', async () => {
+    const client = createClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+
+    const { rerender } = renderHook(
+      ({ current }: { current: EditJob }) => {
+        useRefreshOnAppliedEdit('project-1', current);
+      },
+      { wrapper: wrapperFor(client), initialProps: { current: job({ status: 'QUEUED' }) } },
+    );
+    await tick();
+    rerender({ current: job({ status: 'RUNNING', stage: 'rebuilding' }) });
+    await tick();
+
+    // Refreshing mid-edit would throw away the run list and the graph the
+    // reader is looking at to refetch the same pre-edit answers.
+    expect(invalidate).not.toHaveBeenCalled();
+
+    // And the moment it does land, the refresh happens — the quiet above is
+    // the hook waiting, not the hook being wired to nothing.
+    rerender({ current: job({ status: 'SUCCEEDED', stage: 'finished', runId: 'run-7' }) });
+    await tick();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['project', 'project-1', 'runs'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['graph', 'project-1'] });
+  });
+
+  it('does not refresh for an edit that was rejected or failed', async () => {
+    for (const status of ['REJECTED', 'FAILED', 'INTERRUPTED'] as const) {
+      const client = createClient();
+      const invalidate = vi.spyOn(client, 'invalidateQueries');
+
+      renderHook(
+        () => {
+          useRefreshOnAppliedEdit('project-1', job({ status }));
+        },
+        { wrapper: wrapperFor(client) },
+      );
+      await tick();
+
+      // These three all roll back, so the project is exactly as it was.
+      expect(invalidate).not.toHaveBeenCalled();
+    }
+  });
+
+  it('does nothing at all without a project or a job', async () => {
+    const client = createClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+
+    renderHook(
+      () => {
+        useRefreshOnAppliedEdit(undefined, job({ status: 'SUCCEEDED', runId: 'run-7' }));
+      },
+      { wrapper: wrapperFor(client) },
+    );
+    renderHook(
+      () => {
+        useRefreshOnAppliedEdit('project-1', null);
+      },
+      { wrapper: wrapperFor(client) },
+    );
+    await tick();
+
+    expect(invalidate).not.toHaveBeenCalled();
   });
 });

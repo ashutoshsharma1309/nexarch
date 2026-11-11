@@ -382,7 +382,7 @@ export function AgentPage() {
       <PageHeader
         eyebrow="console/agent"
         title="Builder Agent"
-        description="Describe a website. The agent plans it, builds it with the generation pipeline, reviews it with the 14-agent mesh, starts it and checks it — every step below is real."
+        description="Describe a website. The agent plans it, builds it with the generation pipeline, reviews it with the agent mesh, starts it and checks it — every step below is real."
       />
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">

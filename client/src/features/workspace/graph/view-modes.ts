@@ -65,7 +65,9 @@ export const VIEW_MODES: readonly ViewMode[] = [
     id: 'security',
     label: 'Security',
     description: 'Findings and access rules, against what they govern.',
-    types: ['SECURITY_RULE', 'ENTITY', 'API', 'PROJECT'],
+    // FINDING was missing while the description promised it, so the one view
+    // a reader opens to see what review found showed only the rules.
+    types: ['SECURITY_RULE', 'FINDING', 'ENTITY', 'API', 'PROJECT'],
   },
   { id: 'all', label: 'Everything', description: 'Every node in the graph.', types: [] },
 ];

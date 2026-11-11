@@ -16,7 +16,9 @@
  * The executor knows nothing about which agent it is running. Everything
  * specific comes from the definition.
  */
+import { withLogContext } from '../../../shared/logger/context.js';
 import { logger } from '../../../shared/logger/index.js';
+import { meshStageOf } from './execution-publisher.js';
 import { getAgent } from './registry.js';
 import { recordEvent } from './run-store.js';
 import type {
@@ -182,7 +184,10 @@ export async function executeAgent(
 
     try {
       const result = await withTimeout(
-        agent.execute({ ...input, signal: attemptController.signal }),
+        // Agents run side by side, so each is charged in a context of its own.
+        withLogContext({ stage: meshStageOf(definition.id), agentId: definition.id }, () =>
+          agent.execute({ ...input, signal: attemptController.signal }),
+        ),
         definition.timeoutMs,
         () => {
           attemptController.abort();

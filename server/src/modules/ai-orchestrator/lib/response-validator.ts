@@ -18,6 +18,8 @@ const REQUIRED_KEYS: Partial<Record<NonNullable<GenerateRequest['schema']>, stri
   'requirement-spec': ['projectName', 'projectType', 'roles', 'modules'],
   'architecture-plan': ['meta', 'apiModules', 'decisions'],
   'database-design': ['databaseDesign', 'prismaSchema', 'openapi'],
+  // gpt-oss-20b measurably stops after `questions`; a missing key must retry.
+  'research-plan': ['objective', 'domainLabel', 'questions', 'discoveryQueries', 'researchQueries'],
 };
 
 function parseJson(text: string): { value: unknown; error: string | null } {

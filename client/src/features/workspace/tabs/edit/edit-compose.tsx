@@ -101,7 +101,7 @@ export function EditCompose({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-fg-muted">
           {planning
-            ? 'Reading the attachment and proposing a design — a few seconds.'
+            ? 'Reading the attachment and proposing a design.'
             : 'This writes a plan first. Nothing changes until you apply it.'}
         </p>
         <Button type="submit" loading={planning} icon={<Wand2 className="size-3.5" />}>

@@ -103,6 +103,18 @@ const SPECS: readonly ArtifactSpec[] = [
     summarize: (b) => `${b.files.length} runnable files`,
     metadata: (b) => ({ files: b.files.length }),
   },
+  {
+    type: 'research-artifact',
+    select: (b) => b.research ?? null,
+    summarize: (b) =>
+      b.research
+        ? `${b.research.status} · ${b.research.sources.length} sources · ${b.research.findings.length} findings`
+        : 'no research recorded',
+    metadata: (b) => ({
+      status: b.research?.status ?? null,
+      sources: b.research?.sources.length ?? 0,
+    }),
+  },
 ];
 
 export const ARTIFACT_TYPES: readonly ArtifactType[] = SPECS.map((spec) => spec.type);
@@ -126,7 +138,8 @@ export function describeAll(
   projectId: string,
   createdAt: string,
 ): ArtifactDescriptor[] {
-  return SPECS.map((spec) => ({
+  // A run without research has no such artifact, so it is not listed as one.
+  return SPECS.filter((spec) => spec.select(bundle) !== null).map((spec) => ({
     id: `${bundle.runId}:${spec.type}`,
     projectId,
     runId: bundle.runId,

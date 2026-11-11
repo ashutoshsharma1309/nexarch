@@ -1,11 +1,18 @@
 /**
  * Environment loading and validation.
  *
- * Every variable the process reads is declared here, once. The schema is the
+ * Every variable the process *validates* is declared here, once, and for
+ * those the schema is the source of truth. The
  * single source of truth: `.env.example` documents it for humans, this file
  * enforces it for machines. Invalid or missing configuration kills the
  * process at boot — a misconfigured server must never limp into serving
  * traffic and fail on the first request that touches the bad value.
+ *
+ * It is not quite every variable the process reads. A few optional
+ * per-deployment knobs are read straight from `process.env` where they are
+ * used, by the platform's documented provider-key convention — the runner's
+ * `NEXARCH_RUNNER_DIR` is one. Claiming "every variable" sent a reader
+ * looking for those here and concluding they did not exist.
  */
 import 'dotenv/config';
 import { z } from 'zod';
@@ -56,6 +63,18 @@ const envSchema = z.object({
 
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
+
+  /**
+   * How long a finished edit job is kept.
+   *
+   * Thirty days because the row's only remaining job after the edit settles
+   * is project history — "what was changed and when" — and a month is longer
+   * than anyone has been observed to look back. Set it higher to keep more;
+   * the newest finished edit per project is kept regardless of this value, so
+   * no project can be left with no edit history at all.
+   */
+  EDIT_JOB_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
+  EXECUTION_EVENT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
 
   // Consumed by the auth module to sign access and refresh tokens. Optional
   // now: with AUTH_DISABLED (the default) no tokens are issued or verified, so

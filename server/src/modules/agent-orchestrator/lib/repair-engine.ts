@@ -23,6 +23,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { logger } from '../../../shared/logger/index.js';
+import { logEvent } from '../../../shared/logger/events.js';
 import { classifyFinding, orderForRepair } from './repair-eligibility.js';
 import { analyzeRootCause, planRepair } from './repair-analysis.js';
 import { produceEdits } from './repair-strategies.js';
@@ -56,6 +57,12 @@ export interface RepairDeps {
     rca: RootCauseAnalysis,
     plan: RepairPlan,
   ) => Promise<StrategyResult>;
+  /**
+   * Narrows the session to these findings. A repair that follows a failed
+   * validation acts only on what that validation verified; a reviewer's
+   * opinion about an unused package is not a reason to touch a build.
+   */
+  selectFindings?: (finding: FindingRecord) => boolean;
 }
 
 const DEFAULT_DEPS: RepairDeps = {
@@ -131,7 +138,9 @@ async function repairLoop(
 
   /* ── Classify everything up front (Step 2) ────────────────────────── */
 
-  const open = listFindings(projectId).filter((finding) => finding.status === 'OPEN');
+  const open = listFindings(projectId).filter(
+    (finding) => finding.status === 'OPEN' && (deps.selectFindings?.(finding) ?? true),
+  );
   session.counts.considered = open.length;
 
   const queue: FindingRecord[] = [];
@@ -279,7 +288,7 @@ async function repairOne(
     }
 
     if (produced.edits.length === 0) {
-      record.attempts.push({
+      const failed: RepairAttempt = {
         attempt,
         strategy: produced.strategy,
         applied: false,
@@ -288,7 +297,9 @@ async function repairOne(
         outcome: 'PATCH_FAILED',
         error: produced.error ?? 'The strategy produced no edits.',
         durationMs: Date.now() - attemptStarted,
-      });
+      };
+      record.attempts.push(failed);
+      publishAttempt(finding.id, failed);
       continue;
     }
 
@@ -355,6 +366,7 @@ async function repairOne(
       durationMs: Date.now() - attemptStarted,
     };
     record.attempts.push(attemptRecord);
+    publishAttempt(finding.id, attemptRecord);
 
     if (attemptRecord.outcome === 'ACCEPTED') {
       record.result = 'FIXED';
@@ -367,9 +379,20 @@ async function repairOne(
     }
 
     /* FAIL → mandatory rollback before anything else (Steps 17, 19). */
+    const rollbackStarted = Date.now();
     rollbackChangeset(projectId, session.id, changeset, snapshot);
     session.counts.rolledBack += 1;
     record.rolledBack = true;
+    // Published because this is the line that explains why a repair the user
+    // was told about left their files unchanged. The reason is the attempt's
+    // own verdict, never the patch.
+    logEvent({
+      event: 'rollback',
+      target: `finding ${finding.id}`,
+      outcome: 'restored',
+      reason: attemptRecord.outcome === 'REGRESSION' ? 'regression' : 'validation failed',
+      durationMs: Date.now() - rollbackStarted,
+    });
 
     if (attemptRecord.outcome === 'REGRESSION') {
       // A patch that breaks working functionality does not get retried;
@@ -389,6 +412,36 @@ async function repairOne(
   session.counts.rejected += 1;
   saveRepair(record);
   saveSession(session);
+}
+
+/**
+ * Publishes one repair attempt, from the record the loop just measured.
+ *
+ * `remaining` is the count of checks still failing after the attempt, which
+ * is the number that says whether the loop is converging: three attempts
+ * that each leave four checks red is a budget being burned, and that was
+ * previously invisible outside the session record.
+ */
+function publishAttempt(findingId: string, attempt: RepairAttempt): void {
+  const failing = attempt.checks.filter((check) => check.status === 'FAIL').length;
+  logEvent({
+    event: 'repair.attempt',
+    attempt: attempt.attempt,
+    target: `finding ${findingId}`,
+    // A REGRESSION broke a check that passed at baseline. That is the worst
+    // outcome an attempt can have, and reporting it as 'unchanged' both
+    // understated it and filed the line at info instead of warn.
+    outcome:
+      attempt.outcome === 'ACCEPTED'
+        ? 'fixed'
+        : attempt.outcome === 'REGRESSION' || !attempt.applied
+          ? 'failed'
+          : 'unchanged',
+    durationMs: attempt.durationMs,
+    ...(attempt.checks.length === 0 ? {} : { remaining: failing }),
+    // The verdict always travels, so a failed attempt is never reasonless.
+    reason: attempt.outcome,
+  });
 }
 
 function finish(session: RepairSessionState, state: FinalQualityState, reason: string): void {

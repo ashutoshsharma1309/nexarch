@@ -26,10 +26,11 @@ import type {
  * `BLOCKED` and `PENDING` are different states with different causes:
  * PENDING means "not yet scheduled", BLOCKED means "its inputs will never
  * arrive because something upstream failed". Collapsing them would hide
- * the reason a run stalled.
+ * the reason a run stalled. `SKIPPED` means the product decision ruled the
+ * agent out before it started; it counts as neither work done nor failure.
  */
 export type TaskStatus =
-  'PENDING' | 'READY' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'BLOCKED' | 'CANCELLED';
+  'PENDING' | 'READY' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'BLOCKED' | 'CANCELLED' | 'SKIPPED';
 
 export interface AgentTask {
   id: string;
@@ -57,6 +58,15 @@ export interface AgentTask {
   findings: AgentFinding[];
   /** True when this task's result was served from the agent-result cache. */
   cached?: boolean;
+  /** Why the product decision ruled this agent out. Set only on SKIPPED. */
+  skipReason?: string;
+  /** Each completion criterion, measured against what the agent returned. */
+  completion?: CompletionOutcome;
+}
+
+export interface CompletionOutcome {
+  met: string[];
+  unmet: string[];
 }
 
 export type AgentRunStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
@@ -67,6 +77,22 @@ export interface AgentRun {
   ownerId: string;
   prompt: string;
   status: AgentRunStatus;
+  /**
+   * The caller named these agents, so the product decision does not get to
+   * remove any of them: asking for a subset is asking for exactly that subset.
+   */
+  explicitAgents?: boolean;
+  /**
+   * The project's newest completed build when this run started. A repair may
+   * only replace that same build: anything newer holds work this run never saw.
+   * Null when there was none; absent means it could not be read.
+   */
+  basedOnRunId?: string | null;
+  /**
+   * The timeline this attempt publishes to. A resume gets its own, because a
+   * timeline ends at its terminal event and the earlier attempt already has one.
+   */
+  executionJobId?: string;
   tasks: AgentTask[];
   /** The task currently executing, if any. */
   currentTaskId: string | null;
@@ -80,6 +106,8 @@ export interface AgentRun {
     outputTokens: number;
     contextTokens: number;
     costUsd: number;
+    /** Calls left out of `costUsd` because their model has no price. */
+    unpricedCalls?: number;
     /** Agent-result cache accounting for this run (Step 28). */
     cache?: {
       hits: number;
@@ -98,6 +126,7 @@ export interface RunProgress {
   failed: number;
   blocked: number;
   cancelled: number;
+  skipped: number;
   running: number;
   pending: number;
 }
@@ -119,6 +148,8 @@ export type AgentEventType =
   | 'AGENT_COMPLETED'
   | 'AGENT_FAILED'
   | 'AGENT_CANCELLED'
+  /** The product decision ruled this agent out; `detail.reason` says why. */
+  | 'AGENT_SKIPPED'
   /** Review findings landed in the finding store. */
   | 'FINDINGS_RECORDED';
 

@@ -16,6 +16,7 @@
  * on from the model's own response. They are optional on the type, so the
  * deterministic pipeline that reads only the legacy fields is unaffected.
  */
+import { unpriced } from '../lib/agent-usage.js';
 import { analyzeWithAi, deriveProjectName } from '../../pipeline/lib/ai-stages.js';
 import { mergeRequirementDetail } from '../lib/spec-normalizers.js';
 import { AgentError } from '../lib/executor.js';
@@ -122,6 +123,7 @@ export const requirementAnalystAgent: Agent<RequirementSpec> = {
             inputTokens: outcome.usage.inputTokens,
             outputTokens: outcome.usage.outputTokens,
             costUsd: outcome.usage.costUsd,
+            ...unpriced(outcome.usage.knownCostUsd),
             contextTokens: 0,
           }
         : null,

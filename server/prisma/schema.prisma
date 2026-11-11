@@ -58,23 +58,25 @@ enum ProjectStatus {
 /// A user-owned workspace for one generated application. The prompt that
 /// created it and every regeneration live in `generations`.
 model Project {
-  id           String        @id @default(cuid())
-  name         String        @db.VarChar(120)
-  slug         String        @db.VarChar(140)
-  description  String?       @db.Text
-  status       ProjectStatus @default(DRAFT)
+  id              String           @id @default(cuid())
+  name            String           @db.VarChar(120)
+  slug            String           @db.VarChar(140)
+  description     String?          @db.Text
+  status          ProjectStatus    @default(DRAFT)
   /// Pinned in the project list. Presentation state, but it belongs to the
   /// row rather than the browser — a pin should survive a different device.
-  favorite     Boolean       @default(false)
-  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId      String        @map("owner_id")
-  generations  Generation[]
-  graphNodes   GraphNode[]
-  graphEdges   GraphEdge[]
-  runArtifacts RunArtifact[]
-  editJobs     EditJob[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  favorite        Boolean          @default(false)
+  owner           User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId         String           @map("owner_id")
+  generations     Generation[]
+  graphNodes      GraphNode[]
+  graphEdges      GraphEdge[]
+  runArtifacts    RunArtifact[]
+  editJobs        EditJob[]
+  executionEvents ExecutionEvent[]
+  stageUsage      StageUsage[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   /// Scoped per owner, not globally: two users naming a project "Storefront"
   /// is normal, and a global unique slug would make the second one fail.
@@ -169,42 +171,122 @@ enum EditJobStatus {
   /// The process died while this job was running. Nothing can be assumed
   /// about how far it got.
   INTERRUPTED
+  /// The owner asked it to stop and it stopped. Terminal: the project keeps
+  /// whatever it had before this job, or whatever a revert restores.
+  CANCELLED
+}
+
+/// What a row in `edit_jobs` is. An enhancement is the same durable,
+/// one-active-per-project job as an edit, with more stages behind it.
+enum EditJobKind {
+  EDIT
+  ENHANCEMENT
 }
 
 model EditJob {
-  id          String        @id @default(cuid())
-  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId   String        @map("project_id")
+  id              String        @id @default(cuid())
+  project         Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId       String        @map("project_id")
   /// Who may read it. Plans live in memory keyed by owner; this outlives them.
-  ownerId     String        @map("owner_id")
+  ownerId         String        @map("owner_id")
   /// The in-memory plan this came from, for correlating logs after the fact.
-  planId      String        @map("plan_id")
-  status      EditJobStatus @default(QUEUED)
-  /// The stage now in progress — a real step, never a percentage.
-  stage       String
+  planId          String        @map("plan_id")
+  kind            EditJobKind   @default(EDIT)
+  status          EditJobStatus @default(QUEUED)
+  /// The stage now in progress — a real step, never a percentage. Enhancement
+  /// work (researching, planning, implementing, testing, repairing) is a stage
+  /// under status RUNNING, so the one-active-per-project index and the restart
+  /// sweep keep covering it without learning new statuses.
+  stage           String
+  /// Set by the owner's cancel; the worker honours it between steps. A flag
+  /// rather than a status because the work is still running until it stops.
+  cancelRequested Boolean       @default(false) @map("cancel_requested")
   /// Every stage with its own start and end, so elapsed time is measured.
-  stages      Json
+  stages          Json
   /// What the user asked for, shown while the job runs.
-  instruction String        @db.Text
+  instruction     String        @db.Text
   /// The EditResult once terminal: checks, changed files, outcome.
-  result      Json?
+  result          Json?
   /// User-facing failure text. Never a stack trace, never a secret.
-  error       String?       @db.Text
+  error           String?       @db.Text
   /// The run this produced, when it was accepted.
-  runId       String?       @map("run_id")
-  startedAt   DateTime?     @map("started_at")
-  completedAt DateTime?     @map("completed_at")
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
+  runId           String?       @map("run_id")
+  startedAt       DateTime?     @map("started_at")
+  completedAt     DateTime?     @map("completed_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
 
   @@index([projectId, createdAt])
   @@index([status])
+  /// Serves the retention sweep: finished jobs past the window, oldest
+  /// first, a bounded batch at a time. `completedAt` leads deliberately —
+  /// the sweep's status predicate is an IN-list over the four terminal
+  /// values, and an IN-list on a leading column cannot produce an ordered
+  /// index walk, so (status, completedAt) measured as a bitmap scan plus a
+  /// Sort while (completedAt, status) measured as a plain index scan with no
+  /// sort at all. See 20261031100000_edit_job_retention_index_order.
+  @@index([completedAt, status])
   /// A partial unique index on (project_id) WHERE status IN ('QUEUED','RUNNING')
   /// enforces one active edit per project. Prisma cannot express a partial
   /// index, so it lives in the migration — see
   /// 20261024150000_one_active_edit_per_project. Without it the service's
   /// check-then-create is a race a double-click wins.
   @@map("edit_jobs")
+}
+
+enum ExecutionJobKind {
+  RUN
+  ENHANCEMENT
+}
+
+/// One thing that really happened during a run or an enhancement, in order.
+///
+/// `seq` is per job and strictly increasing, which is what lets a client that
+/// lost its stream ask for "everything after 41" and get no gaps or repeats.
+/// The unique index on (job_id, seq) is also the read index for that query.
+model ExecutionEvent {
+  id        String           @id @default(cuid())
+  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId String           @map("project_id")
+  jobKind   ExecutionJobKind @map("job_kind")
+  /// A pipeline run id or an `edit_jobs` id. Not a foreign key: it points at
+  /// one of two tables, and a run's id exists before its row does.
+  jobId     String           @map("job_id")
+  seq       Int
+  type      String
+  status    String?
+  stage     String?
+  agentId   String?          @map("agent_id")
+  message   String           @db.Text
+  data      Json?
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  @@unique([jobId, seq])
+  @@index([projectId, createdAt])
+  @@map("execution_events")
+}
+
+/// What one stage of a job really consumed. Token and cost columns are
+/// nullable because a provider that reports no usage must read as "unknown",
+/// never as zero.
+model StageUsage {
+  id           String   @id @default(cuid())
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId    String   @map("project_id")
+  jobId        String   @map("job_id")
+  stage        String
+  agentId      String?  @map("agent_id")
+  provider     String?
+  model        String?
+  inputTokens  Int?     @map("input_tokens")
+  outputTokens Int?     @map("output_tokens")
+  costUsd      Float?   @map("cost_usd")
+  durationMs   Int      @map("duration_ms")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([jobId, createdAt])
+  @@index([projectId, createdAt])
+  @@map("stage_usage")
 }
 
 /// ── Engineering Graph ──────────────────────────────────────────────────

@@ -30,7 +30,13 @@ import { Badge } from '@/shared/components/ui/badge';
 import { Button } from '@/shared/components/ui/button';
 import { Card, CardContent } from '@/shared/components/ui/card';
 import { formatBytes } from '@/shared/lib/format';
-import type { EditPlan, ImageKind, ImpactedByEdit, VisualReading } from '@/shared/types/api';
+import type {
+  EditImpact,
+  EditPlan,
+  ImageKind,
+  ImpactedByEdit,
+  VisualReading,
+} from '@/shared/types/api';
 
 const IMAGE_KIND_LABEL: Record<ImageKind, string> = {
   reference: 'reference screenshot',
@@ -38,9 +44,9 @@ const IMAGE_KIND_LABEL: Record<ImageKind, string> = {
   asset: 'app asset',
 };
 
-function SectionTitle({ icon, children }: { icon: ReactNode; children: ReactNode }) {
+export function SectionTitle({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   return (
-    <p className="flex items-center gap-1.5 font-mono text-2xs tracking-wide text-fg-subtle uppercase">
+    <p className="flex items-center gap-1.5 text-2xs font-medium text-fg-subtle">
       {icon}
       {children}
     </p>
@@ -168,6 +174,76 @@ function ImpactedList({ nodes }: { nodes: ImpactedByEdit[] }) {
   );
 }
 
+/** What the change touches and what the graph says depends on it. */
+export function ImpactSummary({ impact }: { impact: EditImpact }) {
+  return (
+    <div>
+      <SectionTitle icon={<Network className="size-3" />}>Impact</SectionTitle>
+      <div className="mt-1.5 space-y-3 rounded-md border border-line px-3 py-2.5">
+        <div>
+          <p className="font-mono text-2xs text-fg-subtle">
+            directly rewritten · {impact.direct.length}
+          </p>
+          {impact.direct.length > 0 ? (
+            <ul className="mt-1">
+              {impact.direct.map((path) => (
+                <li key={path} className="font-mono text-2xs break-all text-fg-muted">
+                  {path}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-1 text-xs text-fg-muted">No file is rewritten by this edit.</p>
+          )}
+        </div>
+
+        {impact.graphUnavailable ? (
+          <div className="rounded border border-warning/40 bg-raised/40 px-2.5 py-2">
+            <p className="text-xs font-medium text-warning">
+              What depends on these files is unknown
+            </p>
+            <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">
+              {impact.graphUnavailableReason ??
+                'The knowledge graph gave no reason for being unavailable.'}
+            </p>
+          </div>
+        ) : (
+          <>
+            <div>
+              <p className="font-mono text-2xs text-fg-subtle">
+                dependents the graph knows of · {impact.dependents.length}
+              </p>
+              {impact.dependents.length > 0 ? (
+                <div className="mt-1">
+                  <ImpactedList nodes={impact.dependents} />
+                </div>
+              ) : (
+                <p className="mt-1 text-xs text-fg-muted">
+                  The graph holds no edge into these files from anywhere else.
+                </p>
+              )}
+            </div>
+            <div>
+              <p className="font-mono text-2xs text-fg-subtle">
+                tests the graph links · {impact.tests.length}
+              </p>
+              {impact.tests.length > 0 ? (
+                <div className="mt-1">
+                  <ImpactedList nodes={impact.tests} />
+                </div>
+              ) : (
+                <p className="mt-1 text-xs text-fg-muted">
+                  No test in the graph is linked to these files.
+                </p>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function EditPlanReview({
   plan,
   applying,
@@ -271,70 +347,7 @@ export function EditPlanReview({
         </div>
       </div>
 
-      <div>
-        <SectionTitle icon={<Network className="size-3" />}>Impact</SectionTitle>
-        <div className="mt-1.5 space-y-3 rounded-md border border-line px-3 py-2.5">
-          <div>
-            <p className="font-mono text-2xs text-fg-subtle">
-              directly rewritten · {impact.direct.length}
-            </p>
-            {impact.direct.length > 0 ? (
-              <ul className="mt-1">
-                {impact.direct.map((path) => (
-                  <li key={path} className="font-mono text-2xs break-all text-fg-muted">
-                    {path}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-1 text-xs text-fg-muted">No file is rewritten by this edit.</p>
-            )}
-          </div>
-
-          {impact.graphUnavailable ? (
-            <div className="rounded border border-warning/40 bg-raised/40 px-2.5 py-2">
-              <p className="text-xs font-medium text-warning">
-                What depends on these files is unknown
-              </p>
-              <p className="mt-0.5 text-xs leading-relaxed text-fg-muted">
-                {impact.graphUnavailableReason ??
-                  'The knowledge graph gave no reason for being unavailable.'}
-              </p>
-            </div>
-          ) : (
-            <>
-              <div>
-                <p className="font-mono text-2xs text-fg-subtle">
-                  dependents the graph knows of · {impact.dependents.length}
-                </p>
-                {impact.dependents.length > 0 ? (
-                  <div className="mt-1">
-                    <ImpactedList nodes={impact.dependents} />
-                  </div>
-                ) : (
-                  <p className="mt-1 text-xs text-fg-muted">
-                    The graph holds no edge into these files from anywhere else.
-                  </p>
-                )}
-              </div>
-              <div>
-                <p className="font-mono text-2xs text-fg-subtle">
-                  tests the graph links · {impact.tests.length}
-                </p>
-                {impact.tests.length > 0 ? (
-                  <div className="mt-1">
-                    <ImpactedList nodes={impact.tests} />
-                  </div>
-                ) : (
-                  <p className="mt-1 text-xs text-fg-muted">
-                    No test in the graph is linked to these files.
-                  </p>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+      <ImpactSummary impact={impact} />
 
       <div>
         <SectionTitle icon={<ShieldQuestion className="size-3" />}>
@@ -363,7 +376,7 @@ export function EditPlanReview({
           Discard
         </Button>
         <p className="text-2xs text-fg-subtle">
-          Applying takes one to two minutes. Discarding costs nothing — the plan is only a plan.
+          Discarding costs nothing — the plan is only a plan.
         </p>
       </div>
     </div>

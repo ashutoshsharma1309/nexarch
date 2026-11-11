@@ -64,7 +64,7 @@ function aftermath(error: unknown): string {
 }
 
 /**
- * The two minutes an apply takes.
+ * An apply in progress.
  *
  * The stages are the server's own, each with the time it started and
  * finished, so what is shown is measured rather than animated. There is still
@@ -79,7 +79,7 @@ const STAGE_LABEL: Record<EditStage, string> = {
   finished: 'Finished',
 };
 
-function Applying({ job, failingToPoll }: { job: EditJob; failingToPoll: boolean }) {
+export function Applying({ job, failingToPoll }: { job: EditJob; failingToPoll: boolean }) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -103,7 +103,7 @@ function Applying({ job, failingToPoll }: { job: EditJob; failingToPoll: boolean
         {STAGE_LABEL[job.stage]}
       </p>
       <p className="mt-1 font-mono text-2xs text-fg-subtle tabular-nums">
-        {minutes}:{String(seconds).padStart(2, '0')} elapsed · five to six minutes is normal
+        {minutes}:{String(seconds).padStart(2, '0')} elapsed
       </p>
       <ol className="mt-3 space-y-1">
         {job.stages
@@ -161,7 +161,7 @@ function Applying({ job, failingToPoll }: { job: EditJob; failingToPoll: boolean
  * the durable table exists for, the interrupted edit, reached no user at all,
  * and "Apply edit" was offered again as though nothing had happened.
  */
-function JobOutcome({ job, onDismiss }: { job: EditJob; onDismiss: () => void }) {
+export function JobOutcome({ job, onDismiss }: { job: EditJob; onDismiss: () => void }) {
   const interrupted = job.status === 'INTERRUPTED';
   return (
     <div

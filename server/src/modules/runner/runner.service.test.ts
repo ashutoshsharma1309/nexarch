@@ -24,12 +24,15 @@ import {
   runAdmission,
   INTERNAL_RUNNER_OWNER,
 } from './runner.service.js';
-import { missingNativeBinaries } from './lib/process-supervisor.js';
+import { missingNativeBinaries, runToCompletion } from './lib/process-supervisor.js';
+import { transientInstallReason } from './runner.service.js';
 import { childEnv } from './lib/child-env.js';
 import { ensureEnvFile, isInside, writeWorkspace } from './lib/workspace-writer.js';
 import { planProvisioning, runDatabaseName } from './lib/database-provisioner.js';
 import { diagnose } from './lib/diagnostics.js';
 import { LogBuffer } from './lib/log-buffer.js';
+import { runWithLogContext } from '../../shared/logger/context.js';
+import { clearTimelines, getTimeline } from '../../shared/logger/timeline.js';
 import { findFreePort, isPortAnswering } from './lib/port-scanner.js';
 import type { CreateSessionRequest } from './runner.types.js';
 
@@ -494,5 +497,178 @@ describe('npm-skipped native binaries', () => {
     const root = await mkdtemp(join(tmpdir(), 'nexarch-native-'));
     assert.deepEqual(await missingNativeBinaries(root, 'darwin-arm64'), []);
     await rm(root, { recursive: true, force: true });
+  });
+});
+
+/**
+ * What the supervisor reports about the processes it spawns.
+ *
+ * Every child this platform starts goes through these two helpers, and until
+ * now none of them appeared anywhere but a session's own log buffer — so "the
+ * preview died on its own" was only ever visible as a port that had stopped
+ * answering. These tests spawn real children, because the thing being
+ * checked is that the real exit path reports a real code and a real measured
+ * duration.
+ */
+describe('process events reach the execution timeline', () => {
+  it('reports a start and an exit, with the code and a measured duration', async () => {
+    clearTimelines();
+    await new Promise<void>((resolve, reject) => {
+      runWithLogContext({ sessionId: 'test-session', userId: 'test-owner' }, () => {
+        void (async () => {
+          try {
+            const logs = new LogBuffer();
+            const dir = process.cwd();
+            // One child that succeeds and one that fails, so both exit
+            // paths are exercised rather than only the happy one.
+            await runToCompletion(
+              'node',
+              ['-e', 'setTimeout(() => process.exit(0), 60)'],
+              dir,
+              'backend',
+              logs,
+              {},
+              undefined,
+            );
+            await runToCompletion(
+              'node',
+              ['-e', 'process.exit(3)'],
+              dir,
+              'backend',
+              logs,
+              {},
+              undefined,
+            );
+            resolve();
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error(String(error)));
+          }
+        })();
+      });
+    });
+
+    const timeline = getTimeline('test-session', 'test-owner');
+    assert.ok(timeline, 'the session has a timeline');
+    assert.deepEqual(
+      timeline.entries.map((entry) => entry.event.event),
+      ['process.start', 'process.exit', 'process.start', 'process.exit'],
+      'each child reports both halves, in order',
+    );
+
+    const exits = timeline.entries
+      .map((entry) => entry.event)
+      .filter(
+        (event): event is Extract<typeof event, { event: 'process.exit' }> =>
+          event.event === 'process.exit',
+      );
+    assert.deepEqual(
+      exits.map((event) => event.exitCode),
+      [0, 3],
+      'the real exit codes, not a flattened success/failure',
+    );
+    for (const exit of exits) {
+      assert.equal(exit.command, 'node', 'the command, without its arguments');
+      assert.equal(exit.signal, null, 'these exited rather than being signalled');
+      assert.ok(exit.durationMs >= 0, 'a measured duration');
+    }
+    // The one that exited 3 is unexpected; the one that exited 0 is not.
+    assert.equal(timeline.summary.unexpectedProcessExits, 1);
+  });
+
+  it('keeps a command’s arguments out of the published line', async () => {
+    clearTimelines();
+    await new Promise<void>((resolve, reject) => {
+      runWithLogContext({ sessionId: 'arg-session', userId: 'test-owner' }, () => {
+        void (async () => {
+          try {
+            await runToCompletion(
+              'node',
+              ['-e', 'process.exit(0)', '--token=super-secret-value'],
+              process.cwd(),
+              'backend',
+              new LogBuffer(),
+              {},
+              undefined,
+            );
+            resolve();
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error(String(error)));
+          }
+        })();
+      });
+    });
+
+    // Arguments carry workspace paths and occasionally an inline secret, so
+    // the event carries the command alone. This is the assertion that keeps
+    // that true if someone later "improves" the line by adding args.
+    const serialized = JSON.stringify(getTimeline('arg-session', 'test-owner'));
+    assert.ok(!serialized.includes('super-secret-value'));
+    assert.ok(!serialized.includes('--token'));
+  });
+});
+
+/**
+ * Which install failures are worth a second attempt.
+ *
+ * A generated project asked for `typescript-eslint@^8.31.0`, npm resolved
+ * 8.72.1, and `@typescript-eslint/eslint-plugin@8.72.1` was not yet visible
+ * on the registry. The install died, the preview failed outright, and the
+ * very same install succeeded untouched minutes later — so the user was
+ * shown a permanent failure for a problem that had already fixed itself.
+ *
+ * The opposite mistake matters just as much: retrying a package.json that
+ * names a version which genuinely does not exist costs minutes and delivers
+ * the identical error, so the classification has to actually discriminate.
+ */
+describe('transient install failures', () => {
+  it('retries what the registry caused', () => {
+    const cases: [string, string][] = [
+      [
+        'npm error code ETARGET\nnpm error notarget No matching version found for @typescript-eslint/eslint-plugin@8.72.1.',
+        'etarget',
+      ],
+      ['npm error network request to https://registry.npmjs.org failed', 'network'],
+      ['npm error code ECONNRESET', 'econnreset'],
+      [
+        'npm error 429 Too Many Requests - GET https://registry.npmjs.org/react',
+        '429 too many requests',
+      ],
+      ['npm error code ETIMEDOUT', 'etimedout'],
+      ['npm error FetchError: socket hang up', 'socket hang up'],
+    ];
+    for (const [line, expected] of cases) {
+      assert.equal(
+        transientInstallReason([line]),
+        expected,
+        `${line.slice(0, 40)} should be retried`,
+      );
+    }
+  });
+
+  it('does not retry a failure that will repeat', () => {
+    for (const line of [
+      'npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/not-a-real-package-xyz',
+      'npm error code ERESOLVE\nnpm error ERESOLVE unable to resolve dependency tree',
+      'npm error Cannot read properties of undefined',
+      'npm error code EACCES\nnpm error syscall mkdir',
+    ]) {
+      assert.equal(
+        transientInstallReason([line]),
+        null,
+        `${line.slice(0, 40)} should fail fast rather than burn three attempts`,
+      );
+    }
+  });
+
+  it('reads the whole tail, not just the last line', () => {
+    // npm prints the code first and a debug-log path last, so the marker is
+    // usually several lines above where the command actually ended.
+    const tail = [
+      '[backend] npm error code ETARGET',
+      '[backend] npm error notarget No matching version found',
+      '[backend] npm error A complete log of this run can be found in: /Users/x/.npm/_logs/debug.log',
+      '[system] npm install failed in backend/ (code 1)',
+    ];
+    assert.equal(transientInstallReason(tail), 'etarget');
   });
 });

@@ -10,14 +10,14 @@ import type {
   ModelCallResult,
   ModelProvider,
 } from '../../ai-orchestrator.types.js';
-import { postJson } from './http-utils.js';
+import { postJson, reportedUsage } from './http-utils.js';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 
 interface ClaudeResponse {
   content: { type: string; text?: string }[];
-  usage: { input_tokens: number; output_tokens: number };
+  usage?: { input_tokens?: number; output_tokens?: number };
   model: string;
   stop_reason: string;
 }
@@ -57,13 +57,14 @@ export class ClaudeProvider implements ModelProvider {
       API_URL,
       { 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_VERSION },
       body,
+      options.timeoutMs,
     )) as ClaudeResponse;
 
     const text = json.content.find((block) => block.type === 'text')?.text ?? '';
 
     return {
       content: text,
-      usage: { inputTokens: json.usage.input_tokens, outputTokens: json.usage.output_tokens },
+      usage: reportedUsage(json.usage?.input_tokens, json.usage?.output_tokens),
       model: json.model,
       provider: 'claude',
       stopReason: json.stop_reason,

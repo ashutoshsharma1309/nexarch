@@ -13,7 +13,7 @@ import { describe, it } from 'node:test';
 
 import { normalizeSpec, toEntityName } from './lib/spec-normalizer.js';
 import { deriveProjectName } from './lib/ai-stages.js';
-import { getArtifacts, getRun, listRuns, startRun } from './pipeline.service.js';
+import { getArtifacts, getRun, listRuns, loadArtifacts, startRun } from './pipeline.service.js';
 
 async function settle(id: string): Promise<ReturnType<typeof getRun>> {
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -153,14 +153,21 @@ describe('pipeline runs', () => {
     const run = await settle(started.id);
     assert.equal(run.status, 'completed', run.error ?? '');
 
-    // The graph stage attaches its output to a project, and a run started
-    // directly against the service has none — so it skips rather than
-    // fails. Every generation stage must still have completed.
-    const graph = run.stages.find((stage) => stage.id === 'graph');
-    assert.equal(graph?.status, 'skipped');
+    // These stages need a project to attach their output to, and a run
+    // started directly against the service has none — so they skip rather
+    // than fail or claim a check that never ran. Every other stage completed.
+    const needsProject = new Set(['graph', 'verification', 'repair']);
+    for (const stage of run.stages.filter((candidate) => needsProject.has(candidate.id))) {
+      assert.equal(stage.status, 'skipped', stage.id);
+    }
+    // No model answers in tests, so nothing could implement the request. That
+    // has to read as not done, and the run must not call itself verified.
+    const features = run.stages.find((stage) => stage.id === 'feature-implementation');
+    assert.ok(features?.status === 'skipped' || features?.status === 'failed', features?.status);
+    assert.notEqual(run.outcome, 'verified');
     assert.ok(
       run.stages
-        .filter((stage) => stage.id !== 'graph')
+        .filter((stage) => !needsProject.has(stage.id) && stage.id !== 'feature-implementation')
         .every((stage) => stage.status === 'completed'),
     );
     // Every stage reports what it actually produced, not a placeholder.
@@ -185,6 +192,50 @@ describe('pipeline runs', () => {
     const analysis = run.stages.find((stage) => stage.id === 'analysis');
     assert.ok(analysis?.degraded, 'analysis should fall back to the deterministic analyzer');
     assert.match(analysis.summary ?? '', /built-in|rule-based/i);
+  });
+
+  it('builds only a frontend for a website that stores nothing', async () => {
+    const run = await settle(
+      startRun({ prompt: 'A marketing website for a small bakery, telling our story with photos.' })
+        .id,
+    );
+    assert.equal(run.status, 'completed', run.error ?? '');
+    for (const id of ['database', 'backend']) {
+      const stage = run.stages.find((candidate) => candidate.id === id);
+      assert.equal(stage?.status, 'skipped', id);
+      assert.match(stage.summary ?? '', /Not needed/);
+    }
+    const artifacts = getArtifacts(run.id);
+    assert.equal(artifacts.productDecision?.backend, false);
+    assert.ok(artifacts.files.length > 0);
+    assert.ok(artifacts.files.every((file) => file.path.startsWith('frontend/')));
+  });
+
+  it('records research as unavailable and applied to nothing, with no search keys', async () => {
+    const run = await settle(
+      startRun({ prompt: 'Build a clinic appointment system with patients and doctors.' }).id,
+    );
+    const artifacts = getArtifacts(run.id);
+    assert.equal(artifacts.research?.status, 'unavailable');
+    assert.deepEqual(artifacts.researchAppliedTo, []);
+    assert.equal(artifacts.designIntelligence?.basis, 'requirement-only');
+    const research = run.stages.find((stage) => stage.id === 'research');
+    assert.equal(research?.degraded, true);
+  });
+
+  it("hides another owner's artifacts, even for a run still in memory", async () => {
+    const started = startRun({ prompt: 'Build a library system with books and loans.' }, 'owner-a');
+    assert.equal(await loadArtifacts(started.id, 'owner-b'), null);
+    for (
+      let attempt = 0;
+      attempt < 100 && getRun(started.id, 'owner-a').status === 'running';
+      attempt++
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.ok(await loadArtifacts(started.id, 'owner-a'));
+    assert.equal(await loadArtifacts(started.id, 'owner-b'), null);
+    assert.equal(await loadArtifacts('no-such-run', 'owner-a'), null);
   });
 
   it('rejects a run id it has never seen', () => {

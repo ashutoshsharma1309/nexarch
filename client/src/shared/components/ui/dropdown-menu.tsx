@@ -13,10 +13,12 @@ export interface DropdownMenuProps {
   trigger: ReactNode;
   items: DropdownItem[];
   align?: 'start' | 'end';
+  /** Accessible name for the trigger when it shows only an icon. */
+  triggerLabel?: string;
 }
 
 /** Click-outside, Escape, and up/down arrow-key navigation between items. */
-export function DropdownMenu({ trigger, items, align = 'end' }: DropdownMenuProps) {
+export function DropdownMenu({ trigger, items, align = 'end', triggerLabel }: DropdownMenuProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -57,6 +59,7 @@ export function DropdownMenu({ trigger, items, align = 'end' }: DropdownMenuProp
         }}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label={triggerLabel}
       >
         {trigger}
       </button>
@@ -64,7 +67,7 @@ export function DropdownMenu({ trigger, items, align = 'end' }: DropdownMenuProp
         <div
           role="menu"
           className={cn(
-            'absolute top-full z-20 mt-1 min-w-40 rounded-md border border-line bg-surface py-1 shadow-lg',
+            'absolute top-full z-20 mt-1 min-w-40 rounded-md border border-line-strong/70 bg-surface py-1 shadow-overlay',
             align === 'end' ? 'right-0' : 'left-0',
           )}
         >
@@ -81,7 +84,7 @@ export function DropdownMenu({ trigger, items, align = 'end' }: DropdownMenuProp
                 setOpen(false);
               }}
               className={cn(
-                'block w-full px-3 py-1.5 text-left text-xs hover:bg-raised',
+                'block w-full px-3 py-1.5 text-left type-ui hover:bg-raised focus-visible:bg-raised focus-visible:outline-none',
                 item.destructive ? 'text-danger' : 'text-fg',
               )}
             >

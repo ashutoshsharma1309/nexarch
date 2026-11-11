@@ -1,6 +1,6 @@
 /**
- * The project workspace shell: breadcrumbs, project header, tab bar, and
- * the active section.
+ * The project workspace shell: breadcrumbs, project header, and the active
+ * section. Section navigation is in the sidebar, with a tab row on phones.
  *
  * Everything a project *is* lives under one URL here. That is the point of
  * the phase — the console used to expose NexArch's internal modules as
@@ -11,18 +11,7 @@
  * follows the project's real state: Build it, watch it build, or build it
  * again. There is never a second thing competing for that position.
  */
-import {
-  Boxes,
-  Database,
-  DraftingCompass,
-  FileCode2,
-  Hammer,
-  LayoutGrid,
-  ListChecks,
-  MonitorPlay,
-  Share2,
-  Sparkles,
-} from 'lucide-react';
+import { Boxes } from 'lucide-react';
 import { Navigate, Outlet, useLocation, useParams } from 'react-router-dom';
 
 import { Breadcrumbs } from '@/shared/components/breadcrumbs';
@@ -31,23 +20,10 @@ import { Skeleton } from '@/shared/components/ui/skeleton';
 import { Tabs } from '@/shared/components/ui/tabs';
 import { Button } from '@/shared/components/ui/button';
 import { useDocumentTitle } from '@/shared/hooks/use-document-title';
+import { WORKSPACE_SECTIONS, workspaceSectionPath } from '@/shared/layouts/workspace-sections';
 import { ProjectHeader } from './project-header';
 import { ProjectWorkspaceContext } from './workspace-context';
 import { useProjectWorkspace } from './use-project-workspace';
-
-/** The workspace sections, in order. One list drives the tabs, the
- * breadcrumb trail and the document title. */
-const TABS = [
-  { slug: '', label: 'Overview', icon: LayoutGrid },
-  { slug: 'requirements', label: 'Requirements', icon: ListChecks },
-  { slug: 'build', label: 'Build', icon: Hammer },
-  { slug: 'architecture', label: 'Architecture', icon: DraftingCompass },
-  { slug: 'database', label: 'Database', icon: Database },
-  { slug: 'code', label: 'Code', icon: FileCode2 },
-  { slug: 'intelligence', label: 'Intelligence', icon: Sparkles },
-  { slug: 'graph', label: 'Knowledge Graph', icon: Share2 },
-  { slug: 'preview', label: 'Preview', icon: MonitorPlay },
-] as const;
 
 /** Sections that nest their own routes, for the breadcrumb's third level. */
 const SUBSECTIONS: Record<string, string> = {
@@ -55,15 +31,16 @@ const SUBSECTIONS: Record<string, string> = {
   'intelligence/repairs': 'Self-Repair',
   'intelligence/security': 'Security',
   'intelligence/dependencies': 'Dependencies',
+  'intelligence/execution': 'Execution',
   'intelligence/graph': 'Knowledge Graph',
 };
 
 function tabsFor(id: string) {
-  return TABS.map((tab) => ({
-    to: tab.slug ? `/projects/${id}/${tab.slug}` : `/projects/${id}`,
-    label: tab.label,
-    icon: tab.icon,
-    end: tab.slug === '',
+  return WORKSPACE_SECTIONS.map((section) => ({
+    to: workspaceSectionPath(id, section.slug),
+    label: section.label,
+    icon: section.icon,
+    end: section.slug === '',
   }));
 }
 
@@ -75,7 +52,7 @@ export function ProjectWorkspaceLayout() {
   // Segment 3 is the section; segment 4, where present, is a subsection
   // (Intelligence nests its own routes).
   const [, , , sectionSlug, subSlug] = pathname.split('/');
-  const section = TABS.find((tab) => tab.slug === sectionSlug);
+  const section = WORKSPACE_SECTIONS.find((item) => item.slug === sectionSlug);
   const subLabel = subSlug ? SUBSECTIONS[`${sectionSlug ?? ''}/${subSlug}`] : undefined;
 
   useDocumentTitle(
@@ -162,7 +139,8 @@ export function ProjectWorkspaceLayout() {
         ]}
       />
       <ProjectHeader workspace={workspace} />
-      <Tabs items={tabsFor(projectId)} className="mb-6" />
+      {/* Sections live in the sidebar once there is room for it. */}
+      <Tabs items={tabsFor(projectId)} className="mb-6 lg:hidden" />
       <Outlet />
     </ProjectWorkspaceContext.Provider>
   );

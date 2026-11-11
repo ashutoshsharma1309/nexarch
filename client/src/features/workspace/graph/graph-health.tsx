@@ -42,10 +42,20 @@ export function GraphHealth({
             <p className="mt-0.5 text-2xs text-fg-subtle">
               {errors.length === 0
                 ? warnings.length === 0
-                  ? 'No structural issues.'
+                  ? 'No structural issues found.'
                   : `No errors · ${warnings.length} worth a look`
                 : `${errors.length} error${errors.length === 1 ? '' : 's'}`}
             </p>
+            {/* A clean report is only as good as the checks that ran. The
+                server says which it had to skip — a project with no
+                completed build cannot be checked for stale nodes — and
+                swallowing that turns "not checked" into "checked and
+                fine". */}
+            {report.skippedChecks.length > 0 && (
+              <p className="mt-0.5 text-2xs text-warning">
+                Not checked: {report.skippedChecks.join(', ')}
+              </p>
+            )}
 
             {report.issues.length > 0 && (
               <ul className="mt-2 space-y-1">

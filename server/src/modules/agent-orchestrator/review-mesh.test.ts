@@ -157,6 +157,9 @@ describe('review mesh declarations', () => {
     assert.equal(waveOf('dependency-engineer'), security);
     assert.equal(waveOf('code-quality-engineer'), security);
     assert.ok(security > waveOf('frontend-engineer'));
+    // Reviewing before the UX engineer rewrites the files reports on code
+    // that no longer exists.
+    assert.ok(security > waveOf('ux-ui-engineer'));
   });
 });
 

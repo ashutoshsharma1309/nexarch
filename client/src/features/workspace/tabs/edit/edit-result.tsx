@@ -47,7 +47,7 @@ const CHECK_PRESENTATION: Record<
   },
 };
 
-function CheckRow({ check }: { check: EditResult['validation']['checks'][number] }) {
+export function CheckRow({ check }: { check: EditResult['validation']['checks'][number] }) {
   const presentation = CHECK_PRESENTATION[check.status];
   const Icon = presentation.icon;
   return (
@@ -55,9 +55,7 @@ function CheckRow({ check }: { check: EditResult['validation']['checks'][number]
       <div className="flex flex-wrap items-center gap-2">
         <Icon className={cn('size-3.5 shrink-0', presentation.tone)} />
         <span className="text-xs font-medium text-fg">{check.name}</span>
-        <span className={cn('font-mono text-2xs tracking-wide uppercase', presentation.tone)}>
-          {presentation.word}
-        </span>
+        <span className={cn('text-2xs font-medium', presentation.tone)}>{presentation.word}</span>
         <span className="text-2xs text-fg-subtle">{presentation.note}</span>
       </div>
       <p className="mt-0.5 ml-5 font-mono text-2xs break-all text-fg-muted">{check.detail}</p>
@@ -70,7 +68,7 @@ function CheckRow({ check }: { check: EditResult['validation']['checks'][number]
  * same shape Self-Repair uses, so a changed file reads the same wherever the
  * console shows one.
  */
-function Diff({ file }: { file: EditChangedFile }) {
+export function Diff({ file }: { file: EditChangedFile }) {
   return (
     <div className="overflow-x-auto rounded border border-line bg-raised/40">
       <p className="border-b border-line px-2 py-1 font-mono text-2xs text-fg-subtle">
@@ -151,7 +149,7 @@ export function EditResultView({
       </Card>
 
       <div>
-        <p className="mb-1.5 font-mono text-2xs tracking-wide text-fg-subtle uppercase">
+        <p className="mb-1.5 text-2xs font-medium text-fg-subtle">
           Validation · what ran on the edited project
         </p>
         <Card>
@@ -178,7 +176,7 @@ export function EditResultView({
       </div>
 
       <div>
-        <p className="mb-1.5 font-mono text-2xs tracking-wide text-fg-subtle uppercase">
+        <p className="mb-1.5 text-2xs font-medium text-fg-subtle">
           Design comparison · decisions before and after
         </p>
         <DesignComparison
@@ -189,7 +187,7 @@ export function EditResultView({
       </div>
 
       <div>
-        <p className="mb-1.5 font-mono text-2xs tracking-wide text-fg-subtle uppercase">
+        <p className="mb-1.5 text-2xs font-medium text-fg-subtle">
           The code this edit wrote · {result.changedFiles.length} files
         </p>
         {result.changedFiles.length > 0 ? (

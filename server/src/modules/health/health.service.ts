@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { config } from '../../shared/config/index.js';
 import { pingDatabase } from '../../shared/database/prisma.js';
 import { runnableAgents } from '../agent-orchestrator/lib/registry.js';
+import { listProviders } from '../ai-orchestrator/lib/providers/provider-registry.js';
 
 export interface DependencyCheck {
   status: 'up' | 'down';
@@ -58,10 +59,13 @@ async function checkDatabase(): Promise<DependencyCheck> {
  */
 function checkAiProvider(): DependencyCheck {
   if (config.isTest) return { status: 'up' };
-  const configured = Boolean(process.env.AI_API_KEY) || process.env.AI_PROVIDER === 'mock';
+  // Mock always counts as configured, so only an explicit choice of it does here.
+  const configured =
+    process.env.AI_PROVIDER === 'mock' ||
+    listProviders().some((provider) => provider.id !== 'mock' && provider.isConfigured());
   return configured
     ? { status: 'up' }
-    : { status: 'down', error: 'No AI provider is configured (AI_API_KEY missing)' };
+    : { status: 'down', error: 'No AI provider is configured (no provider key is set)' };
 }
 
 /** Can the process reach its own temp workspace root? */

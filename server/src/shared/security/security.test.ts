@@ -173,3 +173,43 @@ describe('polling reads are metered separately', () => {
     }
   });
 });
+
+/**
+ * Credentials carried in a URL query parameter.
+ *
+ * Found by an audit of the new timeline API, but the hole was never specific
+ * to it: the Gemini adapter puts its key in `?key=…` (see gemini-provider),
+ * and a 429 from that endpoint — an everyday free-tier event — carries the
+ * whole URL in its message. The assignment form does not treat a parameter
+ * named `key` as sensitive, because in prose "key" is an ordinary word, so
+ * the key reached every log line that quoted the error.
+ */
+describe('credentials in a URL query parameter', () => {
+  it('masks a Google API key passed as ?key=', () => {
+    const line =
+      'POST https://generativelanguage.googleapis.com/v1beta/models/m:generateContent?key=AIzaSyD-1a2b3c4d5e6f7g8h9i0jKlMnOpQrStUv failed 429';
+    const out = redactString(line);
+    assert.ok(!out.includes('AIzaSyD-1a2b3c4d5e6f7g8h9i0jKlMnOpQrStUv'));
+    // The diagnosis survives: which endpoint, and what it said.
+    assert.match(out, /generativelanguage\.googleapis\.com/);
+    assert.match(out, /429/);
+  });
+
+  it('masks the other credential-shaped parameter names', () => {
+    for (const name of ['token', 'secret', 'password', 'access_token', 'api_key']) {
+      const out = redactString(`https://host/v1?${name}=abcdef1234567890`);
+      assert.ok(!out.includes('abcdef1234567890'), `${name} should be masked`);
+      assert.ok(out.includes(name), 'the parameter name is kept so the leak is identifiable');
+    }
+  });
+
+  it('leaves ordinary query parameters alone', () => {
+    // Over-redaction costs real diagnostic value, so the rule is narrow.
+    assert.equal(redactString('?sort=name&limit=20'), '?sort=name&limit=20');
+    assert.equal(redactString('the monkey=banana'), 'the monkey=banana');
+  });
+
+  it('masks a Google key even outside a URL', () => {
+    assert.ok(!redactString('key is AIzaSyD1a2b3c4d5e6f7g8h9i0jKlMnOpQrStUvW').includes('AIzaSy'));
+  });
+});

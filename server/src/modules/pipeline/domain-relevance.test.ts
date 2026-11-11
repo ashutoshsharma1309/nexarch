@@ -64,6 +64,7 @@ const hero: SiteSection = {
   badge: 'Open daily',
   primaryCta: 'Reserve a table',
   secondaryCta: 'See the menu',
+  layout: 'centered',
   art: 'coffee',
   artLabel: 'A flat white on a saucer',
 };
@@ -74,6 +75,7 @@ const menu: SiteSection = {
   navLabel: 'Menu',
   title: 'On the menu',
   subtitle: '',
+  layout: 'menu',
   items: [
     {
       name: 'Flat white',

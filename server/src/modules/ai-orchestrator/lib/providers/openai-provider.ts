@@ -4,13 +4,13 @@ import type {
   ModelCallResult,
   ModelProvider,
 } from '../../ai-orchestrator.types.js';
-import { postJson } from './http-utils.js';
+import { postJson, reportedUsage } from './http-utils.js';
 
 const API_URL = 'https://api.openai.com/v1/chat/completions';
 
 interface OpenAiResponse {
   choices: { message: { content: string }; finish_reason: string }[];
-  usage: { prompt_tokens: number; completion_tokens: number };
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
   model: string;
 }
 
@@ -42,12 +42,13 @@ export class OpenAiProvider implements ModelProvider {
       API_URL,
       { Authorization: `Bearer ${apiKey}` },
       body,
+      options.timeoutMs,
     )) as OpenAiResponse;
     const choice = json.choices[0];
 
     return {
       content: choice?.message.content ?? '',
-      usage: { inputTokens: json.usage.prompt_tokens, outputTokens: json.usage.completion_tokens },
+      usage: reportedUsage(json.usage?.prompt_tokens, json.usage?.completion_tokens),
       model: json.model,
       provider: 'openai',
       stopReason: choice?.finish_reason ?? 'unknown',

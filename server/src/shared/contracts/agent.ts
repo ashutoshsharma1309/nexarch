@@ -23,12 +23,14 @@ import type { TaskType } from './task.js';
 export type AgentId =
   /* ── Planning mesh ────────────────────────────────────────────────── */
   | 'requirement-analyst'
+  | 'research-agent'
   | 'product-architect'
   | 'architecture-agent'
   | 'database-architect'
   | 'api-architect'
   /* ── Generation mesh ──────────────────────────────────────────────── */
   | 'backend-engineer'
+  | 'design-intelligence'
   | 'frontend-engineer'
   | 'ux-ui-engineer'
   /* ── Review mesh ──────────────────────────────────────────────────── */
@@ -224,6 +226,8 @@ export interface AgentUsage {
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+  /** Calls behind this record whose model has no price. Zero of them reads as free. */
+  unpricedCalls?: number;
   /** Tokens the compiled context occupied — the Context Engine's contribution. */
   contextTokens: number;
 }

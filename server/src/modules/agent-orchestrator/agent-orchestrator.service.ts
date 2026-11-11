@@ -9,6 +9,8 @@
 import { randomUUID } from 'node:crypto';
 
 import { logger } from '../../shared/logger/index.js';
+import { listRunsForProject } from '../pipeline/lib/run-store.js';
+import { withLogContext } from '../../shared/logger/context.js';
 import { AppError } from '../../shared/utils/app-error.js';
 import { getProjectOrThrow } from '../workspace/workspace.service.js';
 import { buildPlan } from './lib/planner.js';
@@ -18,9 +20,9 @@ import { runnableFiles } from './lib/runnable-project.js';
 import { artifactHistory, latestArtifact } from './lib/artifact-store.js';
 import { latestTestRun } from './lib/validation-store.js';
 import { runRepairSession } from './lib/repair-engine.js';
-import { produceEdits } from './lib/repair-strategies.js';
+import { repairProducer } from './lib/repair-producer.js';
+import { criteriaFor } from './lib/completion-criteria.js';
 import { realValidator } from './lib/repair-validator.js';
-import { buildContext } from '../context-engine/context-engine.service.js';
 import { audit } from '../../shared/security/audit.js';
 import { getGraph } from '../engineering-graph/engineering-graph.service.js';
 import { assembleIntelligence } from './lib/project-intelligence.js';
@@ -73,6 +75,17 @@ function ownedRun(ownerId: string, runId: string): AgentRun {
   return state.run;
 }
 
+/** Unreadable is left absent, so a later repair refuses rather than guesses. */
+async function startingBuild(projectId: string): Promise<{ basedOnRunId?: string | null }> {
+  try {
+    const builds = await listRunsForProject(projectId, 20);
+    return { basedOnRunId: builds.find((build) => build.status === 'COMPLETED')?.id ?? null };
+  } catch (error) {
+    logger.warn('could not read the starting build for an agent run', { projectId, error });
+    return {};
+  }
+}
+
 export async function startRun(ownerId: string, input: StartRunInput): Promise<AgentRunView> {
   await getProjectOrThrow(ownerId, input.projectId);
 
@@ -103,6 +116,8 @@ export async function startRun(ownerId: string, input: StartRunInput): Promise<A
     ownerId,
     prompt: input.prompt.trim(),
     status: 'PENDING',
+    ...(input.agentIds?.length ? { explicitAgents: true } : {}),
+    ...(await startingBuild(input.projectId)),
     tasks: plan.tasks,
     currentTaskId: null,
     createdAt: now,
@@ -130,13 +145,18 @@ export async function startRun(ownerId: string, input: StartRunInput): Promise<A
     waves: plan.waves.length,
   });
 
-  void runPlan(run, run.prompt).catch((error: unknown) => {
-    // The scheduler is written not to throw; if it ever does, the run must
-    // still settle rather than hanging in RUNNING forever.
-    logger.error('agent run crashed', { runId, error });
-    run.status = 'FAILED';
-    run.error = 'The orchestrator stopped unexpectedly';
-    touch(run);
+  // Forked with the run id so the whole mesh — every agent, retry and
+  // validation gate bridged to the operational log — groups under this run
+  // rather than under a request that has already been answered.
+  withLogContext({ runId, projectId: input.projectId }, () => {
+    void runPlan(run, run.prompt).catch((error: unknown) => {
+      // The scheduler is written not to throw; if it ever does, the run must
+      // still settle rather than hanging in RUNNING forever.
+      logger.error('agent run crashed', { runId, error });
+      run.status = 'FAILED';
+      run.error = 'The orchestrator stopped unexpectedly';
+      touch(run);
+    });
   });
 
   return view(run);
@@ -336,26 +356,9 @@ export async function startRepairSession(
   audit('REPAIR_STARTED', { userId: ownerId, projectId });
   const started = runRepairSession(projectId, overrides, {
     validator: realValidator,
-    /*
-     * The model fallback gets a compiled REPAIR context (Step 9): the
-     * graph slice around the plan's targets, budgeted small. Deterministic
-     * strategies never reach the model and never need it; when there is no
-     * graph yet, the repair proceeds with the plan and files alone.
-     */
-    produce: async (finding, rca, plan) => {
-      let contextText = '';
-      try {
-        const compiled = await buildContext(ownerId, {
-          projectId,
-          taskType: 'REPAIR',
-          ...(rca.affectedNodes.length > 0 ? { targetNames: rca.affectedNodes } : {}),
-        });
-        contextText = compiled.text;
-      } catch {
-        // No graph is the first-run normal; the repair does not depend on it.
-      }
-      return produceEdits(finding, rca, plan, contextText);
-    },
+    // Compiles a REPAIR context around the plan's targets and runs the repair
+    // engineer through the executor, the same way a post-validation repair does.
+    produce: repairProducer({ ownerId, projectId }),
   }).catch((error: unknown) => {
     logger.warn('repair session rejected', { projectId, error });
     return null;
@@ -486,8 +489,16 @@ export async function resumeRun(ownerId: string, runId: string): Promise<AgentRu
     throw AppError.badRequest('That run already completed');
   }
 
+  // A repair that failed says nothing about the work being resumed, and left
+  // in place it would fail the run however the resumed work went.
+  run.tasks = run.tasks.filter(
+    (task) => task.agentId !== 'repair-engineer' || task.status !== 'FAILED',
+  );
+
   let resumable = 0;
   for (const task of run.tasks) {
+    // A repair only ever follows a validation; it is not a task to re-queue.
+    if (task.agentId === 'repair-engineer') continue;
     if (['FAILED', 'BLOCKED', 'CANCELLED'].includes(task.status)) {
       task.status = 'PENDING';
       task.error = null;
@@ -507,11 +518,13 @@ export async function resumeRun(ownerId: string, runId: string): Promise<AgentRu
 
   logger.info('agent run resumed', { runId, resumable });
   await Promise.resolve();
-  void runPlan(run, run.prompt).catch((error: unknown) => {
-    logger.error('agent run crashed on resume', { runId, error });
-    run.status = 'FAILED';
-    run.error = 'The orchestrator stopped unexpectedly';
-    touch(run);
+  withLogContext({ runId, projectId: run.projectId }, () => {
+    void runPlan(run, run.prompt).catch((error: unknown) => {
+      logger.error('agent run crashed on resume', { runId, error });
+      run.status = 'FAILED';
+      run.error = 'The orchestrator stopped unexpectedly';
+      touch(run);
+    });
   });
 
   return view(run);
@@ -530,6 +543,8 @@ export interface AgentCatalogueEntry {
   requires: string[];
   produces: string[];
   dependencies: string[];
+  /** How this agent's work is measured when it finishes. */
+  completionCriteria: { id: string; description: string }[];
 }
 
 /** The agent catalogue: every declaration, and whether it can actually run. */
@@ -546,5 +561,9 @@ export function listAgents(): AgentCatalogueEntry[] {
     requires: [...definition.requires],
     produces: [...definition.produces],
     dependencies: [...definition.dependencies],
+    completionCriteria: criteriaFor(definition.id).map(({ id, description }) => ({
+      id,
+      description,
+    })),
   }));
 }

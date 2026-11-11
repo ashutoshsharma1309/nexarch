@@ -314,6 +314,26 @@ export function pruneRunWorkspaces(): { removed: number; bytes: number } {
   return { removed, bytes };
 }
 
+/**
+ * Removes one finished run's workspace, for callers that know it is done with.
+ * Same proof as the prune above: strictly inside the resolved run root.
+ */
+export function removeRunWorkspace(dir: string): boolean {
+  const root = workspaceRoot();
+  const resolved = path.resolve(dir);
+  if (resolved === root || !isInside(root, resolved)) {
+    logger.warn('refusing to remove a path outside the run workspace root', { dir: resolved });
+    return false;
+  }
+  try {
+    rmSync(resolved, { recursive: true, force: true });
+    return true;
+  } catch (error) {
+    logger.debug('could not remove a run workspace', { dir: resolved, error });
+    return false;
+  }
+}
+
 /** Best-effort size of a directory tree; an unreadable branch counts as zero. */
 function directorySize(dir: string): number {
   let total = 0;

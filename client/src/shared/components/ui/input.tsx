@@ -16,10 +16,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       ref={ref}
       aria-invalid={invalid || undefined}
       className={cn(
-        'h-8 w-full rounded-md border border-line bg-inset px-2.5 text-[0.8125rem] text-fg',
+        'h-8 w-full rounded-md border border-line bg-inset px-2.5 type-ui text-fg pointer-coarse:h-10',
         'placeholder:text-fg-subtle',
         'transition-colors duration-100 hover:border-line-strong',
-        'focus:border-accent focus:outline-none',
+        'focus:border-accent focus:outline-none focus-visible:outline-none',
         'disabled:cursor-not-allowed disabled:opacity-50',
         invalid && 'border-danger focus:border-danger',
         className,

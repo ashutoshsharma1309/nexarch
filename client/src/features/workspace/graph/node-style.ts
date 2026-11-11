@@ -1,7 +1,7 @@
 /**
  * The visual vocabulary.
  *
- * Thirteen node types, six colour families. One hue per type would produce
+ * Fifteen node types, seven colour families. One hue per type would produce
  * a rainbow nobody can hold in their head, so colour carries the *family* —
  * intent, backend, frontend, data, security, artifact — and a mono type
  * label on the node carries the exact type. Colour narrows, text confirms.
@@ -25,6 +25,9 @@ export const FAMILY_OF: Record<EngNodeType, NodeFamily> = {
   ENTITY: 'data',
   FIELD: 'data',
   SECURITY_RULE: 'security',
+  // A finding and a rule are the same kind of thing to a reader scanning the
+  // canvas: something that says this part of the project needs attention.
+  FINDING: 'security',
   FILE: 'artifact',
   FOLDER: 'artifact',
   TEST: 'artifact',
@@ -63,7 +66,7 @@ export const FAMILY_LABEL: Record<NodeFamily, string> = {
   backend: 'Module · Service',
   frontend: 'API · Component',
   data: 'Entity · Field',
-  security: 'Security rule',
+  security: 'Security rule · Finding',
   artifact: 'File · Test · Dependency',
 };
 

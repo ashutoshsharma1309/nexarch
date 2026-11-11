@@ -230,7 +230,7 @@ export function generateFrontend(
     ...emitForms(model.pages),
     ...emitEntityPages(model.pages),
     ...emitFixedPages(model),
-    ...emitLanding(design),
+    ...emitLanding(design, model.authEnabled || model.pages.some((page) => page.entity !== null)),
     ...emitArt(),
     ...emitRouting(model, design.theme),
   ];
@@ -293,3 +293,8 @@ export {
   fontOf,
 } from './lib/site-content.js';
 export type { SiteContent, SiteDesign, SiteSection, SiteTheme } from './lib/site-content.js';
+export {
+  enforceSiteFacts,
+  inventedClaimsInSource,
+  withoutUnbackedServiceClaims,
+} from './lib/site-claims.js';

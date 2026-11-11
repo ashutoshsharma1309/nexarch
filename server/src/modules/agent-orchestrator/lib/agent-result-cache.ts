@@ -93,6 +93,16 @@ function stableStringify(value: unknown): string {
   return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`).join(',')}}`;
 }
 
+/**
+ * Inputs an agent reads when they exist but can run without, so they cannot be
+ * in `requires`. Leaving them out of the key would serve a result built on
+ * different evidence, or none.
+ */
+const OPTIONAL_INPUTS: Partial<Record<AgentId, readonly string[]>> = {
+  'product-architect': ['research-artifact'],
+  'frontend-engineer': ['site-design'],
+};
+
 export interface CacheKeyInput {
   projectId: string;
   definition: AgentDefinition;
@@ -110,7 +120,10 @@ export interface CacheKeyInput {
  */
 export function agentCacheKey(input: CacheKeyInput): string {
   const { definition } = input;
-  const inputHashes = definition.requires
+  const present = (OPTIONAL_INPUTS[definition.id] ?? []).filter(
+    (type) => input.inputArtifacts[type] !== undefined,
+  );
+  const inputHashes = [...definition.requires, ...present]
     .map((type) => `${type}:${hashContent(input.inputArtifacts[type])}`)
     .sort();
 
